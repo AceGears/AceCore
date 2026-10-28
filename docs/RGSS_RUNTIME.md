@@ -36,7 +36,7 @@ LaunchCoordinator.prepareRgss()
 
 1. Copy `ci/build.yml` to `.github/workflows/build.yml`, then push AceCore to a GitHub repository.
 2. **Actions → AceCore build → Run workflow**, leave "build RGSS" ticked. Pushing a `v*` tag does the same.
-3. Download the **AceCore-full-debug-arm64** artifact.
+3. Download the **AceCore-full-debug-arm64** artifact, or run **Publish APK from a build** with that run ID to attach it to a pre-release.
 
 To build locally instead, run the "rgss-natives" steps on Linux (WSL2 works), then copy the resulting `*.so` into
 `app/src/main/jniLibs/arm64-v8a/` (git-ignored) and build normally in Android Studio.
@@ -49,7 +49,9 @@ To build locally instead, run the "rgss-natives" steps on Linux (WSL2 works), th
   remapping applies to the on-screen pad (and to all controls in web/Flash games).
 * Windows DLL calls in scripts (Steam, custom input or video DLLs) cannot work. The Script Compatibility Analyzer
   lists them per game.
-* 16 KB page-size support follows the upstream port (marked experimental there). This is required by Google Play
-  for apps targeting Android 15+ and must be verified before a Play release.
+* **16 KB pages: not yet.** Verified on build v0.3.0-build1: mkxp-z, Ruby, SDL2, OpenAL and libc++_shared have 4 KB
+  LOAD alignment (NDK 23 + ndk-build ignore the LDFLAGS used for the dependencies). They work on 4 KB-page devices
+  (nearly all phones today). Fix before a Play release: move the port build to NDK r27+ and add
+  `APP_LDFLAGS += -Wl,-z,max-page-size=16384` to Application.mk.
 * Some mkxp-z features need a keyboard/mouse (F1 settings). AceCore disables F1 settings and offers "Restart game"
   (F12) in its menu instead.
