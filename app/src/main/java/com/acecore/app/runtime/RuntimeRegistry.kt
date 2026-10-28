@@ -23,6 +23,8 @@ data class RuntimeInfo(
     /** What still has to happen before this runtime can ship. */
     val blocker: String? = null,
     val license: String? = null,
+    /** Version of the bundled runtime, when known at build time. */
+    val version: String? = null,
 )
 
 /**
@@ -66,6 +68,7 @@ object RuntimeRegistry {
         ),
         RuntimeId.RUFFLE to RuntimeInfo(
             RuntimeId.RUFFLE, bundled = true,
+            version = "Ruffle 0.7.1 (WebAssembly)",
             status = "Bundled (Ruffle 0.7.1, WebAssembly) inside the Web Runtime. ActionScript 1/2 games are generally well " +
                 "supported; ActionScript 3 support in Ruffle is still incomplete, so some AS3 games may not work.",
             license = "MIT OR Apache-2.0",
@@ -96,7 +99,8 @@ object RuntimeRegistry {
 
     private val rgssAvailableInfo = RuntimeInfo(
         RuntimeId.RGSS_MKXPZ, bundled = true,
-        status = "Bundled (mkxp-z for Android). Games run from a private copy of their folder; your original files are never modified.",
+        version = "mkxp-z via mkxp-z-android-reworked @ b668e08 · Ruby 3.1 · SDL 2.26.3",
+        status = "Bundled (mkxp-z for Android). Games run directly from their folder when AceCore has file access, otherwise from a private copy.",
         license = "GPL-2.0-or-later (mkxp-z); AceCore is distributed under GPL-3.0-or-later",
     )
 

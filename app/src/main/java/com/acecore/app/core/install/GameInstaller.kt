@@ -48,7 +48,7 @@ class GameInstaller(
         val files = source.list()
             .map { src -> src.copy(path = PathIndex.normalize(src.path)).also { originalPath.putIfAbsent(it.path, src.path) } }
             .distinctBy { it.path }
-            .filter { it.path.isNotEmpty() && it.path != MANIFEST && !it.path.startsWith("$MANIFEST.") }
+            .filter { it.path.isNotEmpty() && it.path != MANIFEST && !it.path.startsWith("$MANIFEST.") && it.path != OUTDATED }
 
         val todo = files.filter { f -> needsCopy(f, previous[f.path]) }
         val todoPaths = todo.mapTo(HashSet()) { it.path }
@@ -94,11 +94,33 @@ class GameInstaller(
             if (f.exists() && f.lastModified() == e.installedModified && (e.size < 0 || f.length() == e.size)) { if (f.delete()) removed++ }
         }
         writeManifest(next)
+        File(target, OUTDATED).delete()
         return InstallResult(copied = done, skipped = files.size - todo.size, removed = removed, bytesCopied = copiedBytes)
     }
 
     /** True when a usable copy exists (at least one successful sync). */
     fun isInstalled(): Boolean = manifestFile.exists()
+
+    /**
+     * Copies are not re-checked on every launch (walking tens of thousands of files through SAF takes long).
+     * A rescan of the game marks the copy as outdated; the next launch, or "Sync game files", updates it.
+     */
+    fun markOutdated() { if (isInstalled()) runCatching { File(target, OUTDATED).writeText("1") } }
+
+    fun needsResync(): Boolean = File(target, OUTDATED).exists()
+
+    /**
+     * Files the GAME created inside the copy (saves, settings): present on disk but not installed by AceCore.
+     * Paths are relative to the copy.
+     */
+    fun gameCreatedFiles(): List<String> {
+        if (!target.isDirectory) return emptyList()
+        val installed = readManifest().keys
+        return target.walkTopDown().filter { it.isFile }
+            .map { it.relativeTo(target).invariantSeparatorsPath }
+            .filter { it !in installed && it != MANIFEST && !it.startsWith("$MANIFEST.") && it != OUTDATED && !it.endsWith(".acecore-tmp") }
+            .toList()
+    }
 
     fun sizeOnDisk(): Long = target.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
@@ -137,6 +159,7 @@ class GameInstaller(
 
     companion object {
         const val MANIFEST = ".acecore-install"
+        const val OUTDATED = ".acecore-outdated"
         const val SPACE_MARGIN = 32L * 1024 * 1024
     }
 }

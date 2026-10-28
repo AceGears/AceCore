@@ -104,6 +104,7 @@ class GameActivity : ComponentActivity() {
 
     private var resumedAt = 0L
     private var sessionMs = 0L
+    private var readyAt: Long? = null
     private var exiting = false
 
     private val inputListener = object : InputManager.InputDeviceListener {
@@ -249,7 +250,13 @@ class GameActivity : ComponentActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
-                if (phase == Phase.LOADING) phase = Phase.RUNNING
+                if (phase == Phase.LOADING) {
+                    // Loading time is not play time: start counting from now.
+                    if (resumedAt != 0L) resumedAt = SystemClock.elapsedRealtime()
+                    phase = Phase.RUNNING
+                    if (readyAt == null) readyAt = System.currentTimeMillis()
+                    accumulatePlaytime() // persist the "game is running" moment right away (launch statistics)
+                }
                 view.requestFocus()
             }
 
@@ -368,11 +375,7 @@ class GameActivity : ComponentActivity() {
         if (phase == Phase.RUNNING) sessionMs += now - resumedAt
         resumedAt = now
         // Persist so playtime survives even if this process is killed; the launcher collects it.
-        runCatching {
-            val f = sessionFile(this, spec.gameId)
-            f.parentFile?.mkdirs()
-            f.writeText(sessionMs.toString())
-        }
+        com.acecore.app.runtime.SessionRecord.write(sessionFile(this, spec.gameId), sessionMs, readyAt)
     }
 
     private fun exitGame() {
@@ -497,7 +500,7 @@ class GameActivity : ComponentActivity() {
         private const val TAG = "AceCoreGame"
         const val EXTRA_SESSION_MS = "com.acecore.app.extra.SESSION_MS"
 
-        fun sessionFile(context: android.content.Context, gameId: Long) = File(context.filesDir, "sessions/game_$gameId.ms")
+        fun sessionFile(context: android.content.Context, gameId: Long) = com.acecore.app.runtime.SessionRecord.file(context, gameId)
 
         fun formatDuration(ms: Long): String {
             val m = ms / 60000

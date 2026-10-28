@@ -9,7 +9,7 @@ name: AceCore build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'overhaul*' ]
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
@@ -34,10 +34,20 @@ jobs:
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests
-        run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest
+      - name: Runtime helper tests (Ruby, mock Essentials / RPG Maker games)
+        run: ruby app/src/test/ruby/runtime_test.rb
+      - name: Compile
+        run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=compile.log ci/run-gradle.sh compileDebugKotlin
+      - name: Unit tests (JVM + Robolectric)
+        run: GRADLE_LOG=test.log ci/run-gradle.sh testDebugUnitTest
       - name: Assemble debug APK (no native runtimes)
-        run: ./gradlew --no-daemon assembleDebug
+        run: GRADLE_LOG=assemble.log ci/run-gradle.sh assembleDebug
+      - name: Upload Room schemas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas
+          path: app/schemas/
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

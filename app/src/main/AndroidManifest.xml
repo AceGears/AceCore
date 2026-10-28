@@ -2,12 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- No storage, network-state or other sensitive permissions: game folders are accessed only through
-         folders the user picks with the Storage Access Framework. INTERNET is required only because
-         WebView refuses to initialise some features without it; all off-device requests from games are
-         blocked by default (Settings > Advanced > Allow game network access). -->
+    <!-- Game folders are picked with the Storage Access Framework. INTERNET is required only because WebView refuses
+         to initialise some features without it; all off-device requests from games are blocked by default
+         (Settings > Advanced > Allow game network access). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Optional, user-granted direct file access for engines that open game files by path (mkxp-z). Lets RPG Maker
+         XP/VX/VX Ace games run in place instead of from a private copy. AceCore only opens folders in the user's
+         library. Android 11+: "All files access" (granted in system settings). Android 8–10: storage permission. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
@@ -17,6 +23,7 @@
     <application
         android:name=".AceCoreApp"
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"

@@ -139,7 +139,7 @@ fun SettingsHomeScreen(onBack: () -> Unit, onSection: (String) -> Unit, onEngine
 }
 
 @Composable
-fun SettingsSectionScreen(section: String, onBack: () -> Unit, onEngine: (Engine) -> Unit) {
+fun SettingsSectionScreen(section: String, onBack: () -> Unit, onEngine: (Engine) -> Unit, onCategories: () -> Unit = {}) {
     val ctx = LocalContext.current
     val repo = ctx.container.settings
     val settings by repo.settings.collectAsStateWithLifecycle(initialValue = null)
@@ -149,11 +149,11 @@ fun SettingsSectionScreen(section: String, onBack: () -> Unit, onEngine: (Engine
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             when (section) {
                 "appearance" -> AppearanceSection(s)
-                "library" -> LibrarySection(s)
+                "library" -> LibrarySection(s, onCategories)
                 "controls" -> { ConnectedControllers(); GlobalConfig(s, "Controls") }
                 "display" -> GlobalConfig(s, "Display")
                 "audio" -> GlobalConfig(s, "Audio")
-                "engines" -> EnginesSection(onEngine)
+                "engines" -> EnginesSection(s, onEngine)
                 "storage" -> StorageSection()
                 "advanced" -> AdvancedSection(s)
                 "about" -> AboutSection()
@@ -274,7 +274,7 @@ private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: 
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun LibrarySection(s: AppSettings) {
+private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
     val ctx = LocalContext.current
     val repo = ctx.container.settings
     val games = ctx.container.games
@@ -288,24 +288,42 @@ private fun LibrarySection(s: AppSettings) {
 
     SettingsGroupTitle("Layout")
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        LibraryLayout.entries.forEachIndexed { i, l ->
+        val layouts = listOf(LibraryLayout.GRID, LibraryLayout.COMPACT, LibraryLayout.LARGE, LibraryLayout.LIST)
+        layouts.forEachIndexed { i, l ->
             SegmentedButton(
                 selected = lib.layout == l, onClick = { update { it.copy(layout = l) } },
-                shape = SegmentedButtonDefaults.itemShape(i, LibraryLayout.entries.size),
+                shape = SegmentedButtonDefaults.itemShape(i, layouts.size),
             ) { Text(l.label, maxLines = 1, style = MaterialTheme.typography.labelSmall) }
         }
     }
-    SliderRow("Cover size", null, lib.coverWidth, 80..200, " dp") { v -> update { it.copy(coverWidth = v) } }
+    SliderRow("Cover size", "Used when columns are set to Auto.", lib.coverWidth, 80..200, " dp") { v -> update { it.copy(coverWidth = v) } }
+    ChoiceRow("Columns", null, listOf("0" to "Auto") + (2..6).map { "$it" to "$it" }, lib.columns.toString()) { v -> update { it.copy(columns = v.toInt()) } }
+    ChoiceRow("Cover shape", null, com.acecore.app.core.datastore.CoverAspect.entries.map { it.name to it.label }, lib.aspect.name) { v ->
+        update { it.copy(aspect = com.acecore.app.core.datastore.CoverAspect.valueOf(v)) }
+    }
     SliderRow("Spacing", null, lib.spacing, 4..28, " dp") { v -> update { it.copy(spacing = v) } }
     SliderRow("Cover corner radius", null, lib.coverRadius, 0..28, " dp") { v -> update { it.copy(coverRadius = v) } }
     SwitchRow("Show game titles", null, lib.showTitles) { v -> update { it.copy(showTitles = v) } }
     SwitchRow("Cover borders", null, lib.coverBorder) { v -> update { it.copy(coverBorder = v) } }
-    SwitchRow("Neon glow on playable games", "Uses the theme's glow colour and intensity.", lib.coverGlow) { v -> update { it.copy(coverGlow = v) } }
-    SwitchRow("Show hidden games in All games", null, lib.showHidden) { v -> update { it.copy(showHidden = v) } }
+    SwitchRow("Cover glow", "Uses the border colour (or the theme's glow colour) and the theme's glow intensity.", lib.coverGlow) { v -> update { it.copy(coverGlow = v) } }
+    ColorRow("Border & glow colour", if (lib.borderColor == 0L) s.theme.glowColor else lib.borderColor) { c -> update { it.copy(borderColor = c) } }
+    if (lib.borderColor != 0L) TextButton(onClick = { update { it.copy(borderColor = 0L) } }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Follow theme colour") }
+    SwitchRow("Show hidden games", null, lib.showHidden) { v -> update { it.copy(showHidden = v) } }
+
+    SettingsGroupTitle("Categories")
+    ChoiceRow("Category bar", null, com.acecore.app.core.datastore.CategoryBarStyle.entries.map { it.name to it.label }, lib.categoryBar.name) { v ->
+        update { it.copy(categoryBar = com.acecore.app.core.datastore.CategoryBarStyle.valueOf(v)) }
+    }
+    SwitchRow("Show game counts", null, lib.showCategoryCounts) { v -> update { it.copy(showCategoryCounts = v) } }
+    SwitchRow("Show hidden categories", "Hidden categories stay out of the library's category bar unless this is on.", lib.showHiddenCategories) { v ->
+        update { it.copy(showHiddenCategories = v) }
+    }
+    NavRow(null, "Manage categories", "Create, reorder, hide, delete, link folders") { onCategories() }
 
     SettingsGroupTitle("Game folders")
     Text(
-        "Folders AceCore can read. AceCore only ever accesses folders you pick; it never requests all-files access.",
+        "Folders you picked for AceCore. Web and Flash games are read through these grants. RPG Maker XP/VX/VX Ace games " +
+            "also need \"All files access\" (see Storage & data) to run in place without a copy.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     if (folders.isEmpty()) Text("No folders yet. Use “Add game” in the library.", modifier = Modifier.padding(20.dp))
@@ -349,20 +367,6 @@ private fun ConnectedControllers() {
     pads.forEach { Text("🎮  $it", modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
 }
 
-// ------------------------------------------------------------------ engines
-
-@Composable
-private fun EnginesSection(onEngine: (Engine) -> Unit) {
-    Text(
-        "AceCore recognises all of these engines. Only engines whose runtime is bundled in this version can be launched; the rest are honestly marked as not playable yet.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
-    )
-    Engine.entries.filter { it != Engine.UNKNOWN && it != Engine.NATIVE_WINDOWS }.forEach { e ->
-        val info = RuntimeRegistry.info(e)
-        NavRow(null, e.displayName, if (info.bundled) "Runtime bundled · tap for engine defaults" else "Not playable in this version") { onEngine(e) }
-    }
-}
-
 // ------------------------------------------------------------------ storage
 
 @Composable
@@ -397,12 +401,40 @@ private fun StorageSection() {
     Text("${stats.first} game index(es) · ${formatBytes(stats.second)}", modifier = Modifier.padding(20.dp))
     OutlinedButton(onClick = { games.clearPathCaches(); stats = games.cacheStats() }, modifier = Modifier.padding(horizontal = 20.dp)) { Text("Clear file caches") }
 
-    SettingsGroupTitle("Installed game copies")
+    SettingsGroupTitle("Direct game access")
+    run {
+        var access by remember { mutableStateOf(com.acecore.app.core.storage.DirectStorage.hasAccess(ctx)) }
+        val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+        androidx.compose.runtime.DisposableEffect(owner) {
+            val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) access = com.acecore.app.core.storage.DirectStorage.hasAccess(ctx)
+            }
+            owner.lifecycle.addObserver(obs)
+            onDispose { owner.lifecycle.removeObserver(obs) }
+        }
+        val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            access = com.acecore.app.core.storage.DirectStorage.hasAccess(ctx)
+        }
+        Text(
+            "RPG Maker XP/VX/VX Ace and Pokémon Essentials engines read games as ordinary files. With Android's \"All files access\" " +
+                "AceCore runs them straight from your folders: no copying, instant launches. Without it, each game is copied into AceCore's storage once.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
+        )
+        Text(if (access) "Allowed: games run in place." else "Not allowed: games use a private copy.", modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp))
+        OutlinedButton(onClick = {
+            if (com.acecore.app.core.storage.DirectStorage.usesSettingsScreen) {
+                runCatching { ctx.startActivity(com.acecore.app.core.storage.DirectStorage.settingsIntent(ctx)) }
+                    .recoverCatching { ctx.startActivity(com.acecore.app.core.storage.DirectStorage.genericSettingsIntent()) }
+            } else legacy.launch(com.acecore.app.core.storage.DirectStorage.LEGACY_PERMISSIONS)
+        }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { Text(if (access) "Manage in Android settings" else "Allow all files access") }
+    }
+
+    SettingsGroupTitle("Private game copies")
     var usage by remember { mutableStateOf<com.acecore.app.core.data.GameRepository.StorageUsage?>(null) }
     androidx.compose.runtime.LaunchedEffect(Unit) { usage = games.storageUsage() }
     Text(
-        "RPG Maker XP/VX/VX Ace and Pokémon Essentials games run from a private copy that AceCore keeps in sync with your folder. " +
-            "Saves made in AceCore are stored in that copy.",
+        "Copies exist only for games that use “Private copy” (or were played before direct access was allowed). " +
+            "Saves made while playing from a copy are stored in it; a game's page can copy them to your folder and delete the copy.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     usage?.let { u ->
@@ -438,8 +470,9 @@ private fun StorageSection() {
     SettingsGroupTitle("Game saves")
     Text(
         "Web-runtime games (RPG Maker MV/MZ, HTML5, Construct, Tyrano, Flash) store saves in AceCore's private browser storage, separately for each game. " +
-            "RPG Maker XP/VX/VX Ace games save into AceCore's private copy of the game (Pokémon Essentials v19+ uses a private per-game data folder). " +
-            "All are kept when you update AceCore and removed if you uninstall it or clear its data. A save manager with export is planned.",
+            "RPG Maker XP/VX/VX Ace games save where the game decides: in direct mode usually inside your game folder, in copy mode inside AceCore's copy. " +
+            "Pokémon Essentials v19+ saves in a private per-game data folder. Backups and restores are in each game's Cheats page (Save backups). " +
+            "AceCore's own data is removed if you uninstall it or clear its data; files in your game folders are not.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
 }

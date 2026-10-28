@@ -3,53 +3,100 @@ package com.acecore.app.feature.launcher
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import com.acecore.app.core.config.ConfigKey
 import com.acecore.app.core.config.LayeredConfig
 import com.acecore.app.core.data.GameRepository
 import com.acecore.app.core.database.GameEntity
 import com.acecore.app.core.datastore.SettingsRepository
 import com.acecore.app.core.designsystem.accentArgbFor
+import com.acecore.app.core.filesystem.SafTree
 import com.acecore.app.core.install.GameInstaller
+import com.acecore.app.core.install.GameLocations
 import com.acecore.app.core.install.GameStorage
 import com.acecore.app.core.install.InstallProgress
 import com.acecore.app.core.install.SafInstallSource
 import com.acecore.app.core.model.CompatStatus
 import com.acecore.app.core.model.EngineFamily
+import com.acecore.app.core.storage.DirectStorage
+import com.acecore.app.feature.cheats.CheatStore
+import com.acecore.app.runtime.RuntimeId
+import com.acecore.app.runtime.RuntimeRegistry
+import com.acecore.app.runtime.SessionRecord
 import com.acecore.app.runtime.rgss.RgssActivity
 import com.acecore.app.runtime.rgss.RgssLaunchSpec
 import com.acecore.app.runtime.rgss.RgssRuntime
-import com.acecore.app.runtime.RuntimeRegistry
 import com.acecore.app.runtime.web.GameActivity
 import com.acecore.app.runtime.web.GameLaunchSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 sealed interface LaunchPreparation {
-    data class Ready(val intent: Intent, val gameId: Long) : LaunchPreparation
+    val gameId: Long
 
-    /** Needs a (possibly long) preparation step first, e.g. syncing the game's private working copy. */
+    /** The runtime can start right away. */
+    data class Ready(val intent: Intent, override val gameId: Long, val title: String) : LaunchPreparation
+
+    /** Needs a real preparation step first: making AceCore's private copy (copy mode only). */
     data class Staged(
-        val gameId: Long,
+        override val gameId: Long,
         val title: String,
+        val firstCopy: Boolean,
         val prepareIntent: suspend (onProgress: (InstallProgress) -> Unit, isCancelled: () -> Boolean) -> Intent,
     ) : LaunchPreparation
-    data class Blocked(val gameId: Long, val title: String, val message: String, val canRescan: Boolean = false) : LaunchPreparation
+
+    /**
+     * Direct mode is selected, but AceCore can't read the folder by path yet. The user chooses: allow file access
+     * (recommended, nothing is copied) or play from a private copy.
+     */
+    data class NeedsFileAccess(
+        override val gameId: Long,
+        val title: String,
+        /** False when the folder's storage provider has no real path (e.g. a cloud provider): only a copy works. */
+        val directPossible: Boolean,
+    ) : LaunchPreparation
+
+    data class Blocked(
+        override val gameId: Long,
+        val title: String,
+        val message: String,
+        val canRescan: Boolean = false,
+        val fix: Fix = Fix.NONE,
+    ) : LaunchPreparation
+
+    enum class Fix { NONE, CHOOSE_LAUNCH_FILE }
 }
 
+/** How the user asked to launch (normally just a tap; the options come from the file-access dialog or details). */
+data class LaunchOptions(val forceCopy: Boolean = false, val forceResync: Boolean = false)
+
 /**
- * Validates a game before launch (folder permission, runtime availability, entry point) and builds the
- * Intent for the isolated runtime process with the fully resolved layered configuration.
+ * Validates a game before launch and builds the Intent for its isolated runtime process.
+ *
+ * Fast path: everything needed (engine, entry, settings) is already in the library database, so a launch does no
+ * folder scanning. RGSS games run directly from the user's folder when "All files access" is granted; otherwise
+ * from AceCore's private copy, which is only re-synchronised when the game was rescanned or the user asks.
  */
 class LaunchCoordinator(
     private val context: Context,
     private val games: GameRepository,
     private val settings: SettingsRepository,
 ) {
-    suspend fun prepare(game: GameEntity, forceReindex: Boolean = false): LaunchPreparation {
+    private val cheats = CheatStore(context)
+
+    suspend fun prepare(game: GameEntity, options: LaunchOptions = LaunchOptions()): LaunchPreparation {
+        val requestedAt = System.currentTimeMillis()
+        games.recordAttempt(game.id)
+        val result = runCatching { prepareInternal(game, options, requestedAt) }.getOrElse { e ->
+            LaunchPreparation.Blocked(game.id, "Couldn't start ${game.title}", e.message ?: e.toString())
+        }
+        if (result is LaunchPreparation.Blocked) games.recordBlocked(game.id, result.title + ": " + result.message)
+        return result
+    }
+
+    private suspend fun prepareInternal(game: GameEntity, options: LaunchOptions, requestedAt: Long): LaunchPreparation {
         val engine = game.effectiveEngine
-        if (!games.hasAccess(game.treeUri)) return LaunchPreparation.Blocked(
-            game.id, "Folder access lost",
-            "Android no longer lets AceCore read this game's folder (it may have been moved, deleted, or the permission was revoked). Remove the game and add its folder again.",
-        )
         val runtime = RuntimeRegistry.info(engine)
         if (!runtime.bundled) return LaunchPreparation.Blocked(
             game.id, "${engine.displayName} isn't playable yet",
@@ -59,62 +106,158 @@ class LaunchCoordinator(
             },
         )
         if (game.compatStatus == CompatStatus.PACKED) return LaunchPreparation.Blocked(
-            game.id, "Game files are packed", "This build keeps its game inside an archive. See Compatibility details for how to extract it, then rescan.", canRescan = true,
+            game.id, "Game files are packed", "This build keeps its game inside an archive. Extract it, then rescan the game.", canRescan = true,
         )
         val entry = game.entry ?: return LaunchPreparation.Blocked(
-            game.id, "No launch file", "AceCore couldn't find a file to start this game with. Choose a launch file or rescan the game.", canRescan = true,
+            game.id, "No launch file", "AceCore couldn't find a file to start this game with. Choose a launch file or rescan the game.",
+            canRescan = true, fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
         )
         val s = settings.current()
         val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), games.overrides(game), engine).snapshot()
-        if (engine.family == EngineFamily.RGSS) return prepareRgss(game, config, accentArgbFor(s.theme))
+        val accent = accentArgbFor(s.theme)
+        if (engine.family == EngineFamily.RGSS) return prepareRgss(game, config, accent, options, requestedAt)
+
+        if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
+        // The selected entry must still exist (one query per path segment, not a folder scan).
+        val exists = withContext(Dispatchers.IO) {
+            runCatching { SafTree(context.contentResolver, Uri.parse(game.treeUri)).findPath(game.rootDocId, entry) != null }.getOrDefault(true)
+        }
+        if (!exists) return missingLaunchFile(game, entry)
         val spec = GameLaunchSpec(
             gameId = game.id, title = game.title, engine = engine.name, treeUri = game.treeUri, rootDocId = game.rootDocId,
             contentRoot = game.contentRoot, entry = entry, config = config, webDebugging = s.webDebugging,
-            accentArgb = accentArgbFor(s.theme), forceReindex = forceReindex,
+            accentArgb = accent, launchRequestedAt = requestedAt,
         )
-        // Clear any stale session file from a previous crash before starting a new session.
-        withContext(Dispatchers.IO) { GameActivity.sessionFile(context, game.id).delete() }
+        startSession(game.id, requestedAt)
         games.markLaunched(game.id)
-        return LaunchPreparation.Ready(Intent(context, GameActivity::class.java).putExtra(GameLaunchSpec.EXTRA, spec.toJson()), game.id)
+        return LaunchPreparation.Ready(Intent(context, GameActivity::class.java).putExtra(GameLaunchSpec.EXTRA, spec.toJson()), game.id, game.title)
     }
 
-    private suspend fun prepareRgss(game: GameEntity, config: Map<String, String>, accent: Long): LaunchPreparation {
-        withContext(Dispatchers.IO) { GameActivity.sessionFile(context, game.id).delete() }
-        return LaunchPreparation.Staged(game.id, game.title) { onProgress, isCancelled ->
-            val intent = withContext(Dispatchers.IO) {
-                // Ruby can only start once per process: make sure no previous RGSS game process is still alive.
-                RgssRuntime.killStaleProcess(context)
-                val installDir = GameStorage.installDir(context, game.id)
-                val dataDir = GameStorage.dataDir(context, game.id).apply { mkdirs() }
-                GameInstaller(installDir).install(
-                    SafInstallSource(context, android.net.Uri.parse(game.treeUri), game.rootDocId), isCancelled, onProgress,
-                )
-                // Player settings go in the per-game pref path; mkxp-z merges it over the game's own mkxp.json.
-                java.io.File(dataDir, "mkxp.json").writeText(RgssRuntime.overrideConfigJson(config))
-                val spec = RgssLaunchSpec(
-                    gameId = game.id, title = game.title, engine = game.effectiveEngine.name,
-                    gamePath = installDir.absolutePath, dataPath = dataDir.absolutePath, config = config, accentArgb = accent,
-                )
-                Intent(context, RgssActivity::class.java).putExtra(RgssLaunchSpec.EXTRA, spec.toJson())
+    private fun folderAccessLost(game: GameEntity) = LaunchPreparation.Blocked(
+        game.id, "Folder access lost",
+        "Android no longer lets AceCore read this game's folder (it may have been moved, deleted, or the permission was revoked). Remove the game and add its folder again.",
+    )
+
+    private fun missingLaunchFile(game: GameEntity, path: String) = LaunchPreparation.Blocked(
+        game.id, "Launch file not found",
+        "“$path” is no longer in ${game.folderLabel}. It may have been renamed, moved or deleted. Choose the file to start the game with.",
+        fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
+    )
+
+    private suspend fun startSession(gameId: Long, requestedAt: Long) = withContext(Dispatchers.IO) {
+        // Clear a stale session file from a previous crash before starting a new session.
+        SessionRecord.clear(context, gameId)
+        SessionRecord.writeLaunch(context, gameId, requestedAt)
+    }
+
+    // ------------------------------------------------------------------ RGSS (mkxp-z)
+
+    private suspend fun prepareRgss(
+        game: GameEntity, config: Map<String, String>, accent: Long, options: LaunchOptions, requestedAt: Long,
+    ): LaunchPreparation {
+        val wantsDirect = config[ConfigKey.GAME_FILES.id] != "copy" && !options.forceCopy
+        if (wantsDirect) {
+            val root = GameLocations.directRoot(context, game)
+                ?: return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = false)
+            if (!DirectStorage.hasAccess(context)) return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = true)
+            val dir = withContext(Dispatchers.IO) { GameLocations.directGameDir(context, game) }
+            if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
+                game.id, "Game folder not found",
+                "AceCore can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
+            )
+            if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, "Game.ini") } == null) {
+                return missingLaunchFile(game, "${GameLocations.rgssSubdir(game.entry).let { if (it.isEmpty()) "" else "$it/" }}Game.ini")
             }
-            games.markLaunched(game.id) // only once the game is really about to start
-            intent
+            return LaunchPreparation.Ready(rgssIntent(game, dir, config, accent, direct = true, requestedAt), game.id, game.title)
+        }
+
+        // Private copy.
+        if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
+        val installDir = GameStorage.installDir(context, game.id)
+        val installer = GameInstaller(installDir)
+        val copyDir = GameLocations.copyGameDir(context, game.id, game.entry)
+        val upToDate = withContext(Dispatchers.IO) { installer.isInstalled() && !installer.needsResync() }
+        if (upToDate && !options.forceResync) {
+            if (withContext(Dispatchers.IO) { DirectStorage.findChild(copyDir, "Game.ini") } == null) {
+                return missingLaunchFile(game, "Game.ini")
+            }
+            return LaunchPreparation.Ready(rgssIntent(game, copyDir, config, accent, direct = false, requestedAt), game.id, game.title)
+        }
+        val firstCopy = !withContext(Dispatchers.IO) { installer.isInstalled() }
+        return LaunchPreparation.Staged(game.id, game.title, firstCopy) { onProgress, isCancelled ->
+            withContext(Dispatchers.IO) {
+                installer.install(SafInstallSource(context, Uri.parse(game.treeUri), game.rootDocId), isCancelled, onProgress)
+            }
+            rgssIntent(game, copyDir, config, accent, direct = false, requestedAt)
         }
     }
 
-    /** Collects playtime (also after a game-process crash) and records any launch error. */
-    suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?) {
-        val file = GameActivity.sessionFile(context, gameId)
-        val fromFile = withContext(Dispatchers.IO) {
-            runCatching { file.readText().trim().toLong() }.getOrNull().also { file.delete() }
+    private suspend fun rgssIntent(
+        game: GameEntity, gameDir: File, config: Map<String, String>, accent: Long, direct: Boolean, requestedAt: Long,
+    ): Intent {
+        val helper = config[ConfigKey.RGSS_HELPER.id] != "false"
+        val cheatConfig = withContext(Dispatchers.IO) { cheats.load(game.id) }
+        val cheatsOn = helper && cheatConfig.enabled
+        val intent = withContext(Dispatchers.IO) {
+            // Ruby can only start once per process: make sure no previous RGSS game process is still alive.
+            RgssRuntime.killStaleProcess(context)
+            val dataDir = GameStorage.dataDir(context, game.id)
+            RgssRuntime.writeLaunchFiles(
+                context, dataDir, game.effectiveEngine, config,
+                helper = helper, cheatsEnabled = cheatsOn, cheatFlags = if (cheatsOn) cheatConfig.flags else emptyMap(),
+                launchRequestedAt = requestedAt,
+            )
+            val spec = RgssLaunchSpec(
+                gameId = game.id, title = game.title, engine = game.effectiveEngine.name,
+                gamePath = gameDir.absolutePath, dataPath = dataDir.absolutePath, config = config, accentArgb = accent,
+                direct = direct, helper = helper, cheatsEnabled = cheatsOn, launchRequestedAt = requestedAt,
+            )
+            Intent(context, RgssActivity::class.java).putExtra(RgssLaunchSpec.EXTRA, spec.toJson())
         }
-        val fromResult = data?.getLongExtra(GameActivity.EXTRA_SESSION_MS, -1L)?.takeIf { it >= 0 }
-        games.addPlaytime(gameId, maxOf(fromFile ?: 0L, fromResult ?: 0L))
-        when {
-            resultCode == Activity.RESULT_FIRST_USER -> games.setError(gameId, data?.getStringExtra(GameLaunchSpec.RESULT_ERROR))
-            resultCode == Activity.RESULT_CANCELED && fromResult == null && fromFile == null ->
-                games.setError(gameId, "The game closed unexpectedly before it finished loading.")
-            else -> Unit
-        }
+        startSession(game.id, requestedAt)
+        games.markLaunched(game.id) // only once the game is really about to start
+        return intent
     }
+
+    // ------------------------------------------------------------------ results
+
+    /**
+     * Collects play time (also after a game-process crash), whether the game really ran, how long it took to
+     * start, and any error, and stores them as a session.
+     */
+    suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?) {
+        val game = games.get(gameId) ?: return
+        val rgss = game.effectiveEngine.family == EngineFamily.RGSS
+        val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
+        val requestedAt = withContext(Dispatchers.IO) { SessionRecord.readLaunch(context, gameId) }
+        val helperDir = RgssRuntime.helperDir(GameStorage.dataDir(context, gameId))
+        val (rubyReady, rubyError) = if (rgss) withContext(Dispatchers.IO) {
+            val ready = runCatching { File(helperDir, "ready").readText().trim().toLongOrNull() }.getOrNull()
+            val err = runCatching { File(helperDir, "error").readText().trim().takeIf { it.isNotEmpty() } }.getOrNull()
+            ready to err
+        } else null to null
+        withContext(Dispatchers.IO) { SessionRecord.clear(context, gameId) }
+
+        val fromResult = data?.getLongExtra(GameActivity.EXTRA_SESSION_MS, -1L)?.takeIf { it >= 0 }
+        val ms = maxOf(record?.ms ?: 0L, fromResult ?: 0L)
+        val readyAt = if (rgss) rubyReady else record?.readyAt
+        val helperUsed = !rgss || File(GameStorage.dataDir(context, gameId), RgssRuntime.PRELOAD_FILE).exists()
+        // Without the helper, RGSS readiness can't be observed: count a session that lasted a while as a real run.
+        val reached = readyAt != null || (!helperUsed && ms >= 10_000)
+        val error = when {
+            resultCode == Activity.RESULT_FIRST_USER -> data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) ?: "The game reported an error."
+            rubyError != null -> "The game stopped with a script error: ${rubyError.lineSequence().first()}"
+            !reached && helperUsed -> "The game closed before it finished loading."
+            else -> null
+        }
+        val latency = if (readyAt != null && requestedAt != null) (readyAt - requestedAt).takeIf { it in 0..600_000 } else null
+        games.recordSession(
+            gameId = gameId, startedAt = requestedAt ?: System.currentTimeMillis(), ms = ms, reached = reached,
+            latencyMs = latency, error = error,
+        )
+        if (reached) settings.markRuntimeVerified(RuntimeRegistry.runtimeFor(game.effectiveEngine))
+    }
+
+    /** Runtime that a game needs, for UI that wants to show it. */
+    fun runtimeOf(game: GameEntity): RuntimeId = RuntimeRegistry.runtimeFor(game.effectiveEngine)
 }

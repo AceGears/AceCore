@@ -70,6 +70,19 @@ class SafTree(private val resolver: ContentResolver, val treeUri: Uri) {
         return WalkResult(out, truncated)
     }
 
+    /** Finds a file or folder by '/'-separated relative path (case-insensitive), one query per path segment. */
+    fun findPath(rootDocId: String, path: String): SafNode? {
+        var parentId = rootDocId
+        var parentPath = ""
+        var node: SafNode? = null
+        for (seg in path.replace('\\', '/').split('/').filter { it.isNotEmpty() }) {
+            node = children(parentId, parentPath).firstOrNull { it.name.equals(seg, ignoreCase = true) } ?: return null
+            parentId = node.docId
+            parentPath = node.path
+        }
+        return node
+    }
+
     fun open(docId: String): InputStream? = resolver.openInputStream(documentUri(docId))
 
     fun read(docId: String, maxBytes: Int): ByteArray? = open(docId)?.use { input ->

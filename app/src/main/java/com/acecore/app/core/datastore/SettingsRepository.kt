@@ -36,6 +36,17 @@ enum class ThemePreset(val label: String) {
 
 enum class LibraryLayout(val label: String) { GRID("Grid"), COMPACT("Compact grid"), LARGE("Large covers"), LIST("List"), CAROUSEL("Carousel") }
 
+/** Cover shape in the library grid (width : height). */
+enum class CoverAspect(val label: String, val ratio: Float) {
+    PORTRAIT("3:4 Portrait", 0.75f),
+    TALL("2:3 Tall", 0.6667f),
+    SQUARE("1:1 Square", 1f),
+    LANDSCAPE("4:3 Landscape", 1.3333f),
+    WIDE("16:9 Wide", 1.7778f),
+}
+
+enum class CategoryBarStyle(val label: String) { TABS("Tabs"), PILLS("Pills") }
+
 enum class LibrarySort(val label: String) {
     ALPHABETICAL("Alphabetical"), RECENTLY_ADDED("Recently added"), RECENTLY_PLAYED("Recently played"),
     MOST_PLAYED("Most played"), ENGINE("Engine"), CUSTOM("Custom order"),
@@ -73,7 +84,19 @@ data class LibrarySettings(
     val coverGlow: Boolean = true,
     val sort: LibrarySort = LibrarySort.RECENTLY_PLAYED,
     val showHidden: Boolean = false,
-)
+    /** Fixed number of grid columns; 0 = automatic from [coverWidth]. */
+    val columns: Int = 0,
+    val aspect: CoverAspect = CoverAspect.PORTRAIT,
+    /** Cover border colour (ARGB); 0 = follow the theme's glow colour. */
+    val borderColor: Long = 0L,
+    /** Selected category on the home screen; [ALL_GAMES] = every game. */
+    val selectedCategory: Long = ALL_GAMES,
+    val showHiddenCategories: Boolean = false,
+    val categoryBar: CategoryBarStyle = CategoryBarStyle.TABS,
+    val showCategoryCounts: Boolean = true,
+) {
+    companion object { const val ALL_GAMES = -1L }
+}
 
 data class AppSettings(
     val theme: ThemeSettings = ThemeSettings(),
@@ -84,6 +107,8 @@ data class AppSettings(
     val globalConfig: Map<String, String> = emptyMap(),
     /** Engine layer: engine -> (ConfigKey.id -> value). */
     val engineConfig: Map<Engine, Map<String, String>> = emptyMap(),
+    /** Runtime id name -> last time a game actually ran with it on this device. */
+    val runtimeVerifiedAt: Map<String, Long> = emptyMap(),
 )
 
 class SettingsRepository(private val context: Context) {
@@ -115,10 +140,18 @@ class SettingsRepository(private val context: Context) {
         val coverGlow = booleanPreferencesKey("library.coverGlow")
         val sort = stringPreferencesKey("library.sort")
         val showHidden = booleanPreferencesKey("library.showHidden")
+        val columns = intPreferencesKey("library.columns")
+        val aspect = stringPreferencesKey("library.aspect")
+        val borderColor = longPreferencesKey("library.borderColor")
+        val selectedCategory = longPreferencesKey("library.selectedCategory")
+        val showHiddenCategories = booleanPreferencesKey("library.showHiddenCategories")
+        val categoryBar = stringPreferencesKey("library.categoryBar")
+        val showCategoryCounts = booleanPreferencesKey("library.showCategoryCounts")
 
         val reduceMotion = booleanPreferencesKey("app.reduceMotion")
         val webDebugging = booleanPreferencesKey("app.webDebugging")
 
+        fun runtime(id: String) = longPreferencesKey("runtime.$id.verifiedAt")
         fun global(key: ConfigKey) = stringPreferencesKey("config.${key.id}")
         fun engine(engine: Engine, key: ConfigKey) = stringPreferencesKey("engine.${engine.name}.${key.id}")
     }
@@ -160,6 +193,13 @@ class SettingsRepository(private val context: Context) {
             coverGlow = p[K.coverGlow] ?: l.coverGlow,
             sort = enumOr(p[K.sort], l.sort),
             showHidden = p[K.showHidden] ?: l.showHidden,
+            columns = p[K.columns] ?: l.columns,
+            aspect = enumOr(p[K.aspect], l.aspect),
+            borderColor = p[K.borderColor] ?: l.borderColor,
+            selectedCategory = p[K.selectedCategory] ?: l.selectedCategory,
+            showHiddenCategories = p[K.showHiddenCategories] ?: l.showHiddenCategories,
+            categoryBar = enumOr(p[K.categoryBar], l.categoryBar),
+            showCategoryCounts = p[K.showCategoryCounts] ?: l.showCategoryCounts,
         )
         val global = ConfigKey.entries.mapNotNull { k -> p[K.global(k)]?.let { k.id to it } }.toMap()
         val engines = Engine.entries.associateWith { e ->
@@ -170,6 +210,10 @@ class SettingsRepository(private val context: Context) {
             reduceMotion = p[K.reduceMotion] ?: false,
             webDebugging = p[K.webDebugging] ?: false,
             globalConfig = global, engineConfig = engines,
+            runtimeVerifiedAt = p.asMap().entries
+                .filter { it.key.name.startsWith("runtime.") && it.key.name.endsWith(".verifiedAt") }
+                .mapNotNull { e -> (e.value as? Long)?.let { e.key.name.removePrefix("runtime.").removeSuffix(".verifiedAt") to it } }
+                .toMap(),
         )
     }
 
@@ -200,7 +244,14 @@ class SettingsRepository(private val context: Context) {
             p[K.layout] = l.layout.name; p[K.coverWidth] = l.coverWidth; p[K.spacing] = l.spacing
             p[K.showTitles] = l.showTitles; p[K.coverRadius] = l.coverRadius; p[K.coverBorder] = l.coverBorder
             p[K.coverGlow] = l.coverGlow; p[K.sort] = l.sort.name; p[K.showHidden] = l.showHidden
+            p[K.columns] = l.columns; p[K.aspect] = l.aspect.name; p[K.borderColor] = l.borderColor
+            p[K.selectedCategory] = l.selectedCategory; p[K.showHiddenCategories] = l.showHiddenCategories
+            p[K.categoryBar] = l.categoryBar.name; p[K.showCategoryCounts] = l.showCategoryCounts
         }
+    }
+
+    suspend fun markRuntimeVerified(id: com.acecore.app.runtime.RuntimeId) {
+        context.dataStore.edit { it[K.runtime(id.name)] = System.currentTimeMillis() }
     }
 
     suspend fun setReduceMotion(v: Boolean) { context.dataStore.edit { it[K.reduceMotion] = v } }
@@ -229,7 +280,8 @@ class SettingsRepository(private val context: Context) {
         for ((k, v) in values) {
             when {
                 k.startsWith("config.") || k.startsWith("engine.") || k == K.preset.name || k == K.layout.name ||
-                    k == K.sort.name || k == K.navStyle.name -> p[stringPreferencesKey(k)] = v
+                    k == K.sort.name || k == K.navStyle.name || k == K.aspect.name || k == K.categoryBar.name -> p[stringPreferencesKey(k)] = v
+                k.startsWith("runtime.") -> Unit // device-specific, never restored onto another device
                 v == "true" || v == "false" -> p[booleanPreferencesKey(k)] = v.toBoolean()
                 k in LONG_KEYS -> v.toLongOrNull()?.let { p[longPreferencesKey(k)] = it }
                 else -> v.toIntOrNull()?.let { p[intPreferencesKey(k)] = it }
@@ -242,6 +294,9 @@ class SettingsRepository(private val context: Context) {
     }
 
     private companion object {
-        val LONG_KEYS = setOf("theme.primary", "theme.secondary", "theme.accent", "theme.background", "theme.surface", "theme.glowColor")
+        val LONG_KEYS = setOf(
+            "theme.primary", "theme.secondary", "theme.accent", "theme.background", "theme.surface", "theme.glowColor",
+            "library.borderColor", "library.selectedCategory",
+        )
     }
 }

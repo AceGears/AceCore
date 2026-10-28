@@ -59,7 +59,10 @@ import com.acecore.app.core.detection.Severity
 import com.acecore.app.runtime.RuntimeRegistry
 import kotlinx.coroutines.launch
 
-class ImportViewModel(private val repo: GameRepository) : ViewModel() {
+class ImportViewModel(
+    private val repo: GameRepository,
+    private val categories: com.acecore.app.core.data.CategoryRepository,
+) : ViewModel() {
     sealed interface UiState {
         data class Scanning(val text: String) : UiState
         data class Results(val outcome: ScanOutcome) : UiState
@@ -91,20 +94,28 @@ class ImportViewModel(private val repo: GameRepository) : ViewModel() {
         }
     }
 
+    /** When set (adding from a category tab), imported games also join this category. */
+    var targetCategory: Long? = null
+
     fun importSelected(candidates: List<ScanCandidate>) {
+        val categoryId = targetCategory
         state = UiState.Importing
         viewModelScope.launch {
-            state = runCatching { UiState.Done(repo.importGames(candidates, chosenLaunch.toMap())) as UiState }
-                .getOrElse { UiState.Failed("Import failed: ${it.message}") }
+            state = runCatching {
+                val report = repo.importGames(candidates, chosenLaunch.toMap())
+                if (categoryId != null) categories.addGames(categoryId, report.added + report.existingIds)
+                UiState.Done(report) as UiState
+            }.getOrElse { UiState.Failed("Import failed: ${it.message}") }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportScreen(treeUri: Uri?, onDone: () -> Unit, onOpenGame: (Long) -> Unit) {
+fun ImportScreen(treeUri: Uri?, categoryId: Long? = null, onDone: () -> Unit, onOpenGame: (Long) -> Unit) {
     val ctx = LocalContext.current
-    val vm: ImportViewModel = viewModel { ImportViewModel(ctx.container.games) }
+    val vm: ImportViewModel = viewModel { ImportViewModel(ctx.container.games, ctx.container.categories) }
+    vm.targetCategory = categoryId
     LaunchedEffect(treeUri) { treeUri?.let { vm.start(it) } }
     val state = vm.state
 

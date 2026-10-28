@@ -16,6 +16,9 @@ class AppContainer(context: Context) {
     val database: AceDatabase by lazy { AceDatabase.create(app) }
     val settings: SettingsRepository by lazy { SettingsRepository(app) }
     val games: GameRepository by lazy { GameRepository(app, database, settings) }
+    val categories: com.acecore.app.core.data.CategoryRepository by lazy { com.acecore.app.core.data.CategoryRepository(app, database, games) }
+    val cheats: com.acecore.app.feature.cheats.CheatStore by lazy { com.acecore.app.feature.cheats.CheatStore(app) }
+    val saves: com.acecore.app.feature.saves.SaveBackupManager by lazy { com.acecore.app.feature.saves.SaveBackupManager(app) }
     val launcher: LaunchCoordinator by lazy { LaunchCoordinator(app, games, settings) }
 }
 

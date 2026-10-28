@@ -23,6 +23,8 @@ data class GameLaunchSpec(
     val webDebugging: Boolean = false,
     val accentArgb: Long = 0xFFE3132BL,
     val forceReindex: Boolean = false,
+    /** Wall-clock time of the Play tap, for launch-time measurement. */
+    val launchRequestedAt: Long = 0,
 ) {
     /** Unique origin per game so browser storage (and therefore saves) never collide between games. */
     val host: String get() = "game-$gameId.acecore.invalid"

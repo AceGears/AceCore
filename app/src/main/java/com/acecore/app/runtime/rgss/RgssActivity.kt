@@ -26,12 +26,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.Keyboard
@@ -132,6 +139,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var gamepadMode = "auto"
 
     private var menuOpen by mutableStateOf(false)
+    private var cheatsOpen by mutableStateOf(false)
+    /** True until the game draws its first frame (reported by AceCore's runtime helper). */
+    private var starting by mutableStateOf(true)
     private var keyboardOpen by mutableStateOf(false)
     private var editingLayout by mutableStateOf(false)
     private var gamepadVisible by mutableStateOf(true)
@@ -178,6 +188,21 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }
         refreshGamepadVisibility()
         attachOverlay(s)
+        watchStartup(s)
+    }
+
+    /**
+     * Shows a small "Starting…" indicator only while the engine really is starting: it disappears as soon as the
+     * runtime helper reports the first frame. Without the helper there is no reliable signal, so nothing is shown.
+     */
+    private fun watchStartup(s: RgssLaunchSpec) {
+        if (!s.helper) { starting = false; return }
+        val ready = File(RgssRuntime.helperDir(File(s.dataPath)), "ready")
+        lifecycleScope.launch {
+            val until = SystemClock.elapsedRealtime() + 30_000
+            while (!ready.exists() && SystemClock.elapsedRealtime() < until) delay(100)
+            starting = false
+        }
     }
 
     /**
@@ -235,6 +260,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     private fun onBackRequested() {
         when {
+            cheatsOpen -> cheatsOpen = false
             editingLayout -> editingLayout = false
             keyboardOpen -> keyboardOpen = false
             else -> menuOpen = !menuOpen
@@ -357,6 +383,21 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             }
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
             if (menuOpen) RgssMenu(s, accent)
+            if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
+            if (starting && !menuOpen) StartingPill(s.title, accent, Modifier.align(Alignment.TopCenter))
+        }
+    }
+
+    @Composable
+    private fun StartingPill(title: String, accent: Color, modifier: Modifier) {
+        Row(
+            modifier.padding(top = 18.dp).background(PanelBg, RoundedCornerShape(50)).border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = accent, strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+            Text("Starting $title…", color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 
@@ -383,6 +424,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 }
                 MenuItem(Icons.Rounded.Edit, "Edit controls layout", accent) { editingLayout = true; menuOpen = false }
                 MenuItem(Icons.Rounded.Keyboard, "Virtual keyboard", accent) { keyboardOpen = true; menuOpen = false }
+                if (s.helper) MenuItem(Icons.Rounded.AutoFixHigh, "Cheats", accent,
+                    subtitle = if (s.cheatsEnabled) "Money, items, Pokémon, movement…" else "Off for this game") { cheatsOpen = true; menuOpen = false }
                 MenuItem(Icons.Rounded.RestartAlt, "Restart game (F12)", accent, subtitle = "Returns to the title screen. Unsaved progress is lost.") {
                     menuOpen = false; tapKey(KeyEvent.KEYCODE_F12)
                 }

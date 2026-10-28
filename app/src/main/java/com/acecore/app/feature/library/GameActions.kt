@@ -11,47 +11,55 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Gamepad
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,13 +68,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -76,78 +91,128 @@ import com.acecore.app.ShortcutLaunchActivity
 import com.acecore.app.container
 import com.acecore.app.core.data.GameRepository
 import com.acecore.app.core.database.GameEntity
+import com.acecore.app.core.designsystem.AceTheme
 import com.acecore.app.core.designsystem.StatusChip
-import com.acecore.app.core.detection.LaunchCandidate
+import com.acecore.app.core.designsystem.aceGlow
+import com.acecore.app.core.model.EngineFamily
 import com.acecore.app.feature.LocalGameLauncher
+import com.acecore.app.feature.categories.CategoryAssignDialog
+import com.acecore.app.feature.categories.CategoryAssignMode
+import com.acecore.app.feature.categories.CategoryEditDialog
+import com.acecore.app.feature.launchfile.LaunchFileBrowser
 import kotlinx.coroutines.launch
 
 /** Dialogs that several screens can open for a game. */
-enum class GameDialog { NONE, RENAME, LAUNCH_FILE, REMOVE }
+enum class GameDialog { NONE, RENAME, LAUNCH_FILE, REMOVE, CATEGORIES }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Where the quick menu can send the user. */
+data class GameMenuTargets(
+    val onDetails: () -> Unit,
+    val onSettings: () -> Unit,
+    val onControls: () -> Unit,
+    val onCheats: () -> Unit,
+    val onStatistics: () -> Unit,
+    val onSelect: (() -> Unit)? = null,
+)
+
+/**
+ * Long-press menu: a centred card with the game's cover, status and every action, laid out as a grid of tiles.
+ * Opens with a short spring scale/fade (respects reduce-motion).
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun GameActionsSheet(game: GameEntity, onDismiss: () -> Unit, onDetails: () -> Unit, onSettings: () -> Unit) {
+fun GameQuickMenu(game: GameEntity, targets: GameMenuTargets, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val repo = ctx.container.games
     val scope = rememberCoroutineScope()
     val launcher = LocalGameLauncher.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var dialog by remember { mutableStateOf(GameDialog.NONE) }
     val pickCover = rememberCoverPicker(game) { onDismiss() }
+    val t = AceTheme.tokens
+    val appear = remember { Animatable(if (t.reduceMotion) 1f else 0.9f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 500f)) }
+    val playable = GameRepository.isPlayable(game)
+    val cheatsSupported = game.effectiveEngine.family == EngineFamily.RGSS
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 12.dp)) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                CoverImage(game, Modifier.size(width = 48.dp, height = 64.dp).clip(RoundedCornerShape(10.dp)))
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(game.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(game.effectiveEngine.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (dialog == GameDialog.NONE) Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth()
+                .graphicsLayer { scaleX = appear.value; scaleY = appear.value; alpha = ((appear.value - 0.9f) * 10f).coerceIn(0f, 1f) }
+                .aceGlow(t.glow, t.glowIntensity * 0.5f, 26.dp, 18.dp)
+                .border(1.dp, Brush.linearGradient(listOf(t.glow.copy(alpha = 0.7f), t.chrome.copy(alpha = 0.2f))), RoundedCornerShape(26.dp)),
+        ) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CoverImage(game, Modifier.size(width = 60.dp, height = 80.dp).clip(RoundedCornerShape(12.dp)))
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(game.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(game.effectiveEngine.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        StatusChip(game.compatStatus)
+                    }
                 }
-                StatusChip(game.compatStatus)
+                Spacer(Modifier.height(14.dp))
+                // Primary action, full width.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(if (playable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .clickable(enabled = playable) { onDismiss(); launcher.launch(game) }.padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.PlayArrow, null, tint = if (playable) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (playable) "Play" else "Not playable in this version", fontWeight = FontWeight.Bold,
+                        color = if (playable) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(12.dp))
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
+                    val tile = Modifier.weight(1f)
+                    MenuTile(Icons.Rounded.Info, "Game details", tile) { onDismiss(); targets.onDetails() }
+                    MenuTile(if (game.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (game.favorite) "Unfavorite" else "Favorite", tile) {
+                        scope.launch { repo.setFavorite(game.id, !game.favorite) }; onDismiss()
+                    }
+                    MenuTile(Icons.AutoMirrored.Rounded.Label, "Category", tile) { dialog = GameDialog.CATEGORIES }
+                    MenuTile(Icons.Rounded.Image, "Change cover", tile) { pickCover() }
+                    MenuTile(Icons.Rounded.Description, "Launch file", tile) { dialog = GameDialog.LAUNCH_FILE }
+                    MenuTile(Icons.Rounded.Gamepad, "Controls", tile) { onDismiss(); targets.onControls() }
+                    MenuTile(Icons.Rounded.AutoFixHigh, "Cheats", tile, enabled = cheatsSupported) { onDismiss(); targets.onCheats() }
+                    MenuTile(Icons.Rounded.Tune, "Game settings", tile) { onDismiss(); targets.onSettings() }
+                    MenuTile(Icons.Rounded.BarChart, "Statistics", tile) { onDismiss(); targets.onStatistics() }
+                    MenuTile(Icons.Rounded.Edit, "Rename", tile) { dialog = GameDialog.RENAME }
+                    MenuTile(Icons.Rounded.FolderOpen, "Open folder", tile) { openFolder(ctx, game); onDismiss() }
+                    MenuTile(Icons.Rounded.Home, "Shortcut", tile) { scope.launch { createShortcut(ctx, game) }; onDismiss() }
+                    targets.onSelect?.let { sel -> MenuTile(Icons.Rounded.Checklist, "Select", tile) { onDismiss(); sel() } }
+                }
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider()
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { dialog = GameDialog.REMOVE }.padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Remove from library", color = MaterialTheme.colorScheme.error)
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
-            SheetItem(Icons.Rounded.PlayArrow, "Play", enabled = GameRepository.isPlayable(game)) { onDismiss(); launcher.launch(game) }
-            SheetItem(Icons.Rounded.Info, "Game details & compatibility") { onDetails() }
-            SheetItem(Icons.Rounded.Edit, "Edit title & category") { dialog = GameDialog.RENAME }
-            SheetItem(Icons.Rounded.Image, "Change cover") { pickCover() }
-            if (game.customCoverPath != null) SheetItem(Icons.Rounded.Image, "Restore detected cover") {
-                scope.launch { repo.clearCustomCover(game) }; onDismiss()
-            }
-            SheetItem(Icons.Rounded.Description, "Change launch file") { dialog = GameDialog.LAUNCH_FILE }
-            SheetItem(Icons.Rounded.Tune, "Game settings") { onSettings() }
-            SheetItem(Icons.Rounded.Gamepad, "Controller mapping") { onSettings() }
-            SheetItem(Icons.Rounded.FolderOpen, "Open game folder") { openFolder(ctx, game); onDismiss() }
-            SheetItem(Icons.Rounded.Home, "Create home-screen shortcut") {
-                scope.launch { createShortcut(ctx, game) }; onDismiss()
-            }
-            SheetItem(if (game.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (game.favorite) "Remove from favorites" else "Add to favorites") {
-                scope.launch { repo.setFavorite(game.id, !game.favorite) }; onDismiss()
-            }
-            SheetItem(if (game.hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, if (game.hidden) "Unhide game" else "Hide game") {
-                scope.launch { repo.setHidden(game.id, !game.hidden) }; onDismiss()
-            }
-            SheetItem(Icons.Rounded.Delete, "Remove from library", destructive = true) { dialog = GameDialog.REMOVE }
         }
     }
-    GameDialogs(game, dialog, onClose = { dialog = GameDialog.NONE }, onRemoved = onDismiss)
+    GameDialogs(game, dialog, onClose = { dialog = GameDialog.NONE; onDismiss() }, onRemoved = onDismiss)
 }
 
 @Composable
-private fun SheetItem(icon: ImageVector, label: String, enabled: Boolean = true, destructive: Boolean = false, onClick: () -> Unit) {
-    val color = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Row(
-        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun MenuTile(icon: ImageVector, label: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val fg = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Column(
+        modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(enabled = enabled, onClick = onClick).padding(vertical = 12.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = if (destructive || !enabled) color else MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(18.dp))
-        Text(label, color = color, style = MaterialTheme.typography.bodyLarge)
+        Icon(icon, null, tint = if (enabled) MaterialTheme.colorScheme.primary else fg, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = fg, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -175,103 +240,92 @@ fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRem
         GameDialog.NONE -> Unit
         GameDialog.RENAME -> {
             var title by remember(game.id) { mutableStateOf(game.title) }
-            var category by remember(game.id) { mutableStateOf(game.category.orEmpty()) }
             AlertDialog(
                 onDismissRequest = onClose,
-                title = { Text("Edit game") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
-                        OutlinedTextField(category, { category = it }, label = { Text("Category (optional)") }, singleLine = true)
-                    }
-                },
+                title = { Text("Rename game") },
+                text = { OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true) },
                 confirmButton = {
                     TextButton(enabled = title.isNotBlank(), onClick = {
-                        scope.launch { repo.update(game.copy(title = title.trim(), category = category.trim().ifEmpty { null })) }
+                        scope.launch { repo.update(game.copy(title = title.trim())) }
                         onClose()
                     }) { Text("Save") }
                 },
                 dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
             )
         }
-        GameDialog.LAUNCH_FILE -> {
-            val candidates = remember(game.detectionJson) { repo.decodeDetection(game)?.launchCandidates.orEmpty() }
-            var selected by remember(game.id) { mutableStateOf(candidates.firstOrNull { it.path.equals(game.launchFile, true) } ?: candidates.firstOrNull()) }
-            LaunchFileDialog(
-                candidates = candidates, selected = selected, onSelect = { selected = it }, onDismiss = onClose,
-                onSave = { c -> scope.launch { repo.setLaunchFile(game, c) }; onClose() },
-            )
-        }
+        GameDialog.LAUNCH_FILE -> LaunchFileBrowser(game, onDismiss = onClose)
+        GameDialog.CATEGORIES -> GameCategoriesDialog(listOf(game.id), onClose = onClose)
         GameDialog.REMOVE -> {
             val installed by androidx.compose.runtime.produceState(initialValue = 0L, game.id) {
                 value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repo.installedSize(game.id) }
             }
             var deleteData by remember(game.id) { mutableStateOf(false) }
             AlertDialog(
-            onDismissRequest = onClose,
-            title = { Text("Remove “${game.title}”?") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("This removes the game from your AceCore library. The game's original files on your device are not deleted, and you can add the folder again at any time.")
-                    if (installed > 0) Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { deleteData = !deleteData },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        androidx.compose.material3.Checkbox(checked = deleteData, onCheckedChange = { deleteData = it })
-                        Text(
-                            "Also delete AceCore's private copy (${installed / 1_048_576} MB). This includes any saves made while playing in AceCore.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                onDismissRequest = onClose,
+                title = { Text("Remove “${game.title}”?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("This removes the game from your AceCore library. The game's own files on your device are not deleted, and you can add the folder again at any time.")
+                        if (installed > 0) Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { deleteData = !deleteData },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = deleteData, onCheckedChange = { deleteData = it })
+                            Text(
+                                "Also delete AceCore's own data for this game (${installed / 1_048_576} MB: private copy, settings and any saves stored by AceCore).",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { scope.launch(kotlinx.coroutines.NonCancellable) { repo.remove(game, deleteData) }; onClose(); onRemoved() }) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
-        )
+                },
+                confirmButton = {
+                    TextButton(onClick = { scope.launch(kotlinx.coroutines.NonCancellable) { repo.remove(game, deleteData) }; onClose(); onRemoved() }) {
+                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
+            )
         }
     }
 }
 
-/** "Select Game Launch File" dialog. Only files a bundled runtime can handle are selectable. */
+/** Category assignment for one or more games (Add to / Move to / Remove from). */
 @Composable
-fun LaunchFileDialog(
-    candidates: List<LaunchCandidate>,
-    selected: LaunchCandidate?,
-    onSelect: (LaunchCandidate) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: (LaunchCandidate) -> Unit,
-    confirmLabel: String = "Save",
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Select game launch file") },
-        text = {
-            if (candidates.isEmpty()) Text("No launch files were found in this folder.")
-            else Column(Modifier.verticalScroll(rememberScrollState())) {
-                candidates.forEach { c ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(enabled = c.playable) { onSelect(c) }.padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = c == selected, onClick = if (c.playable) ({ onSelect(c) }) else null, enabled = c.playable)
-                        Column(Modifier.weight(1f)) {
-                            Text(c.path, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                color = if (c.playable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
-                            Text(c.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                Text("Your choice is remembered for future launches.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+fun GameCategoriesDialog(gameIds: List<Long>, initialMode: CategoryAssignMode = CategoryAssignMode.ADD, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val cats = ctx.container.categories
+    val scope = rememberCoroutineScope()
+    val categories by cats.categories.collectAsStateWithLifecycle(initialValue = emptyList())
+    val membership by cats.membership.collectAsStateWithLifecycle(initialValue = emptyMap())
+    var creating by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val perCategory = remember(membership, gameIds) {
+        gameIds.flatMap { membership[it].orEmpty() }.groupingBy { it }.eachCount()
+    }
+    if (creating) {
+        CategoryEditDialog(null, error, onDismiss = { creating = false }) { name, icon, color ->
+            scope.launch {
+                runCatching { cats.create(name, icon, color) }
+                    .onSuccess { id -> cats.addGames(id, gameIds); creating = false }
+                    .onFailure { error = it.message }
             }
-        },
-        confirmButton = { TextButton(enabled = selected?.playable == true, onClick = { selected?.let(onSave) }) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+        return
+    }
+    CategoryAssignDialog(
+        categories = categories, gameCount = gameIds.size, membersPerCategory = perCategory, initialMode = initialMode,
+        onCreateCategory = { error = null; creating = true }, onDismiss = onClose,
+    ) { mode, ids ->
+        scope.launch {
+            when (mode) {
+                CategoryAssignMode.ADD -> ids.forEach { cats.addGames(it, gameIds) }
+                CategoryAssignMode.REMOVE -> ids.forEach { cats.removeGames(it, gameIds) }
+                CategoryAssignMode.MOVE -> gameIds.forEach { cats.setGameCategories(it, ids) }
+            }
+            Toast.makeText(ctx, "Categories updated", Toast.LENGTH_SHORT).show()
+        }
+        onClose()
+    }
 }
 
 fun openFolder(ctx: Context, game: GameEntity) {

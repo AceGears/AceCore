@@ -2,11 +2,15 @@ package com.acecore.app.runtime.rgss
 
 import android.content.Context
 import com.acecore.app.core.config.ConfigKey
+import com.acecore.app.core.model.Engine
 import dalvik.system.BaseDexClassLoader
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.File
 
 /** Everything the isolated ":rgss" process needs to start one game. */
 @Serializable
@@ -14,12 +18,19 @@ data class RgssLaunchSpec(
     val gameId: Long,
     val title: String,
     val engine: String,
-    /** Absolute path of the private working copy of the game. */
+    /** Absolute path of the folder that contains Game.ini (the user's own folder in direct mode, or AceCore's copy). */
     val gamePath: String,
     /** Absolute path of the per-game private data directory (SDL pref path). */
     val dataPath: String,
     val config: Map<String, String>,
     val accentArgb: Long = 0xFFE3132BL,
+    /** True when the game runs straight from the user's folder (no private copy). */
+    val direct: Boolean = false,
+    /** Whether AceCore's runtime helper (and therefore the in-game cheat menu) is loaded. */
+    val helper: Boolean = true,
+    val cheatsEnabled: Boolean = false,
+    /** Wall-clock time of the Play tap, for launch-time measurement. */
+    val launchRequestedAt: Long = 0,
 ) {
     fun toJson(): String = json.encodeToString(serializer(), this)
 
@@ -33,6 +44,9 @@ data class RgssLaunchSpec(
 object RgssRuntime {
     /** Native libraries, in load order, that make up the mkxp-z runtime (from mkxp-z-android-reworked). */
     val LIBRARIES = arrayOf("SDL2", "SDL2_image", "SDL2_ttf", "SDL2_sound", "openal", "ruby", "mkxp-z")
+
+    private const val HELPER_ASSET = "acecore/rgss/acecore_runtime.rb"
+    const val PRELOAD_FILE = "acecore_preload.rb"
 
     /**
      * True when this APK actually contains the mkxp-z native library for the device's ABI. Uses the class loader's
@@ -50,11 +64,68 @@ object RgssRuntime {
         am.runningAppProcesses?.filter { it.processName == name }?.forEach { android.os.Process.killProcess(it.pid) }
     }
 
+    /** Folder (inside the game's private data dir) used to talk to the runtime helper. */
+    fun helperDir(dataDir: File): File = File(dataDir, "acecore")
+
+    fun rgssVersion(engine: Engine): Int = when (engine) {
+        Engine.RPG_MAKER_VX -> 2
+        Engine.RPG_MAKER_VX_ACE -> 3
+        else -> 1 // XP and Pokémon Essentials
+    }
+
     /**
-     * mkxp-z merges `<pref path>/mkxp.json` over the game's own mkxp.json. AceCore writes the player's settings there,
-     * so a game's shipped configuration (e.g. Pokémon Essentials v19+) is never modified.
+     * Writes the per-launch files into [dataDir]: the player's settings (mkxp.json, merged by mkxp-z over the game's
+     * own mkxp.json, which is never modified) and, when [helper] is on, the runtime helper as a preload script.
      */
-    fun overrideConfigJson(config: Map<String, String>): String {
+    fun writeLaunchFiles(
+        context: Context,
+        dataDir: File,
+        engine: Engine,
+        config: Map<String, String>,
+        helper: Boolean,
+        cheatsEnabled: Boolean,
+        cheatFlags: Map<String, String>,
+        launchRequestedAt: Long,
+    ) {
+        dataDir.mkdirs()
+        val dir = helperDir(dataDir).apply { mkdirs() }
+        // Stale signals from a previous session must never be mistaken for this one.
+        listOf("ready", "error", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
+        val preload = File(dataDir, PRELOAD_FILE)
+        if (helper) {
+            val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
+            preload.writeText(helperHeader(dir, launchRequestedAt, rgssVersion(engine), cheatsEnabled, cheatFlags) + body, Charsets.UTF_8)
+        } else {
+            preload.delete()
+        }
+        File(dataDir, "mkxp.json").writeText(overrideConfigJson(config, if (helper) preload.absolutePath else null))
+    }
+
+    /** Ruby constants the helper reads. Values are escaped so a path can never break out of the string literal. */
+    fun helperHeader(dir: File, launchAt: Long, rgss: Int, cheats: Boolean, flags: Map<String, String>): String = buildString {
+        append("# encoding: utf-8\n")
+        append("module AceCoreBoot\n")
+        append("  DIR = ").append(rubyString(dir.absolutePath)).append('\n')
+        append("  LAUNCH_AT = ").append(launchAt).append('\n')
+        append("  RGSS = ").append(rgss).append('\n')
+        append("  CHEATS = ").append(cheats).append('\n')
+        append("  FLAGS = {")
+        append(CheatFlags.KEYS.joinToString(", ") { k -> rubyString(k) + " => " + rubyString(flags[k] ?: "0") })
+        append("}\n")
+        append("end\n")
+    }
+
+    fun rubyString(s: String): String = buildString {
+        append('"')
+        for (c in s) when (c) {
+            '\\' -> append("\\\\"); '"' -> append("\\\""); '#' -> append("\\#")
+            '\n' -> append("\\n"); '\r' -> append("\\r"); '\t' -> append("\\t")
+            else -> if (c.code < 0x20) append("\\x%02X".format(c.code)) else append(c)
+        }
+        append('"')
+    }
+
+    fun overrideConfigJson(config: Map<String, String>, preloadPath: String? = null): String {
         val smooth = config[ConfigKey.FILTERING.id] != "sharp"
         return Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
@@ -68,7 +139,15 @@ object RgssRuntime {
                 put("enableSettings", false)
                 // F12 soft-reset is exposed in AceCore's in-game menu as "Restart game".
                 put("enableReset", true)
+                if (preloadPath != null) put("preloadScript", JsonArray(listOf(JsonPrimitive(preloadPath))))
             },
         )
     }
+}
+
+/** Persistent cheat switches understood by the runtime helper (see acecore_runtime.rb). */
+object CheatFlags {
+    const val WALK_SPEED = "walk_speed"
+    const val NO_ENCOUNTERS = "no_encounters"
+    val KEYS = listOf(WALK_SPEED, NO_ENCOUNTERS)
 }

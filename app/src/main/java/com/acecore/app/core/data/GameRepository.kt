@@ -13,6 +13,7 @@ import com.acecore.app.core.detection.LaunchCandidate
 import com.acecore.app.core.filesystem.SafTree
 import com.acecore.app.core.model.CompatStatus
 import com.acecore.app.core.model.Engine
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -36,14 +37,22 @@ sealed interface ScanOutcome {
     data class NothingFound(val reason: String) : ScanOutcome
 }
 
-data class ImportReport(val added: List<Long>, val duplicates: List<String>, val failed: List<String>)
+data class ImportReport(
+    val added: List<Long>,
+    val duplicates: List<String>,
+    val failed: List<String>,
+    /** Library ids of the duplicates (games that were already in the library). */
+    val existingIds: List<Long> = emptyList(),
+)
 
 @Serializable
 private data class LibraryBackup(
-    val format: Int = 1,
+    /** 1 = v0.3 (single free-text category), 2 = v0.4 (categories, statistics). */
+    val format: Int = 2,
     val exportedAt: Long,
     val settings: Map<String, String>,
     val games: List<BackupGame>,
+    val categories: List<BackupCategory> = emptyList(),
 )
 
 @Serializable
@@ -53,6 +62,16 @@ private data class BackupGame(
     val engineVersion: String?, val confidence: Int, val status: String, val detectionJson: String,
     val coverDocId: String?, val favorite: Boolean, val hidden: Boolean, val category: String?,
     val addedAt: Long, val lastPlayedAt: Long?, val playtimeMs: Long, val launchCount: Int, val overridesJson: String,
+    val launchMode: Int = 0, val firstPlayedAt: Long? = null, val sessionCount: Int = 0, val launchAttempts: Int = 0,
+    val successfulLaunches: Int = 0, val failedLaunches: Int = 0, val longestSessionMs: Long = 0,
+    /** Names of the categories this game belongs to. */
+    val categories: List<String> = emptyList(),
+)
+
+@Serializable
+private data class BackupCategory(
+    val name: String, val icon: String, val color: Long, val hidden: Boolean, val sortOrder: Int, val autoScan: Boolean,
+    val dirs: List<String> = emptyList(),
 )
 
 class GameRepository(
@@ -62,13 +81,19 @@ class GameRepository(
     private val detector: DetectionEngine = DetectionEngine(),
 ) {
     private val dao = db.games()
+    private val categoryDao = db.categories()
+    private val sessionDao = db.sessions()
     private val resolver = context.contentResolver
     val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     val games: Flow<List<GameEntity>> = dao.observeAll()
     fun game(id: Long): Flow<GameEntity?> = dao.observe(id)
-    val categories: Flow<List<String>> = dao.observeCategories()
     suspend fun get(id: Long) = dao.get(id)
+    suspend fun allGames(): List<GameEntity> = dao.getAll()
+    suspend fun getMany(ids: List<Long>) = dao.getMany(ids)
+
+    fun sessionTotals(gameId: Long): Flow<com.acecore.app.core.database.SessionTotals> = sessionDao.observeTotals(gameId)
+    fun recentSessions(gameId: Long): Flow<List<com.acecore.app.core.database.SessionEntity>> = sessionDao.observeRecent(gameId)
 
     fun decodeDetection(game: GameEntity): DetectionResult? =
         runCatching { json.decodeFromString<DetectionResult>(game.detectionJson) }.getOrNull()
@@ -141,13 +166,15 @@ class GameRepository(
             val added = mutableListOf<Long>()
             val dupes = mutableListOf<String>()
             val failed = mutableListOf<String>()
+            val existing = mutableListOf<Long>()
             for (c in candidates) {
-                if (dao.findByLocation(c.treeUri.toString(), c.rootDocId) != null) { dupes += c.detection.title ?: c.folderName; continue }
+                val found = dao.findByLocation(c.treeUri.toString(), c.rootDocId)
+                if (found != null) { dupes += c.detection.title ?: c.folderName; existing += found.id; continue }
                 val launch = chosenLaunch[c.rootDocId] ?: c.detection.launchCandidates.firstOrNull { it.playable }
                 val entity = toEntity(c, launch)
                 runCatching { added += dao.insert(entity) }.onFailure { failed += "${c.folderName}: ${it.message}" }
             }
-            ImportReport(added, dupes, failed)
+            ImportReport(added, dupes, failed, existing)
         }
 
     private fun toEntity(c: ScanCandidate, launch: LaunchCandidate?): GameEntity {
@@ -177,26 +204,68 @@ class GameRepository(
     suspend fun rescan(game: GameEntity): GameEntity = withContext(Dispatchers.IO) {
         val tree = SafTree(resolver, Uri.parse(game.treeUri))
         val c = scanFolder(tree, game.rootDocId, game.folderLabel, depth = 4)
+        // A launch file the user chose by hand is kept as long as it still exists.
+        val manualKept = game.isManualLaunch && game.entry != null && runCatching { tree.findPath(game.rootDocId, game.entry) != null }.getOrDefault(false)
         val keepLaunch = game.launchFile?.let { lf -> c.detection.launchCandidates.firstOrNull { it.path.equals(lf, true) } }
         val launch = keepLaunch ?: c.detection.launchCandidates.firstOrNull { it.playable }
-        val entry = launch?.resolvedEntry ?: c.detection.entry
+        val entry = if (manualKept) game.entry else launch?.resolvedEntry ?: c.detection.entry
+        com.acecore.app.core.install.GameInstaller(com.acecore.app.core.install.GameStorage.installDir(context, game.id)).markOutdated()
         val updated = game.copy(
-            launchFile = launch?.path, entry = entry, contentRoot = contentRootFor(entry, c.detection),
+            launchFile = if (manualKept) game.launchFile else launch?.path, entry = entry,
+            launchMode = if (manualKept) GameEntity.LAUNCH_MANUAL else GameEntity.LAUNCH_AUTO,
+            contentRoot = if (manualKept) game.contentRoot else contentRootFor(entry, c.detection),
             engine = c.detection.engine.name, engineVersion = c.detection.engineVersion, confidence = c.detection.confidence,
             status = c.detection.status.name, detectionJson = json.encodeToString(c.detection),
             coverDocId = game.coverDocId ?: c.detection.coverCandidates.firstNotNullOfOrNull { c.coverDocIds[it] },
             lastError = null,
-        ).let { if (it.engineOverride != null) it.copy(status = runtimeStatus(it).name) else it }
+        ).let { it.copy(status = runtimeStatus(it).name) }
         dao.update(updated)
         pathIndexFile(game.id).delete() // invalidate the asset path cache
         updated
     }
 
-    suspend fun setLaunchFile(game: GameEntity, candidate: LaunchCandidate) {
+    /** Automatic launch file: AceCore's detected choice (the first playable candidate). */
+    suspend fun useAutomaticLaunch(game: GameEntity) = withContext(Dispatchers.IO) {
         val d = decodeDetection(game)
-        val entry = candidate.resolvedEntry ?: game.entry
-        val root = if (entry != null && entry.endsWith(".html", true)) entry.substringBeforeLast('/', "") else (d?.contentRoot ?: game.contentRoot)
-        dao.update(game.copy(launchFile = candidate.path, entry = entry, contentRoot = root))
+        val launch = d?.launchCandidates?.firstOrNull { it.playable }
+        val entry = launch?.resolvedEntry ?: d?.entry
+        val updated = game.copy(
+            launchFile = launch?.path, entry = entry, launchMode = GameEntity.LAUNCH_AUTO,
+            contentRoot = if (d != null) contentRootFor(entry, d) else game.contentRoot,
+            engineOverride = null, lastError = null,
+        )
+        dao.update(updated.copy(status = runtimeStatus(updated).name))
+        pathIndexFile(game.id).delete()
+    }
+
+    /**
+     * Manual launch file chosen in the browser, already checked by [com.acecore.app.core.detection.LaunchFileRules].
+     * When the file implies a different runtime family (e.g. an .swf inside a folder detected as HTML5), the engine
+     * is overridden accordingly; the choice is stored permanently.
+     */
+    suspend fun useManualLaunch(
+        game: GameEntity, path: String, choice: com.acecore.app.core.detection.LaunchEvaluation.Supported,
+    ) = withContext(Dispatchers.IO) {
+        val current = game.effectiveEngine
+        val override: String? = when {
+            current.family == choice.family -> game.engineOverride
+            choice.family == com.acecore.app.core.model.EngineFamily.WEB -> Engine.HTML5.name
+            choice.family == com.acecore.app.core.model.EngineFamily.FLASH -> Engine.FLASH.name
+            choice.family == com.acecore.app.core.model.EngineFamily.RGSS -> {
+                val ini = runCatching {
+                    val tree = SafTree(resolver, Uri.parse(game.treeUri))
+                    tree.findPath(game.rootDocId, choice.entry)?.let { tree.read(it.docId, 4096)?.toString(Charsets.ISO_8859_1) }
+                }.getOrNull()
+                (com.acecore.app.core.detection.LaunchFileRules.rgssEngineFromIni(ini) ?: Engine.RPG_MAKER_XP).name
+            }
+            else -> game.engineOverride
+        }
+        val root = if (choice.family == com.acecore.app.core.model.EngineFamily.WEB) choice.entry.substringBeforeLast('/', "") else game.contentRoot
+        val updated = game.copy(
+            launchFile = path, entry = choice.entry, contentRoot = root, launchMode = GameEntity.LAUNCH_MANUAL,
+            engineOverride = override, lastError = null,
+        )
+        dao.update(updated.copy(status = runtimeStatus(updated).name))
         pathIndexFile(game.id).delete()
     }
 
@@ -206,6 +275,39 @@ class GameRepository(
     suspend fun markLaunched(id: Long) = dao.markLaunched(id, System.currentTimeMillis())
     suspend fun addPlaytime(id: Long, ms: Long) { if (ms > 0) dao.addPlaytime(id, ms) }
     suspend fun setError(id: Long, error: String?) = dao.setError(id, error)
+
+    suspend fun recordAttempt(id: Long) = dao.recordAttempt(id)
+    suspend fun recordBlocked(id: Long, error: String) = dao.recordBlocked(id, error)
+
+    /** Stores one finished session and updates the game's statistics. */
+    suspend fun recordSession(gameId: Long, startedAt: Long, ms: Long, reached: Boolean, latencyMs: Long?, error: String?) {
+        db.withTransaction {
+            dao.recordSession(gameId, ms.coerceAtLeast(0), if (reached) 1 else 0, startedAt, if (reached) latencyMs else null, error)
+            sessionDao.insert(
+                com.acecore.app.core.database.SessionEntity(
+                    gameId = gameId, startedAt = startedAt, durationMs = ms.coerceAtLeast(0), reachedGame = reached,
+                    latencyMs = if (reached) latencyMs else null, error = error,
+                ),
+            )
+        }
+    }
+
+    /**
+     * Total size of the game folder. Uses the real path when AceCore has file access (fast), otherwise walks the
+     * folder through the Storage Access Framework. The result is cached in the library.
+     */
+    suspend fun measureFolderSize(game: GameEntity): Long = withContext(Dispatchers.IO) {
+        val direct = com.acecore.app.core.storage.DirectStorage.realPath(context, game.treeUri, game.rootDocId)
+            ?.takeIf { com.acecore.app.core.storage.DirectStorage.hasAccess(context) && com.acecore.app.core.storage.DirectStorage.canList(it) }
+        val bytes = if (direct != null) {
+            direct.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        } else {
+            SafTree(resolver, Uri.parse(game.treeUri)).walk(game.rootDocId, maxDepth = 64, maxEntries = 500_000).nodes
+                .filter { !it.isDirectory }.sumOf { it.size.coerceAtLeast(0) }
+        }
+        dao.setFolderSize(game.id, bytes)
+        bytes
+    }
 
     suspend fun setEngineOverride(game: GameEntity, engine: Engine?) {
         val g = game.copy(engineOverride = engine?.name)
@@ -226,7 +328,7 @@ class GameRepository(
         pathIndexFile(game.id).delete()
         game.customCoverPath?.let { File(it).delete() }
         if (deleteAceCoreData) com.acecore.app.core.install.GameStorage.deleteAll(context, game.id)
-        val stillUsed = dao.getAll().any { it.treeUri == game.treeUri }
+        val stillUsed = dao.getAll().any { it.treeUri == game.treeUri } || categoryDao.allDirs().any { it.treeUri == game.treeUri }
         if (!stillUsed) revokeFolder(Uri.parse(game.treeUri))
     }
 
@@ -341,14 +443,21 @@ class GameRepository(
     // ------------------------------------------------------------------ backup / restore (metadata only)
 
     suspend fun exportLibrary(target: Uri) = withContext(Dispatchers.IO) {
+        val cats = categoryDao.getAll()
+        val catName = cats.associate { it.id to it.name }
+        val refs = categoryDao.allRefs().groupBy({ it.gameId }, { catName[it.categoryId] }).mapValues { it.value.filterNotNull() }
+        val dirs = categoryDao.allDirs().groupBy({ it.categoryId }, { it.treeUri })
         val backup = LibraryBackup(
             exportedAt = System.currentTimeMillis(),
             settings = settings.exportRaw(),
             games = dao.getAll().map {
                 BackupGame(it.title, it.treeUri, it.rootDocId, it.folderLabel, it.launchFile, it.entry, it.contentRoot, it.engine,
                     it.engineOverride, it.engineVersion, it.confidence, it.status, it.detectionJson, it.coverDocId, it.favorite,
-                    it.hidden, it.category, it.addedAt, it.lastPlayedAt, it.playtimeMs, it.launchCount, it.overridesJson)
+                    it.hidden, it.category, it.addedAt, it.lastPlayedAt, it.playtimeMs, it.launchCount, it.overridesJson,
+                    it.launchMode, it.firstPlayedAt, it.sessionCount, it.launchAttempts, it.successfulLaunches, it.failedLaunches,
+                    it.longestSessionMs, refs[it.id].orEmpty())
             },
+            categories = cats.map { BackupCategory(it.name, it.icon, it.color, it.hidden, it.sortOrder, it.autoScan, dirs[it.id].orEmpty()) },
         )
         resolver.openOutputStream(target, "wt")?.use { it.write(json.encodeToString(backup).toByteArray()) }
             ?: error("Could not write the backup file")
@@ -358,19 +467,41 @@ class GameRepository(
     suspend fun importLibrary(source: Uri): Pair<Int, Int> = withContext(Dispatchers.IO) {
         val text = resolver.openInputStream(source)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: error("Could not read the backup file")
         val backup = json.decodeFromString<LibraryBackup>(text)
-        require(backup.format == 1) { "Unsupported backup format ${backup.format}" }
+        require(backup.format == 1 || backup.format == 2) { "Unsupported backup format ${backup.format}" }
         settings.importRaw(backup.settings)
+        // Categories first (by name, case-insensitive; existing ones are reused).
+        val catIds = HashMap<String, Long>()
+        for (c in backup.categories) {
+            val existing = categoryDao.findByName(c.name)
+            val id = existing?.id ?: categoryDao.insert(
+                com.acecore.app.core.database.CategoryEntity(name = c.name, icon = c.icon, color = c.color, hidden = c.hidden,
+                    sortOrder = categoryDao.maxSortOrder() + 1, autoScan = c.autoScan),
+            )
+            catIds[c.name.lowercase()] = id
+            c.dirs.forEach { d -> categoryDao.insertDir(com.acecore.app.core.database.CategoryDirEntity(categoryId = id, treeUri = d, label = Uri.decode(Uri.parse(d).lastPathSegment ?: d))) }
+        }
+        suspend fun categoryId(name: String): Long = catIds.getOrPut(name.lowercase()) {
+            categoryDao.findByName(name)?.id ?: categoryDao.insert(
+                com.acecore.app.core.database.CategoryEntity(name = name, icon = "folder", color = 0xFFE3132BL, sortOrder = categoryDao.maxSortOrder() + 1),
+            )
+        }
         var restored = 0
         var needsAccess = 0
         for (b in backup.games) {
-            if (dao.findByLocation(b.treeUri, b.rootDocId) != null) continue
-            dao.insert(GameEntity(title = b.title, treeUri = b.treeUri, rootDocId = b.rootDocId, folderLabel = b.folderLabel,
+            val existing = dao.findByLocation(b.treeUri, b.rootDocId)
+            val gameId = existing?.id ?: dao.insert(GameEntity(title = b.title, treeUri = b.treeUri, rootDocId = b.rootDocId, folderLabel = b.folderLabel,
                 launchFile = b.launchFile, entry = b.entry, contentRoot = b.contentRoot, engine = b.engine, engineOverride = b.engineOverride,
                 engineVersion = b.engineVersion, confidence = b.confidence, status = b.status, detectionJson = b.detectionJson,
-                coverDocId = b.coverDocId, favorite = b.favorite, hidden = b.hidden, category = b.category, addedAt = b.addedAt,
-                lastPlayedAt = b.lastPlayedAt, playtimeMs = b.playtimeMs, launchCount = b.launchCount, overridesJson = b.overridesJson))
-            restored++
-            if (!hasAccess(b.treeUri)) needsAccess++
+                coverDocId = b.coverDocId, favorite = b.favorite, hidden = b.hidden, category = null, addedAt = b.addedAt,
+                lastPlayedAt = b.lastPlayedAt, playtimeMs = b.playtimeMs, launchCount = b.launchCount, overridesJson = b.overridesJson,
+                launchMode = b.launchMode, firstPlayedAt = b.firstPlayedAt, sessionCount = b.sessionCount, launchAttempts = b.launchAttempts,
+                successfulLaunches = b.successfulLaunches, failedLaunches = b.failedLaunches, longestSessionMs = b.longestSessionMs))
+            val names = b.categories + listOfNotNull(b.category?.trim()?.takeIf { it.isNotEmpty() && backup.format == 1 })
+            if (names.isNotEmpty()) categoryDao.addRefs(names.distinct().map { com.acecore.app.core.database.GameCategoryRef(gameId, categoryId(it)) })
+            if (existing == null) {
+                restored++
+                if (!hasAccess(b.treeUri)) needsAccess++
+            }
         }
         restored to needsAccess
     }

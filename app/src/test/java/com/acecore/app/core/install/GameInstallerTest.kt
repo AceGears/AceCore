@@ -34,6 +34,24 @@ class GameInstallerTest {
         assertEquals(3, r2.skipped)
     }
 
+    @Test fun outdatedMarkerAndGameCreatedFiles() {
+        val dir = tmp.newFolder("game")
+        val source = src("Game.ini" to "[Game]", "Data/Scripts.rxdata" to "s")
+        val inst = GameInstaller(dir)
+        assertFalse(inst.needsResync())
+        inst.markOutdated() // no copy yet: nothing to mark
+        assertFalse(inst.needsResync())
+        inst.install(source)
+        File(dir, "Save1.rxdata").writeText("save")
+        File(dir, "Data/extra.rxdata").writeText("x")
+        assertEquals(setOf("Save1.rxdata", "Data/extra.rxdata"), inst.gameCreatedFiles().toSet())
+        inst.markOutdated()
+        assertTrue(inst.needsResync())
+        inst.install(source)
+        assertFalse(inst.needsResync())
+        assertEquals("save", File(dir, "Save1.rxdata").readText())
+    }
+
     @Test fun gameCreatedSavesSurviveSyncs() {
         val dir = tmp.newFolder("game")
         val source = src("Game.ini" to "[Game]")

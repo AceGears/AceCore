@@ -54,6 +54,27 @@ interface GameDao {
     @Query("UPDATE games SET overridesJson = :json WHERE id = :id")
     suspend fun setOverrides(id: Long, json: String)
 
-    @Query("SELECT DISTINCT category FROM games WHERE category IS NOT NULL AND category != '' ORDER BY category COLLATE NOCASE")
-    fun observeCategories(): Flow<List<String>>
+    @Query("SELECT * FROM games WHERE id IN (:ids)")
+    suspend fun getMany(ids: List<Long>): List<GameEntity>
+
+    @Query("UPDATE games SET launchAttempts = launchAttempts + 1 WHERE id = :id")
+    suspend fun recordAttempt(id: Long)
+
+    /** A Play request that was stopped before any runtime started (missing runtime, folder access lost…). */
+    @Query("UPDATE games SET failedLaunches = failedLaunches + 1, lastLaunchOk = 0, lastError = :error WHERE id = :id")
+    suspend fun recordBlocked(id: Long, error: String)
+
+    /** Records a finished runtime session. [reached] is 1 when the game actually ran, 0 when it failed to start. */
+    @Query(
+        "UPDATE games SET playtimeMs = playtimeMs + :ms, sessionCount = sessionCount + :reached, " +
+            "successfulLaunches = successfulLaunches + :reached, failedLaunches = failedLaunches + (1 - :reached), " +
+            "longestSessionMs = MAX(longestSessionMs, :ms), " +
+            "firstPlayedAt = CASE WHEN :reached = 1 THEN COALESCE(firstPlayedAt, :startedAt) ELSE firstPlayedAt END, " +
+            "lastLaunchOk = :reached, lastLaunchLatencyMs = COALESCE(:latencyMs, lastLaunchLatencyMs), " +
+            "lastError = :error WHERE id = :id",
+    )
+    suspend fun recordSession(id: Long, ms: Long, reached: Int, startedAt: Long, latencyMs: Long?, error: String?)
+
+    @Query("UPDATE games SET folderSizeBytes = :bytes WHERE id = :id")
+    suspend fun setFolderSize(id: Long, bytes: Long)
 }

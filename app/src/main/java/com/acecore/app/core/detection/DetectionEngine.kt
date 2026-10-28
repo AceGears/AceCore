@@ -247,7 +247,9 @@ class DetectionEngine(
         if (ini != null && ini.contains(rgssLabel, ignoreCase = true)) add(20, "Game.ini Library=$rgssLabel")
         if (score > 0) {
             version = rgssLabel
-            entry = "game.ini".takeIf { snap.isFile(it) } ?: "Data/Scripts.$ext"
+            // Keep the real file-name case (shown to the user; also matters on case-sensitive storage).
+            entry = snap.entry("game.ini")?.takeIf { !it.isDirectory }?.path
+                ?: snap.entry("data/scripts.$ext")?.path ?: "Data/Scripts.$ext"
         }
     }
 
@@ -428,7 +430,9 @@ class DetectionEngine(
                 val pe = snap.readBytes(exe.path, 4096)?.let { BinaryHeaders.parsePe(it) }
                 val note = when {
                     pe == null -> "Not a valid Windows executable"
-                    runnable -> "Launches ${engine.displayName} via ${entry}"
+                    runnable && engine.family == EngineFamily.RGSS ->
+                        "Windows launcher. On Android the RGSS runtime starts the game from ${entry?.substringAfterLast('/')} and the Data folder."
+                    runnable -> "Windows launcher. AceCore opens the game's files ($entry) instead."
                     else -> "Windows ${pe.machine.label} program – not runnable on Android"
                 }
                 add(LaunchCandidate(exe.path, LaunchKind.EXE, if (runnable && pe != null) entry else null, runnable && pe != null, note))

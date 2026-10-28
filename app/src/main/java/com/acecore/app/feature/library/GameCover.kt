@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -96,51 +98,69 @@ fun Engine.shortLabel(): String = when (this) {
     Engine.CONSTRUCT_3 -> "C3"; Engine.TYRANO -> "TYRANO"; Engine.HTML5 -> "HTML5"; else -> displayName.uppercase()
 }
 
-/** A library tile: tap = play immediately, long-press = context menu. */
+/**
+ * A library tile: tap = play immediately (or toggle selection in multi-select mode), long-press = game menu.
+ * Cover size, shape, border and glow follow the library settings.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GameTile(
     game: GameEntity,
-    width: Dp,
     lib: LibrarySettings,
-    onPlay: () -> Unit,
-    onMenu: () -> Unit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
 ) {
     val t = AceTheme.tokens
     val shape = RoundedCornerShape(lib.coverRadius.dp)
     val interaction = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
     val playable = GameRepository.isPlayable(game)
-    Column(modifier.width(width)) {
+    val borderColor = if (lib.borderColor != 0L) Color(lib.borderColor.toInt()) else t.glow
+    Column(modifier) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(0.75f)
+            Modifier.fillMaxWidth().aspectRatio(lib.aspect.ratio)
                 .pressScale(interaction)
-                .then(if (lib.coverGlow && playable) Modifier.aceGlow(t.glow, t.glowIntensity * 0.7f, lib.coverRadius.dp, 10.dp) else Modifier)
+                .then(if (lib.coverGlow && playable && !selectionMode) Modifier.aceGlow(borderColor, t.glowIntensity * 0.7f, lib.coverRadius.dp, 10.dp) else Modifier)
                 .clip(shape)
-                .then(if (lib.coverBorder) Modifier.border(t.borderWidth.coerceAtLeast(1.dp), Brush.linearGradient(listOf(t.glow.copy(alpha = 0.9f), t.chrome.copy(alpha = 0.35f))), shape) else Modifier)
+                .then(
+                    when {
+                        selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
+                        lib.coverBorder -> Modifier.border(t.borderWidth.coerceAtLeast(1.dp), Brush.linearGradient(listOf(borderColor.copy(alpha = 0.9f), t.chrome.copy(alpha = 0.35f))), shape)
+                        else -> Modifier
+                    },
+                )
                 .combinedClickable(
                     interactionSource = interaction, indication = null,
-                    onClickLabel = "Play", onLongClickLabel = "Game options",
-                    onClick = onPlay,
-                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onMenu() },
+                    onClickLabel = if (selectionMode) "Select" else "Play", onLongClickLabel = "Game options",
+                    onClick = onClick,
+                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() },
                 )
                 .semantics { contentDescription = "${game.title}, ${game.effectiveEngine.displayName}, ${game.compatStatus.label}" },
         ) {
             CoverImage(game, Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))))
-            Row(Modifier.align(Alignment.BottomStart).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    game.effectiveEngine.shortLabel(), color = Color.White, style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
-                )
-            }
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.62f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))
+            Text(
+                game.effectiveEngine.shortLabel(), color = Color.White, style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+            )
             if (game.favorite) Icon(Icons.Rounded.Favorite, "Favorite", tint = t.glow, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(16.dp))
             if (!playable) Icon(Icons.Rounded.Lock, "Not playable yet", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(16.dp))
+            if (selectionMode) {
+                Box(Modifier.fillMaxSize().background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.15f)))
+                Icon(
+                    if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, if (selected) "Selected" else "Not selected",
+                    tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
+                )
+            }
         }
         if (lib.showTitles) {
             Spacer(Modifier.height(6.dp))
-            Text(game.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(game.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, minLines = 1)
         }
     }
 }
