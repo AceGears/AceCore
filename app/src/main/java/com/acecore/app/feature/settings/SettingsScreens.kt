@@ -496,6 +496,7 @@ private fun AdvancedSection(s: AppSettings) {
     SwitchRow("WebView debugging", "Allow inspecting running web games from Chrome on a PC (chrome://inspect). Turn off when not needed.", s.webDebugging) { v ->
         scope.launch { repo.setWebDebugging(v) }
     }
+    CrashReportsSection()
     SettingsGroupTitle("Diagnostics")
     Text(
         "Copies a plain-text report (device, Android & WebView version, and each game's engine and status) to the clipboard. It contains no file contents or personal data beyond game titles.",
@@ -580,3 +581,45 @@ Android System WebView (used at runtime, not bundled)
   BSD-3-Clause and others — The Chromium Authors
 """.trimIndent()
 
+
+/** Settings › Advanced › Troubleshooting: local crash reports of game processes (never uploaded). */
+@Composable
+private fun CrashReportsSection() {
+    val ctx = LocalContext.current
+    var version by remember { mutableIntStateOf(0) }
+    val reports = remember(version) { com.acecore.app.runtime.CrashReports.list(ctx) }
+    var open by remember { mutableStateOf<java.io.File?>(null) }
+    SettingsGroupTitle("Troubleshooting · crash reports")
+    Text(
+        "When a game stops before it starts, AceCore saves what it could find out (Android's crash record, the game's log, the launch stage) on this device only. " +
+            "Personal storage paths are removed. Nothing is uploaded; share a report yourself if you want help.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
+    )
+    if (reports.isEmpty()) Text("No crash reports.", modifier = Modifier.padding(20.dp))
+    reports.take(15).forEach { f ->
+        NavRow(null, f.name.removeSuffix(".txt"), runCatching { f.readLines().firstOrNull { it.startsWith("Cause:") }?.removePrefix("Cause: ") }.getOrNull()) { open = f }
+    }
+    if (reports.isNotEmpty()) TextButton(onClick = { com.acecore.app.runtime.CrashReports.clear(ctx); version++ }, modifier = Modifier.padding(horizontal = 12.dp)) {
+        Text("Delete all reports")
+    }
+    open?.let { f ->
+        val text = remember(f) { runCatching { f.readText() }.getOrDefault("") }
+        AlertDialog(
+            onDismissRequest = { open = null },
+            title = { Text("Crash report") },
+            text = { Text(text.take(8000), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text)
+                    runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Share crash report")) }
+                }) { Text("Share") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceCore crash report", text))
+                    Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
+                }) { Text("Copy") }
+            },
+        )
+    }
+}

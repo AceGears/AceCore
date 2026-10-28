@@ -69,7 +69,12 @@ sealed interface LaunchPreparation {
 }
 
 /** How the user asked to launch (normally just a tap; the options come from the file-access dialog or details). */
-data class LaunchOptions(val forceCopy: Boolean = false, val forceResync: Boolean = false)
+data class LaunchOptions(
+    val forceCopy: Boolean = false,
+    val forceResync: Boolean = false,
+    /** Diagnostic retry: start the game without AceCore's runtime helper (no stage tracking or cheats). */
+    val disableHelper: Boolean = false,
+)
 
 /**
  * Validates a game before launch and builds the Intent for its isolated runtime process.
@@ -122,7 +127,10 @@ class LaunchCoordinator(
         val s = settings.current()
         val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), games.overrides(game), engine).snapshot()
         val accent = accentArgbFor(s.theme)
-        if (engine.family == EngineFamily.RGSS) return prepareRgss(game, config, accent, options, requestedAt)
+        if (engine.family == EngineFamily.RGSS) {
+            val cfg = if (options.disableHelper) config + (ConfigKey.RGSS_HELPER.id to "false") else config
+            return prepareRgss(game, cfg, accent, options, requestedAt)
+        }
 
         if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
         // The selected entry must still exist (one query per path segment, not a folder scan).
@@ -235,12 +243,15 @@ class LaunchCoordinator(
      * Collects play time (also after a game-process crash), whether the game really ran, how long it took to
      * start, and any error, and stores them as a session.
      */
-    suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?) {
-        val game = games.get(gameId) ?: return
+    suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?): com.acecore.app.runtime.LaunchFailure? {
+        val game = games.get(gameId) ?: return null
         val rgss = game.effectiveEngine.family == EngineFamily.RGSS
         val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
         val requestedAt = withContext(Dispatchers.IO) { SessionRecord.readLaunch(context, gameId) }
         val helperDir = RgssRuntime.helperDir(GameStorage.dataDir(context, gameId))
+        val markers = if (rgss) withContext(Dispatchers.IO) {
+            Triple(File(helperDir, "boot").exists(), runCatching { File(helperDir, "stage").readText().trim() }.getOrNull(), File(helperDir, "ready").exists())
+        } else null
         val (rubyReady, rubyError) = if (rgss) withContext(Dispatchers.IO) {
             val ready = runCatching { File(helperDir, "ready").readText().trim().toLongOrNull() }.getOrNull()
             val err = runCatching { File(helperDir, "error").readText().trim().takeIf { it.isNotEmpty() } }.getOrNull()
@@ -266,6 +277,59 @@ class LaunchCoordinator(
             latencyMs = latency, error = error,
         )
         if (reached) settings.markRuntimeVerified(RuntimeRegistry.runtimeFor(game.effectiveEngine))
+        if (reached || !rgss) return null
+        val failure = withContext(Dispatchers.IO) { investigate(game, requestedAt ?: 0L, helperDir, helperUsed, markers, rubyError, data, resultCode) }
+        // The game's own failure screen already showed this (user chose Retry or Return to library): report saved, no second dialog.
+        return if (resultCode == Activity.RESULT_FIRST_USER) null else failure
+    }
+
+    /** Collects every piece of evidence about a game process that ended before reaching the game, and saves a report. */
+    private fun investigate(
+        game: GameEntity, since: Long, helperDir: File, helperUsed: Boolean, markers: Triple<Boolean, String?, Boolean>?,
+        rubyError: String?, data: Intent?, resultCode: Int,
+    ): com.acecore.app.runtime.LaunchFailure {
+        val cr = com.acecore.app.runtime.CrashReports
+        val stage = when {
+            markers?.second != null -> "Game scripts (${markers.second})"
+            markers?.first == true -> "Game scripts (Ruby running, before loading data)"
+            File(helperDir, "runtime.log").let { it.exists() && it.readText().contains("SDLThread") } -> "Engine start-up (before Ruby)"
+            !helperUsed -> "Unknown (game helper was off)"
+            else -> "Engine start-up"
+        }
+        val exit = cr.lastExit(context, ":rgss", since)
+        val javaCrash = runCatching { cr.javaCrashFile(helperDir).readText() }.getOrNull()
+        val log = runCatching { File(helperDir, "runtime.log").readLines().takeLast(250).joinToString("\n") }.getOrNull()
+        val activityError = if (resultCode == Activity.RESULT_FIRST_USER) data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) else null
+        val libs = cr.librariesIn(exit?.trace)
+        val (cause, identified) = when {
+            rubyError != null -> "Ruby script error: ${rubyError.lineSequence().first()}" to true
+            javaCrash != null -> "Java/Kotlin crash in the game process: ${javaCrash.lineSequence().first()}" to true
+            exit != null && exit.reason == "Native crash" ->
+                "Native crash (${exit.signal ?: "signal"})" + (if (libs.isNotEmpty()) " in ${libs.joinToString()}" else "") to true
+            exit != null && exit.reason != "Exited normally" -> exit.reason + (exit.description?.let { ": $it" } ?: "") to true
+            activityError != null -> activityError to true
+            else -> "The game process ended without reporting an error. The cause hasn't been identified yet." to false
+        }
+        val report = cr.redact(buildString {
+            append(cr.header(game.title, game.effectiveEngine.displayName, stage))
+            appendLine("Cause: $cause")
+            appendLine("Launch file: ${game.launchFile} -> ${game.entry}")
+            appendLine("Helper: ${if (helperUsed) "on" else "off"}")
+            exit?.let {
+                appendLine()
+                appendLine("== Android exit record ==")
+                appendLine("${it.reason} · status ${it.status}${it.signal?.let { s -> " ($s)" } ?: ""}")
+                it.description?.let { d -> appendLine(d) }
+                it.trace?.let { t -> appendLine(); appendLine("== Crash trace ==" ); appendLine(t.take(12_000)) }
+            }
+            javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
+            rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }
+            log?.let { appendLine(); appendLine("== Game process log (last lines) =="); appendLine(it) }
+        })
+        val file = cr.save(context, game.id, report)
+        val direct = File(GameStorage.dataDir(context, game.id), "mkxp.json").exists() &&
+            runCatching { File(helperDir, "runtime.log").readText().contains("direct=true") }.getOrDefault(false)
+        return com.acecore.app.runtime.LaunchFailure(game.id, game.title, stage, cause, identified, report, file, direct, helperUsed)
     }
 
     /** Runtime that a game needs, for UI that wants to show it. */

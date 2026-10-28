@@ -53,6 +53,8 @@ import com.acecore.app.feature.importer.ImportScreen
 import com.acecore.app.feature.launcher.LaunchOptions
 import com.acecore.app.feature.launcher.LaunchPreparation
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FolderOpen
 import com.acecore.app.feature.library.HomeScreen
@@ -146,6 +148,7 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
     var staging by remember { mutableStateOf<StagingState?>(null) }
     var needsAccess by remember { mutableStateOf<Pair<GameEntity, LaunchPreparation.NeedsFileAccess>?>(null) }
     var chooseFileFor by remember { mutableStateOf<GameEntity?>(null) }
+    var launchFailure by remember { mutableStateOf<com.acecore.app.runtime.LaunchFailure?>(null) }
     /** Game (id) to start automatically once the user returns from granting file access. Survives recreation. */
     var resumeAfterGrantId by rememberSaveable { mutableStateOf(-1L) }
     val launcherRef = remember { java.util.concurrent.atomic.AtomicReference<GameLauncher?>(null) }
@@ -154,7 +157,7 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
         val id = runningGameId
         runningGameId = -1L
         if (id > 0) scope.launch {
-            coordinator.onResult(id, result.resultCode, result.data)
+            coordinator.onResult(id, result.resultCode, result.data)?.let { launchFailure = it }
             // "Retry" on the game's start-up failure screen: start it again.
             if (result.data?.getBooleanExtra(com.acecore.app.runtime.rgss.RgssActivity.EXTRA_RETRY, false) == true) {
                 ctx.container.games.get(id)?.let { launcherRef.get()?.launch(it) }
@@ -263,6 +266,14 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
             dismissButton = {
                 TextButton(onClick = { blocked = null; nav.navigate(Routes.game(b.gameId)) }) { Text("Game details") }
             },
+        )
+    }
+
+    launchFailure?.let { f ->
+        LaunchFailureDialog(
+            f,
+            onRetry = { opts -> launchFailure = null; scope.launch { ctx.container.games.get(f.gameId)?.let { launcher.launch(it, opts) } } },
+            onDismiss = { launchFailure = null },
         )
     }
 
@@ -416,3 +427,41 @@ private fun AceNavHost(nav: NavHostController) {
         }
     }
 }
+
+/** Shown when a game process ended before the game started: the detected cause, and retries that isolate it. */
+@Composable
+private fun LaunchFailureDialog(f: com.acecore.app.runtime.LaunchFailure, onRetry: (LaunchOptions) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var details by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${f.title} could not start") },
+        text = {
+            Column(Modifier.androidx_verticalScroll(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Stage: ${f.stage}", style = MaterialTheme.typography.bodySmall)
+                Text(f.cause, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "AceCore itself kept running: games run in their own process. A report was saved (Settings › Advanced › Crash reports).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = { onRetry(LaunchOptions()) }) { Text("Retry") }
+                if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceCore's game helper") }
+                if (f.wasDirect) TextButton(onClick = { onRetry(LaunchOptions(forceCopy = true)) }) { Text("Retry from a private copy (diagnostic)") }
+                TextButton(onClick = { details = !details }) { Text(if (details) "Hide error details" else "View error details") }
+                if (details) {
+                    Text(f.report.take(6000), style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    TextButton(onClick = {
+                        (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                            .setPrimaryClip(android.content.ClipData.newPlainText("AceCore crash report", f.report))
+                        android.widget.Toast.makeText(ctx, "Report copied", android.widget.Toast.LENGTH_SHORT).show()
+                    }) { Text("Copy full report") }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Return to library") } },
+    )
+}
+
+@Composable
+private fun Modifier.androidx_verticalScroll(): Modifier =
+    this.then(Modifier.heightIn(max = 520.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()))

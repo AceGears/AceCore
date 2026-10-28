@@ -90,7 +90,7 @@ object RgssRuntime {
         dataDir.mkdirs()
         val dir = helperDir(dataDir).apply { mkdirs() }
         // Stale signals from a previous session must never be mistaken for this one.
-        listOf("ready", "error", "boot", "stage", "runtime.log", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
+        listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }

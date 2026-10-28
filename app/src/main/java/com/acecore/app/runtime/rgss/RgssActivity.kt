@@ -172,6 +172,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }
         processUsed = true
         val s = intent?.getStringExtra(RgssLaunchSpec.EXTRA)?.let { runCatching { RgssLaunchSpec.fromJson(it) }.getOrNull() }
+        if (s != null) installCrashHandler(File(s.dataPath))
         spec = s
         if (s != null) {
             GAME_PATH = s.gamePath
@@ -249,6 +250,19 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 }
                 delay(250)
             }
+        }
+    }
+
+    /** Records any uncaught Java/Kotlin exception of this game process for the launcher's crash report. */
+    private fun installCrashHandler(dataDir: File) {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            runCatching {
+                val f = com.acecore.app.runtime.CrashReports.javaCrashFile(RgssRuntime.helperDir(dataDir))
+                f.parentFile?.mkdirs()
+                f.writeText("$e\nThread: ${t.name}\n" + e.stackTraceToString())
+            }
+            previous?.uncaughtException(t, e)
         }
     }
 
