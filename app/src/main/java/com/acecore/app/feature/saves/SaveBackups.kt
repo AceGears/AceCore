@@ -44,19 +44,16 @@ class SaveBackupManager(private val context: Context) {
 
     private fun root(gameId: Long) = File(context.filesDir, "savebackups/game_$gameId")
 
-    /** Folder the game runs from right now, or null if it cannot be read (no copy yet / no file access). */
-    fun gameDir(game: GameEntity): File? {
-        val direct = GameLocations.directGameDir(context, game)
-        val copy = GameLocations.copyGameDir(context, game.id, game.entry)
-        val copyInstalled = GameInstaller(GameStorage.installDir(context, game.id)).isInstalled()
-        return when {
-            direct != null && DirectStorage.hasAccess(context) -> direct
-            copyInstalled -> copy
-            else -> null
-        }
-    }
+    /**
+     * Folder the game runs from right now, or null if it cannot be read. [direct] is the game's "How games are loaded"
+     * setting: in copy mode this is AceCore's copy even when All files access is granted, so saves are never read
+     * from, or restored into, the wrong folder.
+     */
+    fun gameDir(game: GameEntity, direct: Boolean): File? =
+        if (direct) GameLocations.directGameDir(context, game)?.takeIf { DirectStorage.hasAccess(context) }
+        else GameLocations.copyGameDir(context, game.id, game.entry).takeIf { GameInstaller(GameStorage.installDir(context, game.id)).isInstalled() }
 
-    fun findSaves(game: GameEntity): List<SaveFile> = findSaves(game.id, gameDir(game))
+    fun findSaves(game: GameEntity, direct: Boolean): List<SaveFile> = findSaves(game.id, gameDir(game, direct))
 
     /** Saves in AceCore's data folder for [gameId] and, when known, in the folder the game runs from. */
     fun findSaves(gameId: Long, gameDir: File?): List<SaveFile> {
@@ -81,10 +78,10 @@ class SaveBackupManager(private val context: Context) {
     }.sortedByDescending { it.createdAt }
 
     /** Copies the current saves into a new backup. Returns null when there is nothing to back up. */
-    fun backup(game: GameEntity, reason: String): SaveBackup? = backup(game.id, gameDir(game), reason)
+    fun backup(game: GameEntity, direct: Boolean, reason: String): SaveBackup? = backup(game.id, gameDir(game, direct), reason)
 
     /** Same, for callers that only know the paths (the game process, which can't open the library database). */
-    fun backup(gameId: Long, gameDir: File?, reason: String): SaveBackup? {
+    fun backup(gameId: Long, gameDir: File?, reason: String, keep: File? = null): SaveBackup? {
         val saves = findSaves(gameId, gameDir)
         if (saves.isEmpty()) return null
         val now = System.currentTimeMillis()
@@ -96,13 +93,13 @@ class SaveBackupManager(private val context: Context) {
             out.setLastModified(s.modified)
         }
         File(dir, "backup.txt").writeText("created=$now\nreason=${reason.replace('\n', ' ')}\n")
-        prune(gameId)
+        prune(gameId, keep)
         return backups(gameId).firstOrNull { it.dir == dir }
     }
 
-    /** Keeps the newest 20 backups. */
-    private fun prune(gameId: Long, keep: Int = 20) {
-        backups(gameId).drop(keep).forEach { it.dir.deleteRecursively() }
+    /** Keeps the newest 20 backups (never deleting [keep], e.g. the backup that is about to be restored). */
+    private fun prune(gameId: Long, keep: File?, max: Int = 20) {
+        backups(gameId).drop(max).filter { it.dir != keep }.forEach { it.dir.deleteRecursively() }
     }
 
     data class RestoreResult(val restored: Int, val skipped: List<String>, val safetyBackup: SaveBackup?)
@@ -111,12 +108,12 @@ class SaveBackupManager(private val context: Context) {
      * Restores [backup]. The current saves are backed up first ("Before restore"). Files for the game folder are
      * only written when that folder is available (direct access or AceCore's copy).
      */
-    fun restore(game: GameEntity, backup: SaveBackup): RestoreResult {
-        val safety = backup(game, "Before restoring a backup")
+    fun restore(game: GameEntity, direct: Boolean, backup: SaveBackup): RestoreResult {
+        val gameDir = gameDir(game, direct)
+        val safety = backup(game.id, gameDir, "Before restoring a backup", keep = backup.dir)
         var n = 0
         val skipped = mutableListOf<String>()
         val data = GameStorage.dataDir(context, game.id)
-        val gameDir = gameDir(game)
         File(backup.dir, SaveLocation.DATA.folder).takeIf { it.isDirectory }?.walkTopDown()?.filter { it.isFile }?.forEach { f ->
             val rel = f.relativeTo(File(backup.dir, SaveLocation.DATA.folder)).invariantSeparatorsPath
             val out = File(data, rel)
@@ -126,6 +123,13 @@ class SaveBackupManager(private val context: Context) {
         File(backup.dir, SaveLocation.GAME.folder).takeIf { it.isDirectory }?.listFiles()?.filter { it.isFile }?.forEach { f ->
             if (gameDir == null) { skipped += f.name; return@forEach }
             runCatching { f.copyTo(File(gameDir, f.name), overwrite = true); n++ }.onFailure { skipped += f.name }
+        }
+        // Files kept from a deleted private copy go back into the folder the game runs from, at their old paths.
+        val copyRoot = File(backup.dir, "copy")
+        copyRoot.takeIf { it.isDirectory }?.walkTopDown()?.filter { it.isFile }?.forEach { f ->
+            val rel = f.relativeTo(copyRoot).invariantSeparatorsPath
+            if (gameDir == null) { skipped += rel; return@forEach }
+            runCatching { File(gameDir, rel).also { it.parentFile?.mkdirs() }.let { f.copyTo(it, overwrite = true) }; n++ }.onFailure { skipped += rel }
         }
         return RestoreResult(n, skipped, safety)
     }
@@ -148,13 +152,19 @@ class SaveBackupManager(private val context: Context) {
             .filter { it.isFile }
     }
 
-    /** Backs up specific files (e.g. saves inside AceCore's private copy before it is deleted). */
-    fun backupFiles(game: GameEntity, files: List<File>, reason: String): SaveBackup? {
-        if (files.isEmpty()) return null
+    /**
+     * Backs up every file the GAME created inside AceCore's private copy (saves in any folder, any extension), keeping
+     * their relative paths, before the copy is deleted.
+     */
+    fun backupPrivateCopy(game: GameEntity, reason: String): SaveBackup? {
+        val installDir = GameStorage.installDir(context, game.id)
+        val created = GameInstaller(installDir).gameCreatedFiles()
+        if (created.isEmpty()) return null
         val now = System.currentTimeMillis()
         val dir = File(root(game.id), SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date(now)))
-        for (f in files) {
-            val out = File(dir, "${SaveLocation.GAME.folder}/${f.name}")
+        for (rel in created) {
+            val f = File(installDir, rel)
+            val out = File(dir, "copy/$rel")
             out.parentFile?.mkdirs()
             f.copyTo(out, overwrite = true)
             out.setLastModified(f.lastModified())

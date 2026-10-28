@@ -101,6 +101,7 @@ class CategoryRepository(
     }
 
     suspend fun changeDirectory(dir: CategoryDirEntity, treeUri: Uri) = withContext(Dispatchers.IO) {
+        require(dao.dirsOf(dir.categoryId).none { it.id != dir.id && it.treeUri == treeUri.toString() }) { "That folder is already linked" }
         games.takePermission(treeUri)
         dao.changeDir(dir.id, treeUri.toString(), labelOf(treeUri))
         if (dir.treeUri != treeUri.toString()) releaseIfUnused(Uri.parse(dir.treeUri))

@@ -151,7 +151,7 @@ fun GameQuickMenu(game: GameEntity, targets: GameMenuTargets, onDismiss: () -> U
                         Text(game.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(game.effectiveEngine.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(4.dp))
-                        StatusChip(game.compatStatus)
+                        GameStateChip(game)
                     }
                 }
                 Spacer(Modifier.height(14.dp))

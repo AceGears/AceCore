@@ -65,7 +65,12 @@ class GameInstaller(
             val prev = previous[f.path]
             val out = File(target, f.path)
             if (f.path !in todoPaths) { if (prev != null) next[f.path] = prev; continue }
-            if (isCancelled()) { writeManifest(previous + next); throw InstallCancelledException() }
+            if (isCancelled()) {
+                writeManifest(previous + next)
+                // A partial copy must never be launched as if complete: the next launch finishes it.
+                runCatching { File(target, OUTDATED).writeText("1") }
+                throw InstallCancelledException()
+            }
             out.parentFile?.mkdirs()
             val tmp = File(out.parentFile, ".${out.name}.acecore-tmp")
             source.open(originalPath[f.path] ?: f.path).use { input ->

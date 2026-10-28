@@ -90,6 +90,14 @@ class GameRepository(
     fun game(id: Long): Flow<GameEntity?> = dao.observe(id)
     suspend fun get(id: Long) = dao.get(id)
     suspend fun allGames(): List<GameEntity> = dao.getAll()
+
+    /** RGSS games: true when the game's "How games are loaded" setting is Direct (not Private copy). */
+    suspend fun usesDirectFiles(game: GameEntity): Boolean {
+        val s = settings.current()
+        val e = game.effectiveEngine
+        return com.acecore.app.core.config.LayeredConfig(s.globalConfig, s.engineConfig[e].orEmpty(), overrides(game), e)
+            .string(com.acecore.app.core.config.ConfigKey.GAME_FILES) != "copy"
+    }
     suspend fun getMany(ids: List<Long>) = dao.getMany(ids)
 
     fun sessionTotals(gameId: Long): Flow<com.acecore.app.core.database.SessionTotals> = sessionDao.observeTotals(gameId)
@@ -210,7 +218,9 @@ class GameRepository(
         val launch = keepLaunch ?: c.detection.launchCandidates.firstOrNull { it.playable }
         val entry = if (manualKept) game.entry else launch?.resolvedEntry ?: c.detection.entry
         com.acecore.app.core.install.GameInstaller(com.acecore.app.core.install.GameStorage.installDir(context, game.id)).markOutdated()
-        val updated = game.copy(
+        // The scan can take a while: start from the current row so changes made meanwhile (favourite, statistics) survive.
+        val fresh = dao.get(game.id) ?: return@withContext game
+        val updated = fresh.copy(
             launchFile = if (manualKept) game.launchFile else launch?.path, entry = entry,
             launchMode = if (manualKept) GameEntity.LAUNCH_MANUAL else GameEntity.LAUNCH_AUTO,
             contentRoot = if (manualKept) game.contentRoot else contentRootFor(entry, c.detection),
@@ -229,13 +239,14 @@ class GameRepository(
         val d = decodeDetection(game)
         val launch = d?.launchCandidates?.firstOrNull { it.playable }
         val entry = launch?.resolvedEntry ?: d?.entry
-        val updated = game.copy(
+        val updated = (dao.get(game.id) ?: return@withContext).copy(
             launchFile = launch?.path, entry = entry, launchMode = GameEntity.LAUNCH_AUTO,
             contentRoot = if (d != null) contentRootFor(entry, d) else game.contentRoot,
             engineOverride = null, lastError = null,
         )
         dao.update(updated.copy(status = runtimeStatus(updated).name))
         pathIndexFile(game.id).delete()
+        Unit
     }
 
     /**
@@ -261,12 +272,13 @@ class GameRepository(
             else -> game.engineOverride
         }
         val root = if (choice.family == com.acecore.app.core.model.EngineFamily.WEB) choice.entry.substringBeforeLast('/', "") else game.contentRoot
-        val updated = game.copy(
+        val updated = (dao.get(game.id) ?: return@withContext).copy(
             launchFile = path, entry = choice.entry, contentRoot = root, launchMode = GameEntity.LAUNCH_MANUAL,
             engineOverride = override, lastError = null,
         )
         dao.update(updated.copy(status = runtimeStatus(updated).name))
         pathIndexFile(game.id).delete()
+        Unit
     }
 
     suspend fun update(game: GameEntity) = dao.update(game)

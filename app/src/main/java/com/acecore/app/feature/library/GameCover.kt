@@ -138,7 +138,7 @@ fun GameTile(
                     onClick = onClick,
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() },
                 )
-                .semantics { contentDescription = "${game.title}, ${game.effectiveEngine.displayName}, ${game.compatStatus.label}" },
+                .semantics { contentDescription = "${game.title}, ${game.effectiveEngine.displayName}, ${gameState(game).label}" },
         ) {
             CoverImage(game, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.62f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))

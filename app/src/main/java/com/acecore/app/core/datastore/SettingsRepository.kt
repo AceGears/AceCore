@@ -282,6 +282,7 @@ class SettingsRepository(private val context: Context) {
                 k.startsWith("config.") || k.startsWith("engine.") || k == K.preset.name || k == K.layout.name ||
                     k == K.sort.name || k == K.navStyle.name || k == K.aspect.name || k == K.categoryBar.name -> p[stringPreferencesKey(k)] = v
                 k.startsWith("runtime.") -> Unit // device-specific, never restored onto another device
+                k == "library.selectedCategory" -> Unit // category ids differ between databases
                 v == "true" || v == "false" -> p[booleanPreferencesKey(k)] = v.toBoolean()
                 k in LONG_KEYS -> v.toLongOrNull()?.let { p[longPreferencesKey(k)] = it }
                 else -> v.toIntOrNull()?.let { p[intPreferencesKey(k)] = it }

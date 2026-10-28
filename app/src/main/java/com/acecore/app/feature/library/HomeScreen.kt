@@ -167,6 +167,11 @@ fun HomeScreen(
             }
             .let { sortGames(it, lib.sort) }
     }
+    // Batch actions only ever apply to games that are visible right now.
+    LaunchedEffect(visible) {
+        val ids = visible.mapTo(HashSet()) { it.id }
+        if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
+    }
     val inSelection = selecting
     BackHandler(enabled = inSelection || searchOpen) {
         if (inSelection) { selecting = false; selection = emptySet() } else { searchOpen = false; query = "" }
@@ -523,6 +528,6 @@ private fun GameListRow(game: GameEntity, selecting: Boolean, selected: Boolean,
         }
         if (selecting) {
             androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onClick() })
-        } else StatusChip(game.compatStatus)
+        } else GameStateChip(game)
     }
 }

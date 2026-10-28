@@ -201,7 +201,7 @@ fun GameFilesCard(g: GameEntity) {
             text = {
                 Text(
                     "This frees ${formatBytes(info?.copyBytes ?: 0)}. The game keeps running directly from your folder. " +
-                        (if (saves.isNotEmpty()) "${saves.size} save file(s) in the copy are first backed up (Cheats › Save backups). " else "") +
+                        "Every file the game created in the copy (saves, settings) is backed up first (Cheats › Save backups). " +
                         "Your own game folder isn't touched.",
                 )
             },
@@ -210,7 +210,7 @@ fun GameFilesCard(g: GameEntity) {
                     confirmDelete = false
                     scope.launch(kotlinx.coroutines.NonCancellable) {
                         withContext(Dispatchers.IO) {
-                            container.saves.backupFiles(g, saves, "Saves from the private copy (before deleting it)")
+                            container.saves.backupPrivateCopy(g, "Files the game created in the private copy (before deleting it)")
                             GameStorage.installDir(ctx, g.id).deleteRecursively()
                         }
                         refresh++

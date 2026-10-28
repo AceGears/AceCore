@@ -205,7 +205,9 @@ private fun CategoryCard(
     val changeFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         val d = changing
         changing = null
-        if (uri != null && d != null) scope.launch { runCatching { repo.changeDirectory(d, uri) } }
+        if (uri != null && d != null) scope.launch {
+            runCatching { repo.changeDirectory(d, uri) }.onFailure { Toast.makeText(ctx, it.message ?: "Couldn't change the folder", Toast.LENGTH_LONG).show() }
+        }
     }
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri != null) scope.launch {
@@ -327,6 +329,7 @@ fun <T> ReorderableList(
     Column {
         items.forEach { item ->
             val k = key(item)
+            androidx.compose.runtime.key(k) {
             val isDragging = draggingKey == k
             val elevation by animateDpAsState(if (isDragging) 10.dp else 0.dp, label = "drag")
             val handle = Modifier.pointerInput(k) {
@@ -356,6 +359,7 @@ fun <T> ReorderableList(
                     .offset { IntOffset(0, if (isDragging) dragOffset.roundToInt() else 0) }
                     .then(if (isDragging) Modifier.shadow(elevation, RoundedCornerShape(16.dp)) else Modifier),
             ) { content(item, handle) }
+            }
         }
     }
 }

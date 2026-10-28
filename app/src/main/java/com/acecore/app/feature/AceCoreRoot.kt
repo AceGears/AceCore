@@ -146,8 +146,8 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
     var staging by remember { mutableStateOf<StagingState?>(null) }
     var needsAccess by remember { mutableStateOf<Pair<GameEntity, LaunchPreparation.NeedsFileAccess>?>(null) }
     var chooseFileFor by remember { mutableStateOf<GameEntity?>(null) }
-    /** Game to start automatically once the user returns from granting file access. */
-    var resumeAfterGrant by remember { mutableStateOf<GameEntity?>(null) }
+    /** Game (id) to start automatically once the user returns from granting file access. Survives recreation. */
+    var resumeAfterGrantId by rememberSaveable { mutableStateOf(-1L) }
     val launcherRef = remember { java.util.concurrent.atomic.AtomicReference<GameLauncher?>(null) }
 
     val resultLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -156,9 +156,9 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
         if (id > 0) scope.launch { coordinator.onResult(id, result.resultCode, result.data) }
     }
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        val g = resumeAfterGrant
-        resumeAfterGrant = null
-        if (g != null && grants.values.all { it }) launcherRef.get()?.launch(g)
+        val id = resumeAfterGrantId
+        resumeAfterGrantId = -1L
+        if (id > 0 && grants.values.all { it }) scope.launch { ctx.container.games.get(id)?.let { launcherRef.get()?.launch(it) } }
     }
     val launcher = remember(coordinator) {
         GameLauncher { game, options ->
@@ -187,6 +187,7 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
                             } catch (e: Exception) {
                                 staging = null
                                 blocked = LaunchPreparation.Blocked(p.gameId, "Couldn't prepare ${p.title}", e.message ?: e.toString())
+                                coordinator.recordPreparationFailure(p.gameId, "Couldn't prepare the private copy: ${e.message ?: e}")
                             }
                         }
                     }
@@ -201,10 +202,10 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                val g = resumeAfterGrant
-                if (g != null && com.acecore.app.core.storage.DirectStorage.usesSettingsScreen) {
-                    resumeAfterGrant = null
-                    if (com.acecore.app.core.storage.DirectStorage.hasAccess(ctx)) launcher.launch(g)
+                val id = resumeAfterGrantId
+                if (id > 0 && com.acecore.app.core.storage.DirectStorage.usesSettingsScreen) {
+                    resumeAfterGrantId = -1L
+                    if (com.acecore.app.core.storage.DirectStorage.hasAccess(ctx)) scope.launch { ctx.container.games.get(id)?.let { launcher.launch(it) } }
                 }
             }
         }
@@ -221,16 +222,19 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
             title = p.title, directPossible = p.directPossible,
             onAllow = {
                 needsAccess = null
-                resumeAfterGrant = game
+                resumeAfterGrantId = game.id
                 if (com.acecore.app.core.storage.DirectStorage.usesSettingsScreen) {
                     val opened = runCatching { ctx.startActivity(com.acecore.app.core.storage.DirectStorage.settingsIntent(ctx)) }.isSuccess ||
                         runCatching { ctx.startActivity(com.acecore.app.core.storage.DirectStorage.genericSettingsIntent()) }.isSuccess
-                    if (!opened) { resumeAfterGrant = null; android.widget.Toast.makeText(ctx, "Couldn't open Android's file access settings.", android.widget.Toast.LENGTH_LONG).show() }
+                    if (!opened) { resumeAfterGrantId = -1L; android.widget.Toast.makeText(ctx, "Couldn't open Android's file access settings.", android.widget.Toast.LENGTH_LONG).show() }
                 } else {
                     legacyPermission.launch(com.acecore.app.core.storage.DirectStorage.LEGACY_PERMISSIONS)
                 }
             },
-            onCopy = { needsAccess = null; launcher.launch(game, LaunchOptions(forceCopy = true)) },
+            onCopy = {
+                needsAccess = null
+                scope.launch { coordinator.rememberCopyChoice(game.id); launcher.launch(game, LaunchOptions(forceCopy = true)) }
+            },
             onDismiss = { needsAccess = null },
         )
     }

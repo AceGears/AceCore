@@ -299,7 +299,8 @@ private fun SaveBackupsSection(g: GameEntity) {
     var backups by remember { mutableStateOf<List<SaveBackup>>(emptyList()) }
     var restoring by remember { mutableStateOf<SaveBackup?>(null) }
     LaunchedEffect(g.id, version) {
-        withContext(Dispatchers.IO) { current = saves.findSaves(g); backups = saves.backups(g.id) }
+        val direct = ctx.container.games.usesDirectFiles(g)
+        withContext(Dispatchers.IO) { current = saves.findSaves(g, direct); backups = saves.backups(g.id) }
     }
     SettingsGroupTitle("Save backups")
     Text(
@@ -309,7 +310,7 @@ private fun SaveBackupsSection(g: GameEntity) {
     )
     OutlinedButton(enabled = current.isNotEmpty(), onClick = {
         scope.launch {
-            val b = withContext(Dispatchers.IO) { runCatching { saves.backup(g, "Manual backup") } }
+            val b = withContext(Dispatchers.IO) { runCatching { saves.backup(g, ctx.container.games.usesDirectFiles(g), "Manual backup") } }
             b.onSuccess { Toast.makeText(ctx, if (it == null) "Nothing to back up" else "Backed up ${it.files} file(s)", Toast.LENGTH_SHORT).show() }
                 .onFailure { Toast.makeText(ctx, "Backup failed: ${it.message}", Toast.LENGTH_LONG).show() }
             version++
@@ -334,7 +335,7 @@ private fun SaveBackupsSection(g: GameEntity) {
                 TextButton(onClick = {
                     restoring = null
                     scope.launch {
-                        val r = withContext(Dispatchers.IO) { runCatching { saves.restore(g, b) } }
+                        val r = withContext(Dispatchers.IO) { runCatching { saves.restore(g, ctx.container.games.usesDirectFiles(g), b) } }
                         r.onSuccess { res ->
                             Toast.makeText(ctx, "Restored ${res.restored} file(s)" + if (res.skipped.isNotEmpty()) "; couldn't write ${res.skipped.joinToString()} (game folder not available)" else "", Toast.LENGTH_LONG).show()
                         }.onFailure { Toast.makeText(ctx, "Restore failed: ${it.message}", Toast.LENGTH_LONG).show() }

@@ -87,13 +87,20 @@ class LaunchCoordinator(
 
     suspend fun prepare(game: GameEntity, options: LaunchOptions = LaunchOptions()): LaunchPreparation {
         val requestedAt = System.currentTimeMillis()
-        games.recordAttempt(game.id)
         val result = runCatching { prepareInternal(game, options, requestedAt) }.getOrElse { e ->
             LaunchPreparation.Blocked(game.id, "Couldn't start ${game.title}", e.message ?: e.toString())
         }
+        // A question to the user (file access) isn't a launch attempt yet; the retry after answering is.
+        if (result !is LaunchPreparation.NeedsFileAccess) games.recordAttempt(game.id)
         if (result is LaunchPreparation.Blocked) games.recordBlocked(game.id, result.title + ": " + result.message)
         return result
     }
+
+    /** The private-copy step failed in the UI (after [prepare] returned Staged): count it as a failed launch. */
+    suspend fun recordPreparationFailure(gameId: Long, message: String) = games.recordBlocked(gameId, message)
+
+    /** Remembers "Private copy" for this game, so the file-access question isn't asked again. */
+    suspend fun rememberCopyChoice(gameId: Long) = games.setOverride(gameId, ConfigKey.GAME_FILES.id, "copy")
 
     private suspend fun prepareInternal(game: GameEntity, options: LaunchOptions, requestedAt: Long): LaunchPreparation {
         val engine = game.effectiveEngine
@@ -156,9 +163,9 @@ class LaunchCoordinator(
         game: GameEntity, config: Map<String, String>, accent: Long, options: LaunchOptions, requestedAt: Long,
     ): LaunchPreparation {
         val wantsDirect = config[ConfigKey.GAME_FILES.id] != "copy" && !options.forceCopy
-        if (wantsDirect) {
-            val root = GameLocations.directRoot(context, game)
-                ?: return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = false)
+        // Folders whose provider has no real path (cloud providers) can only use a copy: no question needed.
+        val root = if (wantsDirect) GameLocations.directRoot(context, game) else null
+        if (wantsDirect && root != null) {
             if (!DirectStorage.hasAccess(context)) return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = true)
             val dir = withContext(Dispatchers.IO) { GameLocations.directGameDir(context, game) }
             if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
@@ -168,7 +175,10 @@ class LaunchCoordinator(
             if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, "Game.ini") } == null) {
                 return missingLaunchFile(game, "${GameLocations.rgssSubdir(game.entry).let { if (it.isEmpty()) "" else "$it/" }}Game.ini")
             }
-            return LaunchPreparation.Ready(rgssIntent(game, dir, config, accent, direct = true, requestedAt), game.id, game.title)
+            // Android 8–10 can't write to SD cards even with the storage permission; RPG Maker games save next to
+            // Game.ini, so such games use the private copy instead of failing when they save.
+            val writable = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R || withContext(Dispatchers.IO) { dir.canWrite() }
+            if (writable) return LaunchPreparation.Ready(rgssIntent(game, dir, config, accent, direct = true, requestedAt), game.id, game.title)
         }
 
         // Private copy.

@@ -114,14 +114,16 @@ module AceCore
       def update_move
         sp = AceCore.flags["walk_speed"].to_i
         if sp > 0
-          if respond_to?(:move_speed=) then self.move_speed = sp else @move_speed = sp end
+          # Only games that have their own move_speed= (Essentials v20+) get it called; others use the variable.
+          if AceCore::Cheats.native_speed_setter then self.move_speed = sp else @move_speed = sp end
         end
         super
       end
 
       def move_speed=(val)
         sp = AceCore.flags["walk_speed"].to_i
-        super(sp > 0 ? sp : val)
+        v = sp > 0 ? sp : val
+        if defined?(super) then super(v) else @move_speed = v end
       end
     end
 
@@ -140,6 +142,8 @@ module AceCore
     end
 
     class << self
+      attr_reader :native_speed_setter
+
       # ---------------------------------------------------------------- environment
       def essentials?
         defined?(::PokemonGlobalMetadata) || defined?(::PBSpecies) || defined?(::GameData) && defined?(::GameData::Species)
@@ -215,11 +219,12 @@ module AceCore
 
       def encounters_hook_available?
         return true if defined?(::PokemonEncounters) && (::PokemonEncounters.ancestors.include?(EncountersOffNew) || ::PokemonEncounters.ancestors.include?(EncountersOffOld))
-        !essentials? && defined?($game_system) && $game_system && $game_system.respond_to?(:encounter_disabled=)
+        !essentials? && defined?($game_player) && $game_player && $game_player.instance_variable_defined?(:@encounter_count)
       end
 
       def install_hooks
         unless ::Game_Player.ancestors.include?(PlayerSpeed)
+          @native_speed_setter = ::Game_Player.method_defined?(:move_speed=) || ::Game_Player.private_method_defined?(:move_speed=)
           ::Game_Player.send(:prepend, PlayerSpeed) if ::Game_Character.method_defined?(:update_move) || ::Game_Character.private_method_defined?(:update_move)
         end
         if defined?(::PokemonEncounters)
@@ -231,18 +236,15 @@ module AceCore
         end
       end
 
+      # Plain RPG Maker: keep the step counter to the next random encounter from running out. Unlike
+      # $game_system.encounter_disabled this changes nothing that the game's own events rely on, and turning the
+      # cheat off simply lets the counter run down again.
       def every_frame
-        # RPG Maker's own switch is the most compatible way to stop random encounters in non-Essentials games.
-        if !essentials? && defined?($game_system) && $game_system && $game_system.respond_to?(:encounter_disabled=)
-          want = AceCore.flags["no_encounters"] == "1"
-          if want
-            $game_system.encounter_disabled = true
-            @forced_encounters_off = true
-          elsif @forced_encounters_off
-            $game_system.encounter_disabled = false
-            @forced_encounters_off = false
-          end
-        end
+        return if essentials? || AceCore.flags["no_encounters"] != "1"
+        gp = defined?($game_player) ? $game_player : nil
+        return unless gp && gp.instance_variable_defined?(:@encounter_count)
+        c = gp.instance_variable_get(:@encounter_count)
+        gp.instance_variable_set(:@encounter_count, 100) if c.is_a?(Numeric) && c < 100
       end
 
       # ---------------------------------------------------------------- state for AceCore's menu

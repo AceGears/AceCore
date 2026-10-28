@@ -193,6 +193,11 @@ ENVS["rpgmaker_xp"] = <<~'RUBY'
     def gain_item(id, n) @items[id] += n end
   end
   class Game_System; attr_accessor :encounter_disabled; end
+  class Game_Player
+    def initialize; super; @encounter_count = 20; end
+    def step; @encounter_count -= 1; end
+    attr_reader :encounter_count
+  end
 RUBY
 
 # --------------------------------------------------------------------------------------- scenarios
@@ -310,6 +315,7 @@ RUBY
 
 SCENARIOS["rpgmaker_xp"] = <<~'RUBY'
   $game_party = Game_Party.new; $game_system = Game_System.new; $data_items = [nil, RPG::Item.new("Potion")]
+  $game_player = Game_Player.new
   frames(1)
   cmd(DIR, "1\tprobe")
   s = state(DIR)
@@ -325,11 +331,18 @@ SCENARIOS["rpgmaker_xp"] = <<~'RUBY'
   cmd(DIR, "5\trpg_level\t0\t20")
   check("actor level", $game_party.actors[0].level == 20)
   cmd(DIR, "6\tset\tno_encounters\t1")
+  15.times { $game_player.step }
   frames(1)
-  check("encounters disabled through Game_System", $game_system.encounter_disabled == true)
+  check("encounter counter kept from running out", $game_player.encounter_count >= 100)
+  check("saved switch untouched", $game_system.encounter_disabled.nil?)
   cmd(DIR, "7\tset\tno_encounters\t0")
+  150.times { $game_player.step }
   frames(1)
-  check("encounters restored", $game_system.encounter_disabled == false)
+  check("counter runs down again when off", $game_player.encounter_count < 0)
+  gp = $game_player
+  cmd(DIR, "8\tset\twalk_speed\t6")
+  gp.update
+  check("walk speed on plain RMXP (no move_speed=) doesn't crash", gp.used_speed == 6)
 RUBY
 
 SCENARIOS["error_capture"] = <<~'RUBY'

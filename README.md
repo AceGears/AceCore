@@ -1,10 +1,15 @@
 # AceCore
 
-Premium Android launcher for PC-origin indie games. **Milestone 3** (`0.3.0-milestone3`): adds the RGSS runtime integration (RPG Maker XP / VX / VX Ace, Pokémon Essentials) on top of the web runtime and Flash.
+Premium Android launcher for PC-origin indie games. **Version 0.4.0**: direct game launching (no full copies),
+a launch-file browser, categories, a redesigned library and game page, real play statistics, and a cheat manager for
+RPG Maker XP/VX/VX Ace and Pokémon Essentials, on top of the web runtime, Flash (Ruffle) and the RGSS runtime (mkxp-z).
 
 **Licence: GPL-3.0-or-later** (see `LICENSE`, `NOTICE.md`). Required because AceCore integrates mkxp-z (GPL-2.0-or-later).
 
-> **Build status (28 Oct 2026):** the debug APK compiles cleanly in Android Studio 2026.3.1 (Rabbit) with Gradle running on **JDK 21**. Gradle 8.14.3 does not support JDK 25, so pick "Use JVM 21" if Studio asks. Unit tests have not been run yet (`./gradlew testDebugUnitTest`). Features are marked "tested" only where they actually ran.
+> **Build status:** compiled and unit-tested by GitHub Actions on every push (`.github/workflows/build.yml`), including
+> Robolectric database-migration tests and Ruby tests of the RGSS runtime helper. Full APKs with the RGSS runtime and an
+> emulator test run are produced by "Run workflow". Android Studio needs **JDK 21** for Gradle (pick "Use JVM 21";
+> Gradle 8.14.3 does not support JDK 25). Features are marked "tested" only where they actually ran.
 
 ## Build
 
