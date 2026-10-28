@@ -231,19 +231,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm && echo "::notice title=kvm::$(ls -l /dev/kvm) cpus=$(nproc)"
-      - name: Run on emulator (Android 12, x86_64 with ARM translation)
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 31
-          target: google_apis
-          arch: x86_64
-          cores: 4
-          ram-size: 4096M
-          disk-size: 4096M
-          disable-animations: true
-          emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash ci/device-tests.sh
+      - name: Run on emulator (Android 11 x86_64, ARM translation)
+        timeout-minutes: 60
+        run: EMU_API=30 bash ci/emulator.sh
       - name: Publish results as a pre-release (screenshots, metrics, logs)
         if: always()
         env:
