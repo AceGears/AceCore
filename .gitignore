@@ -14,3 +14,6 @@ keystore.properties
 
 # Native runtimes are build outputs (produced by .github/workflows/build.yml)
 /app/src/main/jniLibs/
+
+# The public development signing key IS committed (see app/build.gradle.kts)
+!ci/acecore-dev.keystore
