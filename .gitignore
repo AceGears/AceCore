@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+keystore.properties
+*.jks
+*.keystore
+
+# Native runtimes are build outputs (produced by .github/workflows/build.yml)
+/app/src/main/jniLibs/

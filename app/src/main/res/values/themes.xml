@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AceCore" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ace_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.AceCore.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ace_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.AceCore</item>
+    </style>
+
+    <style name="Theme.AceCore.Game" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

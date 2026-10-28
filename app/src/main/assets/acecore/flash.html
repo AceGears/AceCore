@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>AceCore Flash</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #stage > * { width: 100%; height: 100%; display: block; }
+</style>
+<script src="/__acecore/bridge.js"></script>
+<script>
+  window.RufflePlayer = window.RufflePlayer || {};
+  window.RufflePlayer.config = __RUFFLE_CONFIG__;
+</script>
+<script src="/__acecore/ruffle/ruffle.js"></script>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+(function () {
+  var swfUrl = __SWF_URL__;
+  function report(msg) {
+    if (window.AceCore) { AceCore.errors.push('Ruffle: ' + msg); }
+  }
+  try {
+    var ruffle = window.RufflePlayer.newest();
+    var player = ruffle.createPlayer();
+    document.getElementById('stage').appendChild(player);
+    // Ruffle listens for keys on its own element; route AceCore's controller/keyboard input there.
+    if (window.AceCore) { AceCore.keyTarget = player; }
+    var api = typeof player.ruffle === 'function' ? player.ruffle() : player;
+    var p = api.load({ url: swfUrl });
+    if (p && p.catch) { p.catch(function (e) { report(e && e.message ? e.message : String(e)); }); }
+    var focus = function () { try { player.focus({ preventScroll: true }); } catch (e) {} };
+    document.addEventListener('pointerdown', focus, true);
+    setTimeout(focus, 250);
+  } catch (e) {
+    report(e && e.message ? e.message : String(e));
+    document.body.innerHTML = '<p style="color:#fff;font:16px sans-serif;padding:24px">Ruffle could not start: ' +
+      String(e && e.message ? e.message : e).replace(/</g, '&lt;') + '</p>';
+  }
+})();
+</script>
+</body>
+</html>

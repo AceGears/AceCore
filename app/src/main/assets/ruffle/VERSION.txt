@@ -1,0 +1,1 @@
+Ruffle 0.7.1 (@ruffle-rs/ruffle self-hosted build), MIT OR Apache-2.0, https://ruffle.rs

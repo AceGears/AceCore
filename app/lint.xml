@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Vendored SDL 2.26.3 Java glue: kept byte-identical to upstream so it matches the native libraries. -->
+    <issue id="all">
+        <ignore path="src/main/java/org/libsdl" />
+    </issue>
+</lint>
