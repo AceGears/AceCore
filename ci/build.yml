@@ -40,6 +40,19 @@ jobs:
         run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=compile.log ci/run-gradle.sh compileDebugKotlin
       - name: Unit tests (JVM + Robolectric)
         run: GRADLE_LOG=test.log ci/run-gradle.sh testDebugUnitTest
+      - name: Test summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          rows = []; total = fail = skip = 0
+          for f in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              r = ET.parse(f).getroot()
+              t, fl, sk = int(r.get("tests")), int(r.get("failures")) + int(r.get("errors")), int(r.get("skipped"))
+              total += t; fail += fl; skip += sk
+              rows.append(f"{r.get('name').split('.')[-1]}: {t} tests, {fl} failed, {sk} skipped")
+          print(f"::notice title=Unit tests: {total} run, {fail} failed, {skip} skipped::" + "%0A".join(rows))
+          PY
       - name: Assemble debug APK (no native runtimes)
         run: GRADLE_LOG=assemble.log ci/run-gradle.sh assembleDebug
       - name: Upload Room schemas
