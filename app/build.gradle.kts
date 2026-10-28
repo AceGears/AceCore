@@ -34,6 +34,14 @@ android {
     }
 
     signingConfigs {
+        // One fixed development key for every debug build (local and CI), so a new build installs over the previous one.
+        // It is public on purpose: it only identifies AceCore development builds, never a Play release.
+        getByName("debug") {
+            storeFile = rootProject.file("ci/acecore-dev.keystore")
+            storePassword = "acecore-dev"
+            keyAlias = "acecore"
+            keyPassword = "acecore-dev"
+        }
         create("release") {
             val storePath = signingValue("storeFile", "ACECORE_STORE_FILE")
             if (storePath != null) {
