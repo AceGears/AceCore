@@ -20,33 +20,22 @@ RPG Maker XP/VX/VX Ace and Pokémon Essentials, on top of the web runtime, Flash
 3. Unit tests: `./gradlew testDebugUnitTest`.
 4. Release: copy `keystore.properties.example` to `keystore.properties` (git-ignored) and fill it in, or set the `ACECORE_*` environment variables. Then run `./gradlew bundleRelease` (AAB) or `assembleRelease` (APK).
 
-## What works in this milestone
+## What's in 0.4
 
 | Area | Status |
 |---|---|
-| Branding, design system, 10 themes + full custom theme (colours, glow, gradient, borders, corners, opacity, text size, animation speed), follow-system, reset, persistence | Implemented, not device-tested |
-| Library: cover grid / compact / large / list / carousel, search, filters, categories, sorting, Continue Playing, Favorites, hide/unhide, playtime tracking | Implemented, not device-tested |
-| Long-press game menu (play, details, edit, cover, launch file, settings, mapping, open folder, shortcut, favorite, hide, remove) | Implemented, not device-tested |
-| Import via Storage Access Framework (single game or folder of games), duplicate detection, persisted folder grants, no broad storage permission | Implemented, not device-tested |
-| Detection engine: 19 engines, multi-signal confidence scoring, version extraction (MV/MZ, Ren'Py, Godot pck, RGSS archives), Pokémon Essentials profile, packed Electron/NW.js detection, PE header validation, launch-file candidates | Implemented; **unit tests written, not yet run** |
-| **Web Runtime**: HTML5, RPG Maker MV, MZ, Construct 2/3, TyranoScript. Isolated `:game` process, per-game origin (separate saves), SAF-backed file server with HTTP range support, offline by default, bridge script | Implemented, not device-tested. Bridge JS: **tested (Node)** |
-| Asset path cache: case-insensitive, traversal-safe, persisted per game, invalidated on rescan, rebuild from pause menu | Implemented; unit tests written |
-| Controllers: Android gamepads (buttons, D-pad, hats, sticks, analog triggers), hot-plug, automatic default mapping, visual remapping editor | Implemented, not device-tested |
-| Virtual gamepad (multi-touch, D-pad with diagonals, drag-to-arrange layout saved per orientation, opacity, size, haptics); virtual PC keyboard with sticky modifiers | Implemented, not device-tested |
-| Pause overlay: resume, controls toggle, layout editor, keyboard, FPS overlay (measured), reload, rebuild cache, recent script errors, exit | Implemented, not device-tested |
-| Layered config (per-game → per-engine → global → default) with inherited/overridden indicators and reset | Implemented; unit tests written |
-| Compatibility Center: engine, version, confidence, runtime status/licence/blocker, diagnostics, detection evidence, engine override | Implemented, not device-tested |
-| Library backup/restore (metadata + settings, clearly not game data), cache stats/clear, diagnostic report | Implemented, not device-tested |
-| **Flash (Ruffle 0.7.1)**: .swf games via the bundled Ruffle WebAssembly build on the game's origin; SWF header parsing (version, compression, AS3 detection with warning); Flash-specific default controller layout; existing library entries are upgraded automatically | Implemented, not device-tested. Host page + bridge: **tested (Node, simulated Ruffle)**; SWF parser: unit tests written |
-| **RGSS runtime integration** (mkxp-z via mkxp-z-android-reworked): SDL host activity in an isolated process, JNI contract, per-game data dir, player settings via the engine's own config merge, AceCore virtual gamepad/keyboard/menu over SDL, Restart (F12), playtime | Implemented, not device-tested. **Native libraries are built by the CI workflow, not by Android Studio** (see `docs/RGSS_RUNTIME.md`). Without them RGSS games are shown as "Runtime not built" |
-| Game installer: incremental private working copy (no all-files permission), protects saves, cancellable progress, space check; storage usage and leftover cleanup; opt-in deletion on removal | Implemented; **unit tests written** |
-| Script Compatibility Analyzer: Ruby Marshal reader + zlib for Data/Scripts.*; Essentials version, mkxp-z awareness, Windows DLL / native-extension / Fiddle warnings | Implemented; decoding algorithm **verified against real Ruby 3.3 output**; Kotlin tests use those bytes as fixtures |
-| CI (`.github/workflows/build.yml`): compile + unit tests on every push; full APK with RGSS runtime on tag/manual run | Written, **not yet run** |
-| RPG Maker 2000/2003 (EasyRPG), Ren'Py, Godot runtimes | **Not implemented.** Detected and explained in-app; see `docs/COMPATIBILITY_MATRIX.md` |
-| Cheat manager, save manager, shader library, Vulkan renderer, Live2D, performance profiles, display viewport editor | **Not implemented**. Cheats and save editing depend on the RGSS runtime (Ruby game-state adapters) |
-
-## Fixed in milestone 3
-- Web/Flash games launched in a separate task (`singleTask` + own affinity), so Android reported the result as cancelled immediately. Playtime and launch errors weren't recorded. The game activity now launches normally.
+| **Direct launching (RGSS)**: with Android's "All files access", RPG Maker XP/VX/VX Ace and Pokémon Essentials games run in place from their folder (SAF id → real path); no copy, no per-launch file check. Asked once, on first play; optional | Implemented. Engine start from shared storage: **see emulator result below**; not yet tested on a phone |
+| **Private copy fallback**: copied once, later launches immediate; rescan marks it outdated; cancelled copies finish next launch; saves can be copied out of an old copy and the copy deleted (game-created files are backed up first) | Implemented; installer unit-tested |
+| **Launch-file browser**: Automatic / Manual, browse the game folder and sub-folders, any file selectable, clear explanation for files that can't start a game, choice stored permanently, "launch file missing" prompt | Implemented; rules unit-tested (13 tests) |
+| Accurate wording: "Selected file: Game.exe · Runtime: RGSS-compatible Android runtime (mkxp-z) · Configuration: Game.ini" | Implemented |
+| **Home screen**: logo header with search, layout and settings; no Continue Playing / filter chips; category tabs or pills; cover grid with columns, size, aspect ratio, spacing, radius, border colour, glow, titles; tap = play, long-press = game menu; multi-select | Implemented; UI tour on emulator (see below) |
+| **Categories**: create/rename/icon/colour/cover, hide/unhide, drag-to-reorder, delete (games stay), many categories per game, add/move/remove (batch), linked folders with scan and optional auto-scan | Implemented; database behaviour Robolectric-tested |
+| **Game page**: cover backdrop, Play/Favourite/Settings, How it starts, Game files (direct/copy), Statistics, Cheats, Categories, Manage, Game information; Diagnostics moved to a Troubleshooting screen | Implemented |
+| **Statistics**: playtime (game on screen only), sessions, first/last played, average/longest session, successful/failed launches, measured start-up time | Implemented; DB update logic Robolectric-tested |
+| **Cheat manager** (RGSS): enable switch, profiles, favourites, search, import/export, reset, save backups/restore; in-game panel: money, items, Poké Balls, level/EXP/IV/EV/nature/ability/friendship/shiny, heal, add Pokémon, send to PC, movement speed, no random encounters; RPG Maker gold/items/level/recover | Implemented. Ruby side tested against mocks of Essentials v21/v18 and RPG Maker XP (54 checks); method names checked against Essentials v21.1 source. **Not yet tried with a real Essentials game** |
+| **Engines page**: grouped, runtime version, honest status (Runs on this device / Installed / Not in this version / Not supported) | Implemented |
+| Database v1 → v2 migration keeps every game, playtime, favourite and setting; v0.3 categories become real categories | Robolectric-tested |
+| RPG Maker 2000/2003, Godot, Ren'Py runtimes | **Not implemented**; evaluated in `docs/COMPATIBILITY_MATRIX.md` |
 
 ## Getting a build that runs RPG Maker XP/VX/Ace games
 Android Studio builds everything except the native RGSS engine. Copy `ci/build.yml` to `.github/workflows/build.yml` (create the folders), push this folder to a GitHub repository, then

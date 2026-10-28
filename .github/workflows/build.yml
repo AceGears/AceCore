@@ -18,6 +18,14 @@ on:
         description: Also build the RGSS (mkxp-z) native runtime and a full APK
         type: boolean
         default: true
+      natives_run_id:
+        description: Reuse the RGSS natives of an earlier run (run id) instead of rebuilding them
+        type: string
+        default: ''
+      device_tests:
+        description: Run the emulator tests
+        type: boolean
+        default: true
 
 env:
   # Pinned, reviewed revision of https://github.com/BookerRues9/mkxp-z-android-reworked
@@ -75,7 +83,7 @@ jobs:
 
   rgss-natives:
     name: Build RGSS runtime (mkxp-z, arm64-v8a)
-    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.build_rgss)
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.build_rgss && inputs.natives_run_id == '')
     runs-on: ubuntu-22.04
     steps:
       - name: Check out pinned mkxp-z Android port
@@ -162,11 +170,19 @@ jobs:
   full-apk:
     name: AceCore + RGSS runtime APK
     needs: [ app, rgss-natives ]
+    if: always() && needs.app.result == 'success' && (needs.rgss-natives.result == 'success' || inputs.natives_run_id != '')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
-        with: { name: rgss-natives-arm64-v8a, path: natives }
+        with:
+          name: rgss-natives-arm64-v8a
+          path: natives
+          run-id: ${{ inputs.natives_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Add natives to the app
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
@@ -185,13 +201,19 @@ jobs:
   device-tests:
     name: Emulator tests (direct RGSS launch, cheats channel, UI tour)
     needs: [ rgss-natives ]
+    if: always() && (needs.rgss-natives.result == 'success' || inputs.natives_run_id != '') && (github.event_name != 'workflow_dispatch' || inputs.device_tests)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
-        with: { name: rgss-natives-arm64-v8a, path: natives }
+        with:
+          name: rgss-natives-arm64-v8a
+          path: natives
+          run-id: ${{ inputs.natives_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Add natives to the app
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
@@ -215,7 +237,9 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          ram-size: 4096M
+          emulator-boot-timeout: 1500
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -accel on
           script: bash ci/device-tests.sh
       - name: Publish results as a pre-release (screenshots, metrics, logs)
         if: always()
