@@ -135,6 +135,7 @@ fun GameFilesCard(g: GameEntity) {
                         when {
                             direct && i?.directReadable == true -> "Played directly from your folder"
                             direct && i?.directPath == null -> "Direct play isn't possible for this folder"
+                            direct && access -> "Game folder not found"
                             direct -> "Direct play: waiting for file access"
                             i?.copyInstalled == true -> "Played from AceCore's private copy"
                             else -> "Private copy (made on first launch)"
@@ -145,6 +146,7 @@ fun GameFilesCard(g: GameEntity) {
                         when {
                             direct && i?.directReadable == true -> "Nothing is copied. Launches go straight to the engine."
                             direct && i?.directPath == null -> "Its storage provider has no ordinary file path, so AceCore uses a private copy instead."
+                            direct && access -> "Nothing is at ${i?.directPath?.absolutePath}. If you moved the game, remove it and add it again."
                             direct -> "Allow \"All files access\" so the engine can read the game where it is."
                             i?.copyInstalled == true -> "${formatBytes(i.copyBytes)} in AceCore's storage" + if (i.copyOutdated) " · updates on next launch (the game was rescanned)" else " · up to date"
                             else -> "The first launch copies the game into AceCore's storage."

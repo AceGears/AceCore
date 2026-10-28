@@ -53,6 +53,8 @@ import com.acecore.app.feature.importer.ImportScreen
 import com.acecore.app.feature.launcher.LaunchOptions
 import com.acecore.app.feature.launcher.LaunchPreparation
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FolderOpen
 import com.acecore.app.feature.library.HomeScreen
 import com.acecore.app.feature.settings.ConfigScopeScreen
 import com.acecore.app.feature.settings.SettingsHomeScreen
@@ -294,7 +296,7 @@ private fun CopyProgressDialog(st: StagingState) {
 fun FileAccessDialog(title: String, directPossible: Boolean, onAllow: () -> Unit, onCopy: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.FolderOpen, null) },
+        icon = { androidx.compose.material3.Icon(Icons.Rounded.FolderOpen, null) },
         title = { Text(if (directPossible) "Play $title directly from your folder" else "This folder needs a private copy") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

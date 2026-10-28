@@ -140,7 +140,9 @@ class CategoryRepository(
         for (d in dirs) {
             val uri = Uri.parse(d.treeUri)
             if (!games.hasAccess(d.treeUri)) { failed += "${d.label}: folder access was lost; choose the folder again"; continue }
-            val outcome = runCatching { games.scan(uri) { progress("${d.label}: $it") } }.getOrElse { failed += "${d.label}: ${it.message}"; continue }
+            val scanned = runCatching { games.scan(uri) { progress("${d.label}: $it") } }
+            val outcome = scanned.getOrNull()
+            if (outcome == null) { failed += "${d.label}: ${scanned.exceptionOrNull()?.message}"; continue }
             val candidates = when (outcome) {
                 is ScanOutcome.Single -> listOf(outcome.candidate)
                 is ScanOutcome.Collection -> outcome.candidates

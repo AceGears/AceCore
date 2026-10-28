@@ -168,3 +168,54 @@ jobs:
         with:
           name: AceCore-full-debug-arm64
           path: app/build/outputs/apk/debug/*.apk
+
+  device-tests:
+    name: Emulator tests (direct RGSS launch, cheats channel, UI tour)
+    needs: [ rgss-natives ]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: { name: rgss-natives-arm64-v8a, path: natives }
+      - name: Add natives to the app
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp natives/arm64-v8a/*.so app/src/main/jniLibs/arm64-v8a/
+      - name: Generate the test game
+        run: ruby ci/make_test_game.rb app/src/androidTest/assets/tinyxp
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and test APKs
+        run: chmod +x gradlew ci/run-gradle.sh ci/device-tests.sh && GRADLE_LOG=device-build.log ci/run-gradle.sh assembleDebug assembleDebugAndroidTest
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run on emulator (Android 11, x86_64 with ARM translation)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ci/device-tests.sh
+      - name: Publish results as a pre-release (screenshots, metrics, logs)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -d device-results ] || exit 0
+          cd device-results && zip -qr ../device-results.zip . && cd ..
+          TAG="device-tests-${{ github.run_id }}"
+          gh release create "$TAG" device-results.zip device-results/testresults/*.png --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "Device test results (run ${{ github.run_id }})" --notes "Emulator test output for $GITHUB_SHA" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-results
+          path: device-results/
