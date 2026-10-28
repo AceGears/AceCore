@@ -1,0 +1,38 @@
+name: Publish APK from a build
+
+# Copies the APK artifact of an existing "AceCore build" run into a GitHub (pre-)release,
+# without rebuilding. Release assets are easier to download than workflow artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the "AceCore build" run whose APK should be published
+        required: true
+      tag:
+        description: Release tag to create
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AceCore-full-debug-arm64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: apk
+      - name: Create pre-release with the APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la apk
+          cp apk/*.apk "AceCore-${{ inputs.tag }}-arm64-debug.apk"
+          gh release create "${{ inputs.tag }}" "AceCore-${{ inputs.tag }}-arm64-debug.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "AceCore ${{ inputs.tag }} (debug, arm64, with RGSS runtime)" \
+            --notes "Built by run ${{ inputs.run_id }}. Includes the mkxp-z RGSS runtime (RPG Maker XP/VX/VX Ace, Pokémon Essentials), web runtime and Ruffle. GPL-3.0-or-later; source is this repository at this tag."
