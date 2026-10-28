@@ -12,6 +12,10 @@ ENVS = {}
 
 # --------------------------------------------------------------------------------------- shared mocks
 COMMON = <<~'RUBY'
+  module Kernel
+    def load_data(f) "data:#{f}" end
+    private :load_data
+  end
   module Graphics
     @frames = 0
     def self.update; @frames += 1; end
@@ -204,6 +208,9 @@ RUBY
 SCENARIOS = {}
 
 SCENARIOS["essentials_v20"] = <<~'RUBY'
+  check("boot marker written when the helper loads", File.exist?(File.join(DIR, "boot")))
+  check("load_data still works", load_data("Data/System.rxdata") == "data:Data/System.rxdata")
+  check("stage shows what the game loads", File.read(File.join(DIR, "stage")).include?("Data/System.rxdata"))
   frames(1)
   check("ready marker written on first frame", File.exist?(File.join(DIR, "ready")))
   check("ready marker holds a millisecond timestamp", File.read(File.join(DIR, "ready")).to_i > 1_600_000_000_000)

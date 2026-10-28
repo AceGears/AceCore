@@ -153,7 +153,13 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
     val resultLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = runningGameId
         runningGameId = -1L
-        if (id > 0) scope.launch { coordinator.onResult(id, result.resultCode, result.data) }
+        if (id > 0) scope.launch {
+            coordinator.onResult(id, result.resultCode, result.data)
+            // "Retry" on the game's start-up failure screen: start it again.
+            if (result.data?.getBooleanExtra(com.acecore.app.runtime.rgss.RgssActivity.EXTRA_RETRY, false) == true) {
+                ctx.container.games.get(id)?.let { launcherRef.get()?.launch(it) }
+            }
+        }
     }
     val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val id = resumeAfterGrantId

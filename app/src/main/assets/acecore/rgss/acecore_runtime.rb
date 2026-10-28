@@ -25,6 +25,10 @@ module AceCore
   class << self
     attr_reader :flags
 
+    def ready?
+      @ready
+    end
+
     def now_ms
       (Time.now.to_f * 1000).to_i
     end
@@ -604,6 +608,21 @@ module AceCore
         "#{actor.name} is now level #{actor.level}"
       end
     end
+  end
+end
+
+# Launch stages, read by AceCore's start-up watchdog: "boot" = Ruby is running (this file was loaded),
+# "stage" = what the game is loading right now, "ready" = first frame.
+AceCore.write("boot", "#{AceCore.now_ms}\n")
+
+module Kernel
+  if private_method_defined?(:load_data) || method_defined?(:load_data)
+    alias_method :acecore_original_load_data, :load_data
+    def load_data(*args)
+      AceCore.write("stage", "Loading #{args[0]}\n") unless AceCore.ready?
+      acecore_original_load_data(*args)
+    end
+    private :load_data, :acecore_original_load_data
   end
 end
 

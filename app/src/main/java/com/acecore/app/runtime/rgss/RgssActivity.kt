@@ -99,6 +99,10 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     companion object {
         private const val TAG = "AceCoreRgss"
+        const val EXTRA_RETRY = "com.acecore.app.extra.RETRY"
+        /** No visible progress for this long during start-up → failure screen (with "Keep waiting"). */
+        private const val STALL_MS = 60_000L
+        private const val ENGINE_START_MS = 20_000L
 
         /** Read by native main() via JNI. */
         @JvmField var GAME_PATH: String = ""
@@ -142,6 +146,12 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var cheatsOpen by mutableStateOf(false)
     /** True until the game draws its first frame (reported by AceCore's runtime helper). */
     private var starting by mutableStateOf(true)
+    /** Current launch stage shown in the start-up indicator. */
+    private var stageText by mutableStateOf("Loading the engine…")
+    /** Set when start-up failed or stalled: shown as a full failure screen instead of an endless black screen. */
+    private var failure by mutableStateOf<StartFailure?>(null)
+    private var engineStartRequested = false
+    private var logThread: Thread? = null
     private var keyboardOpen by mutableStateOf(false)
     private var editingLayout by mutableStateOf(false)
     private var gamepadVisible by mutableStateOf(true)
@@ -187,23 +197,92 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         refreshGamepadVisibility()
+        startLogCapture(s)
+        Log.i(TAG, "Game path: ${s.gamePath} (direct=${s.direct}, helper=${s.helper})")
         attachOverlay(s)
         watchStartup(s)
     }
 
     /**
-     * Shows a small "Starting…" indicator only while the engine really is starting: it disappears as soon as the
-     * runtime helper reports the first frame. Without the helper there is no reliable signal, so nothing is shown.
+     * Start-up watchdog. Follows the real launch stages and shows them in the indicator:
+     *   engine thread started (SDL) → Ruby running (helper "boot") → game scripts loading data ("stage") → first frame ("ready").
+     * A Ruby exception ("error") or no progress for [STALL_MS] shows a failure screen with the stage, the reason that was
+     * actually detected, and the engine log, instead of leaving a black screen.
      */
     private fun watchStartup(s: RgssLaunchSpec) {
-        if (!s.helper) { starting = false; return }
-        val ready = File(RgssRuntime.helperDir(File(s.dataPath)), "ready")
+        val dir = RgssRuntime.helperDir(File(s.dataPath))
+        val ready = File(dir, "ready"); val boot = File(dir, "boot"); val stage = File(dir, "stage"); val error = File(dir, "error")
         lifecycleScope.launch {
-            val until = SystemClock.elapsedRealtime() + 30_000
-            while (!ready.exists() && SystemClock.elapsedRealtime() < until) delay(100)
-            starting = false
+            var lastKey = ""
+            var lastProgress = SystemClock.elapsedRealtime()
+            while (true) {
+                if (ready.exists()) { starting = false; return@launch }
+                val err = error.takeIf { it.exists() }?.let { runCatching { it.readText().trim() }.getOrNull() }
+                if (!err.isNullOrEmpty()) {
+                    failure = StartFailure(currentStage(boot, stage), "The game stopped with a script error:\n$err", detected = true)
+                    starting = false; return@launch
+                }
+                val key = when {
+                    stage.exists() -> runCatching { stage.readText().trim() }.getOrDefault("")
+                    boot.exists() -> "boot"
+                    SDLActivity.mSDLThread != null -> "thread"
+                    else -> "init"
+                }
+                stageText = when (key) {
+                    "init" -> "Loading the engine…"
+                    "thread" -> if (s.helper) "Starting Ruby and reading Game.ini…" else "Engine running…"
+                    "boot" -> "Running the game's scripts…"
+                    else -> key.removePrefix("Loading ").let { "Loading game data: ${it.substringAfterLast('/')}" }
+                }
+                val now = SystemClock.elapsedRealtime()
+                if (key != lastKey) { lastKey = key; lastProgress = now }
+                // Without the helper only the engine thread is observable; then just make sure it started.
+                if (!s.helper && key == "thread") { starting = false; return@launch }
+                val limit = if (key == "init") ENGINE_START_MS else STALL_MS
+                if (now - lastProgress > limit && failure == null) {
+                    failure = StartFailure(
+                        currentStage(boot, stage),
+                        if (key == "init") "The engine thread didn't start within ${limit / 1000} s. No error was reported; the cause hasn't been identified yet (see the engine log)."
+                        else "No progress for ${limit / 1000} s at this stage. No error was reported; the game may still be working on something slow, or it is stuck.",
+                        detected = false,
+                    )
+                }
+                delay(250)
+            }
         }
     }
+
+    private fun currentStage(boot: File, stage: File): String = when {
+        stage.exists() -> "Game scripts (" + runCatching { stage.readText().trim() }.getOrDefault("loading") + ")"
+        boot.exists() -> "Game scripts (before loading any data)"
+        SDLActivity.mSDLThread != null -> "Engine start-up (Ruby / Game.ini / Data/Scripts)"
+        else -> "Engine thread start"
+    }
+
+    /** Copies this process's own log (SDL, mkxp-z, Ruby messages) into the game's helper folder for diagnosis. */
+    private fun startLogCapture(s: RgssLaunchSpec) {
+        val out = File(RgssRuntime.helperDir(File(s.dataPath)), "runtime.log")
+        logThread = Thread({
+            runCatching {
+                out.parentFile?.mkdirs()
+                val p = ProcessBuilder("logcat", "-v", "time", "--pid=${android.os.Process.myPid()}").redirectErrorStream(true).start()
+                out.outputStream().buffered().use { o ->
+                    p.inputStream.bufferedReader().useLines { lines ->
+                        var bytes = 0L
+                        for (l in lines) {
+                            if (bytes > 2_000_000) break
+                            val b = (l + "\n").toByteArray()
+                            o.write(b); o.flush(); bytes += b.size
+                        }
+                    }
+                }
+            }
+        }, "AceCoreLog").apply { isDaemon = true; start() }
+    }
+
+    private fun logTail(s: RgssLaunchSpec, lines: Int = 40): String =
+        runCatching { File(RgssRuntime.helperDir(File(s.dataPath)), "runtime.log").readLines().takeLast(lines).joinToString("\n") }
+            .getOrDefault("(no log captured)")
 
     /**
      * SDL derives its "pref path" (where mkxp-z reads the user mkxp.json and Essentials-style games save) from
@@ -280,6 +359,14 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     override fun onStart() {
         super.onStart()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        // This SDL build (from mkxp-z-android-reworked) does NOT start or resume its native thread in
+        // SDLActivity.onStart; the host activity must call resumeNativeThread() itself (the port's MainActivity does
+        // this in runSDLThread). Without it mIsResumedCalled stays false and the engine never starts: black screen.
+        if (spec != null && !SDLActivity.mBrokenLibraries && !isFinishing) {
+            if (!engineStartRequested) Log.i(TAG, "Starting the SDL/mkxp-z thread")
+            engineStartRequested = true
+            resumeNativeThread()
+        }
     }
 
     override fun onResume() {
@@ -384,8 +471,55 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
             if (menuOpen) RgssMenu(s, accent)
             if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
-            if (starting && !menuOpen) StartingPill(s.title, accent, Modifier.align(Alignment.TopCenter))
+            if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
+            failure?.let { f -> FailureScreen(s, f, accent) }
         }
+    }
+
+    @Composable
+    private fun FailureScreen(s: RgssLaunchSpec, f: StartFailure, accent: Color) {
+        var details by remember { mutableStateOf(false) }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(20.dp)
+                    .background(PanelBg, RoundedCornerShape(22.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
+                    .verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(if (f.detected) "Unable to start the game" else "The game isn't starting", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Text("Game: ${s.title}", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text("Engine: ${com.acecore.app.core.model.Engine.fromName(s.engine).displayName} · RGSS runtime (mkxp-z)", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text("Stage: ${f.stage}", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text("Files: " + if (s.direct) "direct from ${s.gamePath}" else "AceCore's private copy", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text(f.reason, color = Color.White, fontSize = 14.sp)
+                if (details) Text(logTail(s, 60), color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(10.dp)).padding(8.dp))
+                Spacer(Modifier.height(6.dp))
+                MenuItem(Icons.Rounded.RestartAlt, "Retry", accent, highlight = true) { finishForRetry(f) }
+                MenuItem(Icons.Rounded.Edit, if (details) "Hide details" else "View error details", accent,
+                    subtitle = "Engine log. Copy it to share with support.") { details = !details }
+                if (details) MenuItem(Icons.Rounded.Edit, "Copy details", accent) {
+                    val text = "AceCore start-up failure\nGame: ${s.title}\nStage: ${f.stage}\nReason: ${f.reason}\nPath: ${s.gamePath}\n\n${logTail(s, 300)}"
+                    (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("AceCore log", text))
+                    android.widget.Toast.makeText(this@RgssActivity, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                if (!f.detected) MenuItem(Icons.Rounded.PlayArrow, "Keep waiting", accent) { failure = null; starting = true; watchStartup(s) }
+                MenuItem(Icons.AutoMirrored.Rounded.ExitToApp, "Return to library", accent) { failAndFinish("${f.stage}: ${f.reason.lineSequence().first()}") }
+            }
+        }
+    }
+
+    private fun finishForRetry(f: StartFailure) {
+        setResult(RESULT_FIRST_USER, Intent()
+            .putExtra(com.acecore.app.runtime.web.GameLaunchSpec.RESULT_ERROR, "${f.stage}: ${f.reason.lineSequence().first()}")
+            .putExtra(EXTRA_RETRY, true))
+        finish()
     }
 
     @Composable
@@ -397,7 +531,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         ) {
             androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = accent, strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
-            Text("Starting $title…", color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 
@@ -434,3 +568,6 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }
     }
 }
+
+/** What went wrong during start-up. [detected] = an actual error was reported (vs. a stall). */
+data class StartFailure(val stage: String, val reason: String, val detected: Boolean)
