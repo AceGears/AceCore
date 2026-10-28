@@ -96,8 +96,28 @@ jobs:
       - name: Build port (ndk-build of mkxp-z and libraries)
         working-directory: port
         run: |
+          # Only arm64-v8a dependencies were compiled above, so build only that ABI.
+          sed -i 's/^APP_ABI.*/APP_ABI := arm64-v8a/' app/jni/Application.mk
+          sed -i "s/include 'arm64-v8a', 'armeabi-v7a'/include 'arm64-v8a'/" app/build.gradle
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease -Pandroid.suppressUnsupportedCompileSdk=34
+          set +e
+          ./gradlew --no-daemon assembleRelease -Pandroid.suppressUnsupportedCompileSdk=34 > ../port-build.log 2>&1
+          status=$?
+          set -e
+          tail -n 60 ../port-build.log
+          if [ $status -ne 0 ]; then
+            # Surface the real errors as annotations (readable via the API even when raw logs are not).
+            grep -nE "error:|Error|FAILED|What went wrong|undefined reference|No such file|cannot find|fatal" ../port-build.log \
+              | grep -v "AC_HELP_STRING" | head -60 > ../port-errors.txt || true
+            i=0
+            while [ $i -lt 9 ]; do
+              chunk=$(sed -n "$((i*7+1)),$((i*7+7))p" ../port-errors.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+              [ -n "$chunk" ] && echo "::error title=port build ($i)::$chunk"
+              i=$((i+1))
+            done
+            echo "::error title=port build tail::$(tail -n 25 ../port-build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit $status
+          fi
       - name: Extract shared libraries
         run: |
           APK=$(find port/app/build/outputs/apk/release -name '*.apk' | grep -E 'arm64|universal' | head -1)
