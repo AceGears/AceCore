@@ -13,6 +13,7 @@ adb logcat -c
 status=0
 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
+grep -q "AssumptionViolatedException\|no RGSS native" device-results/rgss-test.txt && { echo "::error title=rgss test skipped::the RGSS natives were not loadable"; status=1; }
 adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
 grep -q "^OK (" device-results/ui-test.txt || status=1
 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ || true
