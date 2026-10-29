@@ -315,11 +315,12 @@ jobs:
       - name: Generate the test game
         run: ruby ci/make_test_game.rb app/src/androidTest/assets/tinyxp
       - name: Export the Godot test game (official Godot 4.7 editor, headless)
+        continue-on-error: true
         run: |
           curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.7-stable/Godot_v4.7-stable_linux.x86_64.zip
           unzip -q godot.zip -d godot-bin
-          G=$(ls godot-bin/Godot_v4.7-stable_linux.x86_64)
-          G=godot-bin/$G
+          G=$(find godot-bin -maxdepth 2 -type f -name 'Godot_v4.7-stable_linux*' | head -1)
+          echo "Godot editor: $G"
           chmod +x "$G"
           "$G" --headless --path ci/godot-test --import 2>&1 | tail -n 20 || true
           mkdir -p app/src/androidTest/assets/godot
