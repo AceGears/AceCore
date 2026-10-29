@@ -279,6 +279,7 @@ jobs:
   device-tests:
     name: Emulator tests (direct RGSS launch, cheats channel, UI tour)
     needs: [ rgss-natives, easyrpg-natives ]
+    timeout-minutes: 150
     if: always() && (needs.rgss-natives.result == 'success' || inputs.natives_run_id != '') && (github.event_name != 'workflow_dispatch' || inputs.device_tests)
     runs-on: ubuntu-24.04
     permissions:
@@ -343,7 +344,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm && echo "::notice title=kvm::$(ls -l /dev/kvm) cpus=$(nproc)"
       - name: Run on emulator (Android 11 x86_64, ARM translation)
-        timeout-minutes: 60
+        timeout-minutes: 100
         run: EMU_API=30 bash ci/emulator.sh
       - name: Publish results as a pre-release (screenshots, metrics, logs)
         if: always()

@@ -4,6 +4,7 @@ set -u
 PKG=com.acecore.app.debug
 RUNNER=$PKG.test/androidx.test.runner.AndroidJUnitRunner
 mkdir -p device-results
+# Each test is limited to 15 minutes so one hung game can't use up the job; results are still collected.
 adb shell getprop ro.product.cpu.abilist | tee device-results/abilist.txt
 adb install -r -t app/build/outputs/apk/debug/app-debug.apk
 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -11,14 +12,14 @@ adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.
 adb shell appops set --uid $PKG MANAGE_EXTERNAL_STORAGE allow || adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow
 adb logcat -c
 status=0
-adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
+timeout 900 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
 grep -q "AssumptionViolatedException\|no RGSS native" device-results/rgss-test.txt && { echo "::error title=rgss test skipped::the RGSS natives were not loadable"; status=1; }
-adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
+timeout 900 adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
 grep -q "^OK (" device-results/ui-test.txt || status=1
-adb shell am instrument -w -r -e class com.acecore.app.GodotLaunchTest $RUNNER | tee device-results/godot-test.txt
+timeout 900 adb shell am instrument -w -r -e class com.acecore.app.GodotLaunchTest $RUNNER | tee device-results/godot-test.txt
 grep -q "^OK (" device-results/godot-test.txt || status=1
-adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunchTest $RUNNER | tee device-results/easyrpg-test.txt
+timeout 900 adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunchTest $RUNNER | tee device-results/easyrpg-test.txt
 grep -q "^OK (" device-results/easyrpg-test.txt || status=1
 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ || true
 adb logcat -d > device-results/logcat.txt || true
