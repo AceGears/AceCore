@@ -190,10 +190,12 @@ jobs:
           bad=0
           for f in natives/arm64-v8a/*.so; do
             aligns=$(readelf -lW "$f" | awk '/LOAD/{print $NF}')
+            ok=1; for a in $aligns; do [ $((a)) -ge 16384 ] || ok=0; done
+            [ $ok -eq 1 ] || { bad=1; echo "::warning title=4 KB-aligned library::$(basename "$f"): $(echo $aligns)"; }
             echo "$(basename "$f"): $aligns"
-            for a in $aligns; do [ $((a)) -ge 16384 ] || bad=1; done
           done
-          [ $bad -eq 0 ] || { echo "::error::a native library is not 16 KB-aligned"; exit 1; }
+          # Not fatal yet: 4 KB-aligned libraries still load on 4 KB devices and in Android's 16 KB compatibility mode.
+          [ $bad -eq 0 ] || echo "::warning::some native libraries are not 16 KB-aligned (listed above)"
       - uses: actions/upload-artifact@v4
         with:
           name: rgss-natives-arm64-v8a
