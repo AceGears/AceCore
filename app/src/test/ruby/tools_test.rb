@@ -140,9 +140,16 @@ check "failed quick save reports the error", request(9, "quicksave")[1], "error"
 check "failed quick save keeps the previous slot", File.binread(slot), before
 
 # ---- Essentials flavour
+# Like Essentials: load_all_values only loads values that aren't marked loaded (in a running game: none), and
+# mark_values_as_unloaded resets that (keeping start-up values).
 module SaveData
+  @loaded = true
   def self.compile_save_hash = { variables: $game_variables.dup, player: [3, 4] }
-  def self.load_all_values(h) = ($game_variables = h[:variables]; $loaded_player = h[:player])
+  def self.mark_values_as_unloaded = (@loaded = false)
+  def self.load_all_values(h)
+    return if @loaded
+    $game_variables = h[:variables]; $loaded_player = h[:player]; @loaded = true
+  end
 end
 module Game; def self.load_map = ($map_loaded = true); end
 def pbMapInterpreterRunning? = false

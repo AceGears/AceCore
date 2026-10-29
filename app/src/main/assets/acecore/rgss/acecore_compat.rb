@@ -973,7 +973,16 @@ module AceCoreCompat
           renderer.dispose if renderer.respond_to?(:dispose) && !(renderer.respond_to?(:disposed?) && renderer.disposed?)
           scene.instance_variable_set(:@map_renderer, nil)
         end
-        ::SaveData.load_all_values(data)
+        # SaveData.load_all_values skips values that are already loaded, which in a running game is all of them.
+        # Mark them unloaded first, as Essentials' title screen does (start-up values such as options stay as they are).
+        if ::SaveData.respond_to?(:mark_values_as_unloaded)
+          ::SaveData.mark_values_as_unloaded
+          ::SaveData.load_all_values(data)
+        elsif ::SaveData.respond_to?(:load_values)
+          ::SaveData.load_values(data)
+        else
+          ::SaveData.load_all_values(data)
+        end
         # Followers are cached in $game_temp and rebuilt from the loaded $PokemonGlobal on next use.
         $game_temp.instance_variable_set(:@followers, nil) if $game_temp.instance_variable_defined?(:@followers)
         $game_temp.last_uptime_refreshed_play_time = System.uptime if $game_temp.respond_to?(:last_uptime_refreshed_play_time=)
