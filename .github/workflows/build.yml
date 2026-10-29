@@ -93,6 +93,11 @@ jobs:
           ref: ${{ env.MKXPZ_PORT_REF }}
           path: port
           submodules: recursive
+      - name: Check out AceCore's patches for the port
+        uses: actions/checkout@v5
+        with:
+          path: acecore
+          sparse-checkout: ci/patches
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - name: Host tools
@@ -121,7 +126,7 @@ jobs:
       - name: Apply AceCore patches to mkxp-z (see ci/patches; each file explains its change)
         run: |
           test -f port/app/jni/mkxp-z/src/util/encoding.h
-          cp -rv ci/patches/mkxp-z/. port/app/jni/mkxp-z/
+          cp -rv acecore/ci/patches/mkxp-z/. port/app/jni/mkxp-z/
           grep -q "AceCore patch" port/app/jni/mkxp-z/src/util/encoding.h
       - name: Compile native dependencies (arm64-v8a, 16 KB pages)
         working-directory: port/app/jni

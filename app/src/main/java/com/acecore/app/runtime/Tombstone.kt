@@ -144,7 +144,7 @@ object Tombstone {
             when (w) {
                 0 -> varint()
                 1 -> pos += 8
-                2 -> pos += len()
+                2 -> { val n = len(); pos += n } // not `pos += len()`: that reads pos before len() advances it
                 5 -> pos += 4
                 else -> error("unsupported wire type $w")
             }
