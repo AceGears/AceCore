@@ -88,8 +88,8 @@ object SelfTest {
                 val helper = RgssRuntime.helperDir(GameStorage.dataDir(context, gameId(id))).apply { mkdirs() }
                 val spec = GodotLaunchSpec(gameId(id), "Engine test · Godot", helper.absolutePath, ButtonMap.GODOT_DEFAULT_ENCODED, accent, gamepadMode = "always")
                 val intent = GodotLaunchSpec.intent(context, spec, pack, File(helper, "godot.log"))
-                val args = intent.getStringArrayExtra(GodotActivity.EXTRA_COMMAND_LINE_PARAMS).orEmpty() +
-                    arrayOf("--", "--selftest=" + target.absolutePath)
+                val base: Array<String> = intent.getStringArrayExtra(GodotActivity.EXTRA_COMMAND_LINE_PARAMS) ?: arrayOf()
+                val args: Array<String> = base + arrayOf("--", "--selftest=" + target.absolutePath)
                 intent.putExtra(GodotActivity.EXTRA_COMMAND_LINE_PARAMS, args)
             }
             else -> null

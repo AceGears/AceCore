@@ -1,0 +1,129 @@
+name: AceArcade desktop (Windows, macOS)
+
+# Builds the desktop app (desktop/) and its installers, with the engines AceArcade bundles:
+#   Windows: EasyRPG Player (RPG Maker 2000/2003), Ruffle (Flash)
+#   macOS:   EasyRPG Player, Ruffle, Godot 4.7 (runs Godot games exported for Windows from their .pck)
+# Games that ship their own Windows program (RPG Maker XP/VX/Ace Game.exe, MV/MZ, Ren'Py, Unity…) run natively on Windows.
+on:
+  push:
+    branches: [ main, master, 'overhaul*' ]
+    paths: [ 'desktop/**', 'app/src/main/java/com/acecore/app/core/detection/**', 'app/src/main/java/com/acecore/app/core/model/**', '.github/workflows/desktop.yml' ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Publish the installers as a pre-release with this tag (empty = artifacts only)
+        type: string
+        default: ''
+
+env:
+  EASYRPG_VERSION: 0.8.1.1
+  GODOT_VERSION: 4.7-stable
+
+jobs:
+  test:
+    name: Desktop unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test
+        run: chmod +x gradlew && ./gradlew --no-daemon :desktop:test
+      - name: Test summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          for f in sorted(glob.glob("desktop/build/test-results/test/*.xml")):
+              r = ET.parse(f).getroot()
+              print(f"::notice title={r.get('name').split('.')[-1]}::{r.get('tests')} tests, {int(r.get('failures'))+int(r.get('errors'))} failed")
+              for tc in r.iter('testcase'):
+                  for fl in list(tc.findall('failure')) + list(tc.findall('error')):
+                      print(f"::error title={tc.get('name')}::{(fl.get('message') or '')[:300]}")
+          PY
+
+  windows:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle engines (EasyRPG Player, Ruffle)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          R=desktop/resources/windows/runtimes
+          mkdir -p $R/easyrpg $R/ruffle
+          curl -sSL -o easyrpg.zip "https://easyrpg.org/downloads/player/$EASYRPG_VERSION/easyrpg-player-$EASYRPG_VERSION-windows-x64.zip"
+          unzip -q easyrpg.zip -d $R/easyrpg
+          A=$(gh release view --repo ruffle-rs/ruffle --json assets -q '.assets[].name' | grep -i 'windows-x86_64.zip$' | head -1)
+          gh release download --repo ruffle-rs/ruffle --pattern "$A" --output ruffle.zip
+          unzip -q ruffle.zip -d $R/ruffle
+          echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A"
+          find $R -maxdepth 3 -iname '*.exe' | head
+      - name: Build MSI and EXE installers
+        shell: bash
+        run: ./gradlew --no-daemon :desktop:packageMsi :desktop:packageExe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AceArcade-windows
+          path: |
+            desktop/build/compose/binaries/main/msi/*.msi
+            desktop/build/compose/binaries/main/exe/*.exe
+
+  macos:
+    name: macOS disk image
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle engines (EasyRPG Player, Ruffle, Godot)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          R=desktop/resources/macos/runtimes
+          mkdir -p $R/easyrpg $R/ruffle $R/godot
+          curl -sSL -o easyrpg.zip "https://easyrpg.org/downloads/player/$EASYRPG_VERSION/easyrpg-player-$EASYRPG_VERSION-macos.app.zip"
+          ditto -x -k easyrpg.zip $R/easyrpg
+          A=$(gh release view --repo ruffle-rs/ruffle --json assets -q '.assets[].name' | grep -i 'macos-universal.tar.gz$' | head -1)
+          gh release download --repo ruffle-rs/ruffle --pattern "$A" --output ruffle.tar.gz
+          tar -xzf ruffle.tar.gz -C $R/ruffle
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/$GODOT_VERSION/Godot_v${GODOT_VERSION}_macos.universal.zip"
+          ditto -x -k godot.zip $R/godot
+          echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION"
+          ls -la $R/*
+      - name: Build disk image
+        run: ./gradlew --no-daemon :desktop:packageDmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AceArcade-macos
+          path: desktop/build/compose/binaries/main/dmg/*.dmg
+
+  publish:
+    name: Publish installers
+    needs: [ windows, macos ]
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find dist -type f
+          gh release create "${{ inputs.release_tag }}" $(find dist -type f \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \)) \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "AceArcade desktop ${{ inputs.release_tag }}" --notes "Windows (MSI, EXE) and macOS (DMG) installers built from $GITHUB_SHA."

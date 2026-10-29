@@ -21,3 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "AceCore"
 include(":app")
+// AceArcade for Windows and macOS (Compose Multiplatform desktop); shares the game detection code with :app.
+include(":desktop")
