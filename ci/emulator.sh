@@ -8,8 +8,11 @@ SDKM=$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | head -1)
 AVDM=$(ls "$SDK"/cmdline-tools/*/bin/avdmanager | head -1)
 yes | "$SDKM" --licenses > /dev/null || true
 timeout 900 "$SDKM" --install "platform-tools" "emulator" "$IMG" > sdk-install.log 2>&1 || { echo "::error title=sdkmanager::$(tail -n 20 sdk-install.log | awk '{printf "%s%%0A", $0}')"; exit 1; }
+# One AVD folder for avdmanager and the emulator (newer tools otherwise disagree about ~/.android vs ~/.config).
+export ANDROID_AVD_HOME="$HOME/.android/avd"
+mkdir -p "$ANDROID_AVD_HOME"
 echo no | "$AVDM" create avd -n ci -k "$IMG" -d pixel_5 --force
-printf 'hw.ramSize=3072\ndisk.dataPartition.size=4096M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> ~/.android/avd/ci.avd/config.ini
+printf 'hw.ramSize=3072\ndisk.dataPartition.size=4096M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> "$ANDROID_AVD_HOME/ci.avd/config.ini"
 export PATH="$SDK/emulator:$SDK/platform-tools:$PATH"
 emulator -accel-check | tee emu-accel.txt
 nohup emulator -avd ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none -camera-front none > emulator.log 2>&1 &
