@@ -385,3 +385,46 @@ if defined?(MiniFFI)
   end
   MiniFFI.singleton_class.prepend(AceCoreCompat::MiniFFINew)
 end
+
+#===============================================================================
+# Live display changes from AceArcade's in-game menu (☰ › Display › Screen fit)
+#
+# The menu writes AceCoreCompat::DISPLAY_FILE ({"screenFit":"fit|fill|integer", ...}); this checks it about twice a
+# second and switches the engine's own scaling. (The game-size setting is applied by Android's layout instead.)
+#===============================================================================
+module AceCoreCompat
+  module Display
+    @mtime = nil
+    @frame = 0
+
+    def self.tick
+      @frame += 1
+      return unless (@frame % 30).zero?
+      path = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
+      return unless path
+      mtime = (File.mtime(path) rescue nil)
+      return if mtime.nil? || mtime == @mtime
+      @mtime = mtime
+      fit = File.read(path)[/"screenFit"\s*:\s*"(\w+)"/, 1]
+      apply(fit) if fit
+    rescue StandardError
+      nil
+    end
+
+    def self.apply(fit)
+      Graphics.fixed_aspect_ratio = (fit != 'fill') if Graphics.respond_to?(:fixed_aspect_ratio=)
+      Graphics.integer_scaling = (fit == 'integer') if Graphics.respond_to?(:integer_scaling=)
+      Graphics.last_mile_scaling = (fit != 'integer') if Graphics.respond_to?(:last_mile_scaling=)
+    end
+  end
+end
+
+if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(:__acearcade_update)
+  class << Graphics
+    alias_method :__acearcade_update, :update
+    def update(*args)
+      AceCoreCompat::Display.tick
+      __acearcade_update(*args)
+    end
+  end
+end

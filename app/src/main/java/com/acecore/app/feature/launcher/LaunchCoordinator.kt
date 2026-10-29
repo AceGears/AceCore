@@ -125,7 +125,8 @@ class LaunchCoordinator(
             canRescan = true, fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
         )
         val s = settings.current()
-        val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), games.overrides(game), engine).snapshot()
+        val overrides = if (engine.family == EngineFamily.RGSS) importDisplayChanges(game) else games.overrides(game)
+        val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), overrides, engine).snapshot()
         val accent = accentArgbFor(s.theme)
         if (engine.family == EngineFamily.RGSS) {
             val cfg = if (options.disableHelper) config + (ConfigKey.RGSS_HELPER.id to "false") else config
@@ -246,6 +247,8 @@ class LaunchCoordinator(
     suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?): com.acecore.app.runtime.LaunchFailure? {
         val game = games.get(gameId) ?: return null
         val rgss = game.effectiveEngine.family == EngineFamily.RGSS
+        // Keep the game's settings page in step with what was chosen in-game (☰ › Display).
+        if (rgss) importDisplayChanges(game)
         val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
         val requestedAt = withContext(Dispatchers.IO) { SessionRecord.readLaunch(context, gameId) }
         val helperDir = RgssRuntime.helperDir(GameStorage.dataDir(context, gameId))
@@ -338,6 +341,18 @@ class LaunchCoordinator(
         val direct = File(GameStorage.dataDir(context, game.id), "mkxp.json").exists() &&
             runCatching { File(helperDir, "runtime.log").readText().contains("direct=true") }.getOrDefault(false)
         return com.acecore.app.runtime.LaunchFailure(game.id, game.title, stage, cause, identified, report, file, direct, helperUsed)
+    }
+
+    /**
+     * Saves display changes made in the game's ☰ › Display panel as this game's own settings (they are written to a
+     * small file while playing so they survive the game process being killed). Returns the game's overrides.
+     */
+    private suspend fun importDisplayChanges(game: GameEntity): Map<String, String> {
+        val pending = withContext(Dispatchers.IO) {
+            com.acecore.app.runtime.rgss.DisplayPrefs.takePending(GameStorage.dataDir(context, game.id))
+        } ?: return games.overrides(game)
+        pending.forEach { (k, v) -> games.setOverride(game.id, k, v) }
+        return games.overrides(game) + pending
     }
 
     /** Runtime that a game needs, for UI that wants to show it. */

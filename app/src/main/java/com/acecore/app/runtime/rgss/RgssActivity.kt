@@ -38,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gamepad
@@ -81,6 +82,7 @@ import com.acecore.app.runtime.web.overlay.PanelBg
 import com.acecore.app.runtime.web.overlay.VirtualGamepad
 import com.acecore.app.runtime.web.overlay.VirtualKeyboard
 import org.libsdl.app.SDLActivity
+import kotlin.math.roundToInt
 import java.io.File
 import java.util.Locale
 
@@ -144,6 +146,10 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     private var menuOpen by mutableStateOf(false)
     private var cheatsOpen by mutableStateOf(false)
+    private var displayOpen by mutableStateOf(false)
+    /** Screen fit and game size; changed live from ☰ › Display and saved for this game. */
+    private var display by mutableStateOf(DisplayPrefs())
+    private var appliedSurfaceSize: Pair<Int, Int>? = null
     /** True until the game draws its first frame (reported by AceCore's runtime helper). */
     private var starting by mutableStateOf(true)
     /** Current launch stage shown in the start-up indicator. */
@@ -179,6 +185,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             dataDir = File(s.dataPath).apply { mkdirs() }
             buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id])
             gamepadMode = s.config[ConfigKey.GAMEPAD_MODE.id] ?: "auto"
+            display = DisplayPrefs.from(s.config)
         } else {
             buttonMap = ButtonMap.DEFAULT
         }
@@ -201,7 +208,49 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         startLogCapture(s)
         Log.i(TAG, "Game path: ${s.gamePath} (direct=${s.direct}, helper=${s.helper})")
         attachOverlay(s)
+        watchSurfaceSize()
         watchStartup(s)
+    }
+
+    // ------------------------------------------------------------------ display size
+
+    /** Keeps the game surface at the chosen size whenever the screen area changes (rotation, multi-window…). */
+    private fun watchSurfaceSize() {
+        val layout = SDLActivity.mLayout ?: return
+        layout.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+            if (r - l != oldR - oldL || b - t != oldB - oldT) layout.post { applySurfaceSize() }
+        }
+        layout.post { applySurfaceSize() }
+    }
+
+    /**
+     * Sizes the SDL surface to [DisplayPrefs.sizePercent] of the screen, centred. The engine then sees a smaller window
+     * (SDL reports the new surface size) and scales the game into it according to the screen-fit mode.
+     */
+    private fun applySurfaceSize() {
+        val layout = SDLActivity.mLayout ?: return
+        val surface = SDLActivity.mSurface ?: return
+        val w = layout.width; val h = layout.height
+        if (w <= 0 || h <= 0) return
+        val pct = display.sizePercent.coerceIn(DisplayPrefs.MIN_SIZE, 100)
+        // Keep the screen's proportions so the surface never flips orientation (SDL ignores a portrait surface in landscape).
+        val sw = if (pct >= 100) w else (w * pct / 100)
+        val sh = if (pct >= 100) h else (h * pct / 100)
+        if (appliedSurfaceSize == (sw to sh)) return
+        appliedSurfaceSize = sw to sh
+        surface.layoutParams = RelativeLayout.LayoutParams(
+            if (pct >= 100) ViewGroup.LayoutParams.MATCH_PARENT else sw,
+            if (pct >= 100) ViewGroup.LayoutParams.MATCH_PARENT else sh,
+        ).apply { addRule(RelativeLayout.CENTER_IN_PARENT) }
+    }
+
+    /** Applies a Display-panel change now and records it for this game (imported into its settings by the library). */
+    private fun updateDisplay(next: DisplayPrefs) {
+        val n = next.normalized()
+        if (n == display) return
+        display = n
+        applySurfaceSize()
+        dataDir?.let { dir -> Thread { DisplayPrefs.write(dir, n) }.start() }
     }
 
     /**
@@ -354,6 +403,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private fun onBackRequested() {
         when {
             cheatsOpen -> cheatsOpen = false
+            displayOpen -> displayOpen = false
             editingLayout -> editingLayout = false
             keyboardOpen -> keyboardOpen = false
             else -> menuOpen = !menuOpen
@@ -485,6 +535,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
             if (menuOpen) RgssMenu(s, accent)
             if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
+            if (displayOpen) DisplayPanel(accent)
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
         }
@@ -549,6 +600,65 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }
     }
 
+    /**
+     * ☰ › Display: screen fit and game size, applied live. The panel sits at the top of the screen so the game stays
+     * visible behind it while adjusting.
+     */
+    @Composable
+    private fun DisplayPanel(accent: Color) {
+        Box(
+            Modifier.fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { displayOpen = false },
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                Modifier.padding(top = 12.dp).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp)
+                    .background(PanelBg, RoundedCornerShape(20.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Display", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(onClick = { updateDisplay(DisplayPrefs()) }) { Text("Reset", color = accent) }
+                    androidx.compose.material3.TextButton(onClick = { displayOpen = false }) { Text("Done", color = accent, fontWeight = FontWeight.Bold) }
+                }
+                Text("Screen fit", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(DisplayPrefs.FIT to "Fit", DisplayPrefs.FILL to "Stretch", DisplayPrefs.INTEGER to "Pixel-perfect").forEach { (mode, label) ->
+                        val sel = display.fit == mode
+                        Box(
+                            Modifier.weight(1f).height(40.dp)
+                                .background(if (sel) accent.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                                .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                .clickable { updateDisplay(display.copy(fit = mode)) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(label, color = Color.White, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, fontSize = 13.sp) }
+                    }
+                }
+                Text(
+                    when (display.fit) {
+                        DisplayPrefs.FILL -> "Fills the whole area; the picture is stretched to the screen's shape."
+                        DisplayPrefs.INTEGER -> "Largest whole-number scale that fits: crisp pixels, may leave borders."
+                        else -> "Largest size that keeps the game's proportions."
+                    },
+                    color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Game size", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("${display.sizePercent}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                androidx.compose.material3.Slider(
+                    value = display.sizePercent.toFloat(),
+                    onValueChange = { updateDisplay(display.copy(sizePercent = (it / 5f).roundToInt() * 5)) },
+                    valueRange = DisplayPrefs.MIN_SIZE.toFloat()..100f, steps = (100 - DisplayPrefs.MIN_SIZE) / 5 - 1,
+                    colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+                )
+                Text("Saved for this game. Also in the game's settings in the library.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+            }
+        }
+    }
+
     @Composable
     private fun RgssMenu(s: RgssLaunchSpec, accent: Color) {
         Box(
@@ -570,6 +680,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 MenuItem(Icons.Rounded.Gamepad, if (gamepadVisible) "Hide on-screen controls" else "Show on-screen controls", accent) {
                     gamepadMode = if (gamepadVisible) "never" else "always"; refreshGamepadVisibility(); menuOpen = false
                 }
+                MenuItem(Icons.Rounded.AspectRatio, "Display", accent,
+                    subtitle = "${fitLabel(display.fit)} · ${display.sizePercent}% size") { displayOpen = true; menuOpen = false }
                 MenuItem(Icons.Rounded.Edit, "Edit controls layout", accent) { editingLayout = true; menuOpen = false }
                 MenuItem(Icons.Rounded.Keyboard, "Virtual keyboard", accent) { keyboardOpen = true; menuOpen = false }
                 if (s.helper) MenuItem(Icons.Rounded.AutoFixHigh, "Cheats", accent,
@@ -581,6 +693,12 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             }
         }
     }
+}
+
+private fun fitLabel(fit: String) = when (fit) {
+    DisplayPrefs.FILL -> "Stretch"
+    DisplayPrefs.INTEGER -> "Pixel-perfect"
+    else -> "Fit"
 }
 
 /** What went wrong during start-up. [detected] = an actual error was reported (vs. a stall). */

@@ -55,8 +55,9 @@ object RgssRuntime {
      * Header for the always-on compatibility preload (acecore_compat.rb, also used with the game helper off): the
      * device screen in landscape pixels, which upstream mkxp-z reports through Graphics.display_width/height.
      */
-    fun compatHeader(displayW: Int, displayH: Int): String =
-        "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\nend\n"
+    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null): String =
+        "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\n" +
+            "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\nend\n"
 
     /** Real screen size in landscape orientation (games run landscape). */
     fun landscapeDisplaySize(context: Context): Pair<Int, Int> {
@@ -117,7 +118,7 @@ object RgssRuntime {
         listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
         val (dw, dh) = landscapeDisplaySize(context)
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
-        val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh) + compatBody, Charsets.UTF_8) }
+        val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir)) + compatBody, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
@@ -155,11 +156,15 @@ object RgssRuntime {
 
     fun overrideConfigJson(config: Map<String, String>, preloadScripts: List<String> = emptyList()): String {
         val smooth = config[ConfigKey.FILTERING.id] != "sharp"
+        val display = DisplayPrefs.from(config)
         return Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
             buildJsonObject {
                 put("smoothScaling", smooth)
-                put("fixedAspectRatio", true)
+                put("fixedAspectRatio", display.fixedAspectRatio)
+                put("integerScalingActive", display.integerScaling)
+                // Pixel-perfect means whole-number scaling only: no extra stretch to fill the remaining space.
+                put("integerScalingLastMile", !display.integerScaling)
                 put("vsync", true)
                 put("frameSkip", false)
                 put("syncToRefreshrate", false)

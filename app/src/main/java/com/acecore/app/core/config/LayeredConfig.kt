@@ -35,6 +35,19 @@ enum class ConfigKey(
         "filtering", "Scaling filter", "Sharp keeps pixel art crisp; Smooth blurs when scaled.", ConfigType.CHOICE, "smooth",
         listOf("smooth" to "Smooth (bilinear)", "sharp" to "Sharp (nearest-neighbour)"), section = "Display", appliesTo = WEB_FLASH_RGSS,
     ),
+    SCREEN_FIT(
+        "screenFit", "Screen fit",
+        "How the game fills the screen. Fit keeps its proportions (black bars at the sides), Stretch fills the whole " +
+            "screen, Pixel-perfect scales by whole numbers so pixel art stays crisp. Can also be changed in-game (☰ › Display).",
+        ConfigType.CHOICE, "fit",
+        listOf("fit" to "Fit (keep proportions)", "fill" to "Stretch to fill", "integer" to "Pixel-perfect (whole-number scale)"),
+        section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    SCREEN_SIZE(
+        "screenSize", "Game size", "Size of the game area (%), centred. Lower it to keep the picture clear of the on-screen controls. " +
+            "Can also be changed in-game (☰ › Display).",
+        ConfigType.INT, "100", range = 50..100, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
     SHOW_FPS("showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display"),
     GAMEPAD_MODE(
         "gamepadMode", "On-screen controls", "When to show the virtual gamepad.", ConfigType.CHOICE, "auto",
