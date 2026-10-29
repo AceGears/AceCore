@@ -78,6 +78,10 @@ class EasyRpgPlayerActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryO
 
     override fun getArguments(): Array<String> = spec?.arguments?.toTypedArray() ?: emptyArray()
 
+    /** RPG Maker 2000/2003 games are 4:3 landscape; EasyRPG leaves the orientation free, which turned phones to portrait. */
+    override fun setOrientationBis(w: Int, h: Int, resizable: Boolean, hint: String?) =
+        super.setOrientationBis(w, h, resizable, "LandscapeLeft LandscapeRight")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val s = intent?.getStringExtra(EasyRpgLaunchSpec.EXTRA)?.let { runCatching { EasyRpgLaunchSpec.fromJson(it) }.getOrNull() }
         spec = s

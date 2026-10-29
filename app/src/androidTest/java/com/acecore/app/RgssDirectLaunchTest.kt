@@ -30,10 +30,23 @@ class RgssDirectLaunchTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val ctx = instrumentation.targetContext
 
+    private var uiAuto: android.app.UiAutomation? = null
+
+    /** UiAutomation sometimes fails to connect on the first try on a busy emulator; retry a few times. */
+    private fun ui(): android.app.UiAutomation {
+        uiAuto?.let { return it }
+        var last: Throwable? = null
+        repeat(6) {
+            try { return instrumentation.uiAutomation.also { uiAuto = it } } catch (e: Throwable) { last = e; Thread.sleep(1500) }
+        }
+        throw last!!
+    }
+
     @Test
     fun startsFromSharedStorage_reachesFirstFrame_andAppliesCheat() {
         assumeTrue("This build has no RGSS native libraries", RgssRuntime.isPresent(ctx))
         assertTrue("All files access must be granted for this test", DirectStorage.hasAccess(ctx))
+        ui() // connect before the game starts
 
         val gameDir = File(Environment.getExternalStorageDirectory(), "AceCoreTest/TinyXP")
         gameDir.deleteRecursively()
@@ -110,7 +123,7 @@ class RgssDirectLaunchTest {
     private fun touch(downTime: Long, action: Int, x: Float, y: Float) {
         val ev = android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
         ev.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
-        assertTrue("Touch injection failed", instrumentation.uiAutomation.injectInputEvent(ev, true))
+        assertTrue("Touch injection failed", ui().injectInputEvent(ev, true))
         ev.recycle()
     }
 
@@ -143,7 +156,7 @@ class RgssDirectLaunchTest {
     }
 
     private fun screenshot(name: String) {
-        val bmp = instrumentation.uiAutomation.takeScreenshot() ?: return
+        val bmp = ui().takeScreenshot() ?: return
         val dir = File(ctx.getExternalFilesDir(null), "testresults").apply { mkdirs() }
         File(dir, name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

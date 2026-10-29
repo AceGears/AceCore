@@ -34,6 +34,14 @@ on:
         description: Reuse the EasyRPG natives of an earlier run (run id)
         type: string
         default: ''
+      build_godot:
+        description: Build the Godot engine library (path overrides allowed) and include it
+        type: boolean
+        default: false
+      godot_run_id:
+        description: Reuse the Godot engine library of an earlier run (run id)
+        type: string
+        default: ''
 
 env:
   # Pinned, reviewed revision of https://github.com/BookerRues9/mkxp-z-android-reworked
@@ -229,9 +237,23 @@ jobs:
           name: easyrpg-natives-arm64-v8a
           path: easyrpg-natives/
 
+  godot-natives:
+    name: Build Godot engine library (arm64-v8a, --main-pack allowed)
+    if: github.event_name == 'workflow_dispatch' && inputs.build_godot && inputs.godot_run_id == ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        timeout-minutes: 150
+        run: bash ci/godot/build.sh godot-natives
+      - uses: actions/upload-artifact@v4
+        with:
+          name: godot-natives-arm64-v8a
+          path: godot-natives/
+
   full-apk:
     name: AceCore + RGSS runtime APK
-    needs: [ app, rgss-natives, easyrpg-natives ]
+    needs: [ app, rgss-natives, easyrpg-natives, godot-natives ]
     if: always() && needs.app.result == 'success' && (needs.rgss-natives.result == 'success' || inputs.natives_run_id != '')
     runs-on: ubuntu-24.04
     permissions:
@@ -266,11 +288,32 @@ jobs:
           else
             echo "::notice title=EasyRPG::not included in this APK"
           fi
+      - uses: actions/download-artifact@v4
+        if: inputs.build_godot || inputs.godot_run_id != ''
+        continue-on-error: true
+        with:
+          name: godot-natives-arm64-v8a
+          path: godot-natives
+          run-id: ${{ inputs.godot_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add the Godot engine library (when built)
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          if [ -f godot-natives/libgodot_android.so ]; then
+            cp godot-natives/libgodot_android.so app/src/main/jniLibs/arm64-v8a/
+            echo "::notice title=Godot::$(cat godot-natives/GODOT_VERSION.txt)"
+          else
+            echo "::warning title=Godot::engine library not rebuilt; the Maven one refuses --main-pack, so Godot games won't start"
+          fi
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
       - name: Assemble debug APK (with RGSS runtime)
-        run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug -Pacecore.abi=arm64-v8a
+        run: |
+          chmod +x gradlew && ./gradlew --no-daemon assembleDebug -Pacecore.abi=arm64-v8a
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          unzip -p "$APK" lib/arm64-v8a/libgodot_android.so | strings | grep -q "compiled without support for path overrides" \
+            && echo "::warning title=Godot::the APK's Godot library refuses --main-pack" || echo "::notice title=Godot::APK's Godot library accepts --main-pack"
       - uses: actions/upload-artifact@v4
         with:
           name: AceCore-full-debug-arm64
@@ -278,7 +321,7 @@ jobs:
 
   device-tests:
     name: Emulator tests (direct RGSS launch, cheats channel, UI tour)
-    needs: [ rgss-natives, easyrpg-natives ]
+    needs: [ rgss-natives, easyrpg-natives, godot-natives ]
     timeout-minutes: 150
     if: always() && (needs.rgss-natives.result == 'success' || inputs.natives_run_id != '') && (github.event_name != 'workflow_dispatch' || inputs.device_tests)
     runs-on: ubuntu-24.04
@@ -331,6 +374,23 @@ jobs:
             echo "::notice title=godot test pack::$(stat -c %s app/src/androidTest/assets/godot/TestGame.pck) bytes"
           else
             echo "::error title=godot test pack::export failed"; rm -f app/src/androidTest/assets/godot/TestGame.pck
+          fi
+      - uses: actions/download-artifact@v4
+        if: inputs.build_godot || inputs.godot_run_id != ''
+        continue-on-error: true
+        with:
+          name: godot-natives-arm64-v8a
+          path: godot-natives
+          run-id: ${{ inputs.godot_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add the Godot engine library (when built)
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          if [ -f godot-natives/libgodot_android.so ]; then
+            cp godot-natives/libgodot_android.so app/src/main/jniLibs/arm64-v8a/
+            echo "::notice title=Godot::$(cat godot-natives/GODOT_VERSION.txt)"
+          else
+            echo "::warning title=Godot::engine library not rebuilt; the Maven one refuses --main-pack, so Godot games won't start"
           fi
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }

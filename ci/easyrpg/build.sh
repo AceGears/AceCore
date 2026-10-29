@@ -10,6 +10,7 @@ set -euo pipefail
 OUT=$(realpath -m "${1:?output dir}")
 BUILDSCRIPTS_REF=84cf2f449a0d1c09f17d2bbf3d28f4f573aa718a
 PLAYER_REF=096c004def987f3545198304b1b7a8352f284a50
+# bump to rebuild the player library only: 2
 SDL_REF=release-3.4.8
 WS=$PWD/easyrpg-build
 mkdir -p "$WS" "$OUT"
@@ -48,6 +49,10 @@ cmake --install build >> "$WS/sdl.log" 2>&1
 
 # ---- 3. EasyRPG Player
 cd "$WS/Player"
+# AceArcade patch: flush every log line (the log file is how AceArcade sees that a game has loaded and why it failed;
+# EasyRPG otherwise writes it only when the buffer fills or the game exits).
+sed -i "s|output_time() << prefix << msg << '\\\\n';|output_time() << prefix << msg << std::endl;|" src/output.cpp
+grep -q "output_time() << prefix << msg << std::endl;" src/output.cpp
 cmake -S . -B build-android -G Ninja -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=23 \
   -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release -DPLAYER_GRADLE_BUILD=ON \
   -DPLAYER_ANDROID_TOOLCHAIN_PATH="$WS/buildscripts/android" -DBUILD_SHARED_LIBS=ON -DPLAYER_ENABLE_TESTS=OFF \

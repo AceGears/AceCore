@@ -78,7 +78,7 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
         // The RGSS natives ship the NDK's libc++_shared; keep one copy if a library brings its own.
-        jniLibs { pickFirsts += "**/libc++_shared.so" }
+        jniLibs { pickFirsts += listOf("**/libc++_shared.so", "**/libgodot_android.so") }
     }
     testOptions {
         unitTests.isReturnDefaultValues = true

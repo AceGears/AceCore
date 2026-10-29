@@ -31,6 +31,18 @@ class EasyRpgLaunchTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val ctx = instrumentation.targetContext
 
+    private var uiAuto: android.app.UiAutomation? = null
+
+    /** UiAutomation sometimes fails to connect on the first try on a busy emulator; retry a few times. */
+    private fun ui(): android.app.UiAutomation {
+        uiAuto?.let { return it }
+        var last: Throwable? = null
+        repeat(6) {
+            try { return instrumentation.uiAutomation.also { uiAuto = it } } catch (e: Throwable) { last = e; Thread.sleep(1500) }
+        }
+        throw last!!
+    }
+
     @Test
     fun runsRm2000GameFromSharedStorage_titleToMap_dpadWalks() {
         val loader = ctx.classLoader as dalvik.system.BaseDexClassLoader
@@ -38,6 +50,7 @@ class EasyRpgLaunchTest {
         val assets = instrumentation.context.assets
         assumeTrue("No EasyRPG test game in this test APK", assets.list("easyrpg").orEmpty().contains("TestGame-2000"))
         assertTrue("All files access must be granted for this test", DirectStorage.hasAccess(ctx))
+        ui() // connect before the game starts
 
         val gameDir = File(Environment.getExternalStorageDirectory(), "AceCoreTest/EasyRPG/TestGame-2000")
         gameDir.parentFile!!.deleteRecursively()
@@ -65,7 +78,7 @@ class EasyRpgLaunchTest {
         Thread.sleep(5000)
         if (!waitFor(30_000) { File(helper, "dpad").exists() }) fail("No on-screen controls. " + diagnostics(helper))
         val pad = File(helper, "dpad").readText().trim().split(' ').map { it.toInt() }
-        val before = instrumentation.uiAutomation.takeScreenshot()
+        val before = ui().takeScreenshot()
         save(before, "easyrpg_map_before.png")
         val x = (pad[0] + pad[2]) / 2f
         val y = pad[1] + (pad[3] - pad[1]) * 0.83f
@@ -73,7 +86,7 @@ class EasyRpgLaunchTest {
         touch(downTime, MotionEvent.ACTION_DOWN, x, y)
         try { Thread.sleep(1200) } finally { touch(downTime, MotionEvent.ACTION_UP, x, y) }
         Thread.sleep(800)
-        val after = instrumentation.uiAutomation.takeScreenshot()
+        val after = ui().takeScreenshot()
         save(after, "easyrpg_map_after.png")
         val changed = changedShare(before, after, pad)
         report("easyrpg_walk_changed_pixels", "%.4f".format(changed))
@@ -99,7 +112,7 @@ class EasyRpgLaunchTest {
         val now = SystemClock.uptimeMillis()
         listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP).forEach { action ->
             val ev = KeyEvent(now, SystemClock.uptimeMillis(), action, code, 0, 0, -1, 0, 0, InputDevice.SOURCE_KEYBOARD)
-            instrumentation.uiAutomation.injectInputEvent(ev, true)
+            ui().injectInputEvent(ev, true)
             Thread.sleep(80)
         }
     }
@@ -107,7 +120,7 @@ class EasyRpgLaunchTest {
     private fun touch(downTime: Long, action: Int, x: Float, y: Float) {
         val ev = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
         ev.source = InputDevice.SOURCE_TOUCHSCREEN
-        assertTrue("Touch injection failed", instrumentation.uiAutomation.injectInputEvent(ev, true))
+        assertTrue("Touch injection failed", ui().injectInputEvent(ev, true))
         ev.recycle()
     }
 
@@ -151,5 +164,5 @@ class EasyRpgLaunchTest {
         File(dir, name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun screenshot(name: String) = save(instrumentation.uiAutomation.takeScreenshot(), name)
+    private fun screenshot(name: String) = save(ui().takeScreenshot(), name)
 }
