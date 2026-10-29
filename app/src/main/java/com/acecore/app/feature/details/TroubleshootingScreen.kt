@@ -62,6 +62,12 @@ fun TroubleshootingScreen(gameId: Long, onBack: () -> Unit) {
         } else null
     }
 
+    val launchInfo by produceState<String?>(null, g.id) {
+        value = if (engine.family == EngineFamily.RGSS) withContext(Dispatchers.IO) {
+            com.acecore.app.runtime.rgss.GameDiagnostics.summary(RgssRuntime.helperDir(GameStorage.dataDir(ctx, g.id)))
+        } else null
+    }
+
     SettingsScaffold("Troubleshooting", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(g.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 20.dp))
@@ -129,6 +135,10 @@ fun TroubleshootingScreen(gameId: Long, onBack: () -> Unit) {
                     if (detection.tags.isNotEmpty()) Text("Tags: ${detection.tags.joinToString()}", style = MaterialTheme.typography.bodySmall)
                 }
             }
+            launchInfo?.let { info ->
+                SettingsGroupTitle("Last launch")
+                Card { Text(info, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+            }
             helperLog?.takeIf { it.isNotBlank() }?.let { log ->
                 SettingsGroupTitle("Game helper log")
                 Card { Text(log, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
@@ -140,6 +150,7 @@ fun TroubleshootingScreen(gameId: Long, onBack: () -> Unit) {
                     sessions.forEach { appendLine("session ${it.startedAt} reached=${it.reachedGame} ms=${it.durationMs} latency=${it.latencyMs} err=${it.error}") }
                     detection?.diagnostics?.forEach { appendLine("diag ${it.severity}: ${it.message}") }
                     helperLog?.let { appendLine("helper log:\n$it") }
+                    launchInfo?.let { appendLine(it) }
                 }
                 (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceArcade troubleshooting", report))
                 Toast.makeText(ctx, "Copied to clipboard", Toast.LENGTH_SHORT).show()

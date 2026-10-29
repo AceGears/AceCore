@@ -46,6 +46,7 @@ import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gamepad
@@ -112,6 +113,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         /** No visible progress for this long during start-up → failure screen (with "Keep waiting"). */
         private const val STALL_MS = 60_000L
         private const val ENGINE_START_MS = 20_000L
+        /** While playing: no new frame for this long → "not producing frames" banner. */
+        private const val STALL_FRAMES_MS = 20_000L
 
         /** Read by native main() via JNI. */
         @JvmField var GAME_PATH: String = ""
@@ -169,6 +172,11 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var gameRes by mutableStateOf<Pair<Int, Int>?>(null)
     /** Screen area and game surface currently in use, shown in the Display panel. */
     private var layoutInfo by mutableStateOf("")
+    /** Latest heartbeat from the running game (acecore_compat.rb), for the status line and stall detection. */
+    private var heartbeat by mutableStateOf<GameDiagnostics.Heartbeat?>(null)
+    /** Shown when the game stops producing frames for a while (frozen, or a long load). */
+    private var stalled by mutableStateOf(false)
+    private var stallDismissedAtFrame = -1L
     /** True until the game draws its first frame (reported by AceCore's runtime helper). */
     private var starting by mutableStateOf(true)
     /** Current launch stage shown in the start-up indicator. */
@@ -202,6 +210,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         if (s != null) {
             GAME_PATH = s.gamePath
             dataDir = File(s.dataPath).apply { mkdirs() }
+            com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(s.dataPath)), "Game process started")
             buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id], ButtonMap.RGSS_DEFAULT)
             rgssVersion = RgssRuntime.rgssVersion(com.acecore.app.core.model.Engine.fromName(s.engine))
             gameButtonNames = RgssKeys.gameNames(runCatching { File(s.gamePath, "mkxp.json").takeIf { it.length() < 256_000 }?.readText() }.getOrNull())
@@ -242,6 +251,22 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (r - l != oldR - oldL || b - t != oldB - oldT) layout.post { applySurfaceSize() }
         }
         layout.post { applySurfaceSize() }
+        // Heartbeat: running (frames advancing, even if the picture is black) vs. not producing frames.
+        dataDir?.let { RgssRuntime.helperDir(it) }?.let { helper ->
+            lifecycleScope.launch {
+                var lastFrame = -1L
+                var sameSince = 0L
+                while (true) {
+                    val hb = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { GameDiagnostics.heartbeat(helper) }
+                    heartbeat = hb
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    if (hb == null || hb.frame != lastFrame || !resumed || menuOpen) { lastFrame = hb?.frame ?: -1; sameSince = now; if (stalled && hb?.frame != stallDismissedAtFrame) stalled = false }
+                    else if (now - sameSince > STALL_FRAMES_MS && hb.frame != stallDismissedAtFrame && failure == null) stalled = true
+                    kotlinx.coroutines.delay(1000)
+                }
+            }
+        }
         // The game reports its resolution once Ruby runs (and again if it changes, e.g. Graphics.resize_screen).
         val screenFile = dataDir?.let { File(RgssRuntime.helperDir(it), "screen") } ?: return
         lifecycleScope.launch {
@@ -255,10 +280,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }
     }
 
-    /**
-     * Sizes the SDL surface to [DisplayPrefs.sizePercent] of the screen, centred. The engine then sees a smaller window
-     * (SDL reports the new surface size) and scales the game into it according to the screen-fit mode.
-     */
+    /** Updates the Display panel's size readout (the engine does the actual layout inside the full-screen surface). */
     private fun applySurfaceSize() {
         val layout = SDLActivity.mLayout ?: return
         val surface = SDLActivity.mSurface ?: return
@@ -268,13 +290,13 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         val (sw, sh) = display.surfaceSize(w, h, gw, gh)
         layoutInfo = (if (gameRes != null) "Game ${gw}×${gh}" else "Game resolution not reported yet") +
             " · screen ${w}×${h} · game area ${sw}×${sh}"
-        if (appliedSurfaceSize == (sw to sh)) return
+        // The surface itself always stays full-screen: the engine fits/stretches/scales the game inside it and applies
+        // the game-size setting (Graphics.acearcade_area, set by acecore_compat.rb). Resizing the Android surface
+        // while the game runs left the engine drawing for the old size (picture offset and clipped).
+        if (appliedSurfaceSize == null && surface.layoutParams?.width != ViewGroup.LayoutParams.MATCH_PARENT) {
+            surface.layoutParams = RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
         appliedSurfaceSize = sw to sh
-        val full = sw == w && sh == h
-        surface.layoutParams = RelativeLayout.LayoutParams(
-            if (full) ViewGroup.LayoutParams.MATCH_PARENT else sw,
-            if (full) ViewGroup.LayoutParams.MATCH_PARENT else sh,
-        ).apply { addRule(RelativeLayout.CENTER_IN_PARENT) }
     }
 
     /** Applies a Display-panel change now and records it for this game (imported into its settings by the library). */
@@ -477,7 +499,10 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         // SDLActivity.onStart; the host activity must call resumeNativeThread() itself (the port's MainActivity does
         // this in runSDLThread). Without it mIsResumedCalled stays false and the engine never starts: black screen.
         if (spec != null && !SDLActivity.mBrokenLibraries && !isFinishing) {
-            if (!engineStartRequested) Log.i(TAG, "Starting the SDL/mkxp-z thread")
+            if (!engineStartRequested) {
+                Log.i(TAG, "Starting the SDL/mkxp-z thread")
+                com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(spec!!.dataPath)), "Engine starting (SDL, OpenGL, audio, file index)")
+            }
             engineStartRequested = true
             resumeNativeThread()
         }
@@ -589,6 +614,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (displayOpen) DisplayPanel(accent)
             if (mappingOpen) MappingPanel(accent)
             if (testOpen) ControlsTestPanel(accent, Modifier.align(Alignment.TopCenter))
+            if (stalled && !menuOpen && failure == null) StallBanner(s, accent, Modifier.align(Alignment.TopCenter))
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
         }
@@ -748,6 +774,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                             }
                             if (s.helper) MenuItem(Icons.Rounded.AutoFixHigh, "Cheats", accent,
                                 subtitle = if (s.cheatsEnabled) "Money, items, Pokémon, movement…" else "Off for this game") { cheatsOpen = true; menuOpen = false }
+                            MenuItem(Icons.Rounded.MonitorHeart, "Game status", accent, subtitle = statusLine() + " · tap to save a diagnostic report") {
+                                saveDiagnosticReport(s, "Diagnostic report (from the in-game menu)")
+                            }
                             MenuItem(Icons.AutoMirrored.Rounded.ExitToApp, "Exit to library", accent, subtitle = "Unsaved progress is lost.") { exitGame() }
                         }
                     }
@@ -782,6 +811,54 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                         game(); Spacer(Modifier.height(12.dp)); view()
                     }
                 }
+            }
+        }
+    }
+
+    private fun statusLine(): String {
+        val hb = heartbeat ?: return "Starting…"
+        val state = if (hb.ageMs > STALL_FRAMES_MS) "Not producing frames for ${hb.ageMs / 1000} s" else "Running"
+        return "$state · ${hb.scene}" + (if (hb.map != "-") " · map ${hb.map}" else "")
+    }
+
+    /** Saves timeline, scene log, heartbeat and engine log as a local report (Settings › Advanced › Crash reports). */
+    private fun saveDiagnosticReport(s: RgssLaunchSpec, title: String) {
+        val dir = dataDir ?: return
+        Thread {
+            val helper = RgssRuntime.helperDir(dir)
+            val report = com.acecore.app.runtime.CrashReports.redact(buildString {
+                append(com.acecore.app.runtime.CrashReports.header(s.title, com.acecore.app.core.model.Engine.fromName(s.engine).displayName, statusLine()))
+                appendLine(title)
+                appendLine("Display: ${display.fit} ${display.sizePercent}% · $layoutInfo")
+                appendLine()
+                append(GameDiagnostics.summary(helper))
+                runCatching { File(helper, "runtime.log").readLines().takeLast(200).joinToString("\n") }.getOrNull()?.let {
+                    appendLine(); appendLine("== Game process log (last lines) =="); appendLine(it)
+                }
+            })
+            val saved = com.acecore.app.runtime.CrashReports.save(applicationContext, s.gameId, report) != null
+            runOnUiThread {
+                android.widget.Toast.makeText(this, if (saved) "Report saved: Settings › Advanced › Crash reports" else "Couldn't save the report",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    @Composable
+    private fun StallBanner(s: RgssLaunchSpec, accent: Color, modifier: Modifier) {
+        Column(
+            modifier.padding(top = 10.dp).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp)
+                .background(PanelBg, RoundedCornerShape(16.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("The game hasn't drawn a new frame for ${(heartbeat?.ageMs ?: 0) / 1000} s", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("It may be loading or frozen. Last scene: ${heartbeat?.scene ?: "unknown"}" + (heartbeat?.map?.takeIf { it != "-" }?.let { ", map $it" } ?: ""),
+                color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.material3.TextButton(onClick = { stallDismissedAtFrame = heartbeat?.frame ?: -1; stalled = false }) { Text("Keep waiting", color = accent) }
+                androidx.compose.material3.TextButton(onClick = { saveDiagnosticReport(s, "Diagnostic report (game stopped producing frames)") }) { Text("Save report", color = accent) }
+                androidx.compose.material3.TextButton(onClick = { exitGame() }) { Text("Exit to library", color = accent) }
             }
         }
     }

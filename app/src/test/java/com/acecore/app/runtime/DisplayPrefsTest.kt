@@ -22,7 +22,7 @@ class DisplayPrefsTest {
         assertFalse(DisplayPrefs("fill").fixedAspectRatio)
         assertTrue(DisplayPrefs("integer").integerScaling)
         val json = RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "integer"))
-        assertTrue(json, json.contains("\"fixedAspectRatio\":true") && json.contains("\"integerScalingActive\":false") &&
+        assertTrue(json, json.contains("\"fixedAspectRatio\":true") && json.contains("\"integerScalingActive\":true") &&
             json.contains("\"smoothScaling\":false"))
         assertTrue(RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "fill")).contains("\"fixedAspectRatio\":false"))
     }
@@ -36,9 +36,7 @@ class DisplayPrefsTest {
         assertEquals(1024 to 768, DisplayPrefs("integer", 60).surfaceSize(3120, 1440, 512, 384)) // 864 tall -> 2x
         assertEquals(1560 to 720, DisplayPrefs("fill", 50).surfaceSize(3120, 1440, 512, 384))
         assertEquals("unknown resolution: whole area", 3120 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 0, 0))
-        assertEquals("portrait game in landscape: whole area", 3120 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 384, 512).let {
-            // 1080x1440 would be portrait -> whole area, engine letterboxes
-            it })
+        assertEquals("portrait game in landscape", 1080 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 384, 512))
     }
 
     @Test fun pendingChangeRoundTrip() {

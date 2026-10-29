@@ -2,6 +2,9 @@
 // recalculateScreenSize(bool fixedAspectRatio) was called with the RGSSThreadData pointer in three places, which
 // always converts to `true`: after every window resize the engine re-locked the aspect ratio and ignored a
 // "fixedAspectRatio": false setting (Stretch). Those calls now pass config.fixedAspectRatio.
+// Also adds a game-area scale (AceArcade's "Game size", Graphics.acearcade_area = 0.5..1.0): the game screen is
+// fitted / stretched / integer-scaled into that share of the window, centred. The window (Android surface) itself
+// always stays full size, so nothing has to be resized while the game runs.
 /*
  ** graphics.cpp
  **
@@ -770,6 +773,9 @@ private:
     }
 };
 
+/* AceArcade: share of the window the game screen may use (Graphics.acearcade_area). */
+static float aceAreaScale = 1.0f;
+
 struct GraphicsPrivate {
     /* Screen resolution, ie. the resolution at which
      * RGSS renders at (settable with Graphics.resize_screen).
@@ -878,24 +884,28 @@ struct GraphicsPrivate {
     }
     
     /* Enforces fixed aspect ratio, if desired */
+    Vec2i aceArea() const {
+        return Vec2i((int)(winSize.x * aceAreaScale), (int)(winSize.y * aceAreaScale));
+    }
+
     void recalculateScreenSize(bool fixedAspectRatio) {
-        scSize = winSize;
+        const Vec2i area = aceArea();
+        scSize = area;
         
         if (!fixedAspectRatio && integerLastMileScaling) {
-            scOffset = Vec2i(0, 0);
+            scOffset = Vec2i((winSize.x - area.x) / 2, (winSize.y - area.y) / 2);
             return;
         }
         
         if (integerScaleActive && !integerLastMileScaling) {
-            scOffset.x = ((winSize.x / 2) - (scRes.x / 2) * integerScaleFactor.x);
-            scOffset.y = ((winSize.y / 2) - (scRes.y / 2) * integerScaleFactor.y);
-            
             scSize = Vec2i(scRes.x * integerScaleFactor.x, scRes.y * integerScaleFactor.y);
+            scOffset.x = (winSize.x - scSize.x) / 2;
+            scOffset.y = (winSize.y - scSize.y) / 2;
             return;
         }
         
         float resRatio = (float)scRes.x / scRes.y;
-        float winRatio = (float)winSize.x / winSize.y;
+        float winRatio = (float)area.x / area.y;
         
         if (resRatio > winRatio)
             scSize.y = scSize.x / resRatio;
@@ -918,8 +928,9 @@ struct GraphicsPrivate {
     /* Returns whether a new scale was found */
     bool findHighestIntegerScale()
     {
-        Vec2i newScale(findHighestFittingScale(scRes.x, winSize.x),
-                       findHighestFittingScale(scRes.y, winSize.y));
+        const Vec2i area = aceArea();
+        Vec2i newScale(findHighestFittingScale(scRes.x, area.x),
+                       findHighestFittingScale(scRes.y, area.y));
         
         if (threadData->config.fixedAspectRatio)
         {
@@ -1661,3 +1672,20 @@ void Graphics::addDisposable(Disposable *d) { p->dispList.append(d->link); }
 void Graphics::remDisposable(Disposable *d) { p->dispList.remove(d->link); }
 
 #undef GRAPHICS_THREAD_LOCK
+
+
+/* AceArcade: sets the game-area scale and re-lays out the screen (through the integer-scaling setter, which
+ * recomputes the integer factor, rebuilds its buffer if needed, recalculates the screen rect and touch mapping). */
+void aceArcadeSetArea(double value)
+{
+    if (value < 0.5) value = 0.5;
+    if (value > 1.0) value = 1.0;
+    aceAreaScale = (float)value;
+    Graphics &g = shState->graphics();
+    g.setIntegerScaling(g.getIntegerScaling());
+}
+
+double aceArcadeGetArea()
+{
+    return aceAreaScale;
+}

@@ -92,6 +92,7 @@ class LaunchCoordinator(
 
     suspend fun prepare(game: GameEntity, options: LaunchOptions = LaunchOptions()): LaunchPreparation {
         val requestedAt = System.currentTimeMillis()
+        tapElapsed = com.acecore.app.runtime.LaunchTimeline.now()
         val result = runCatching { prepareInternal(game, options, requestedAt) }.getOrElse { e ->
             LaunchPreparation.Blocked(game.id, "Couldn't start ${game.title}", e.message ?: e.toString())
         }
@@ -211,6 +212,9 @@ class LaunchCoordinator(
         }
     }
 
+    /** When Play was tapped (elapsedRealtime), for the launch timeline. */
+    private var tapElapsed = 0L
+
     private suspend fun rgssIntent(
         game: GameEntity, gameDir: File, config: Map<String, String>, accent: Long, direct: Boolean, requestedAt: Long,
     ): Intent {
@@ -226,6 +230,9 @@ class LaunchCoordinator(
                 helper = helper, cheatsEnabled = cheatsOn, cheatFlags = if (cheatsOn) cheatConfig.flags else emptyMap(),
                 launchRequestedAt = requestedAt,
             )
+            val helperDir = RgssRuntime.helperDir(dataDir)
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Play tapped", tapElapsed.takeIf { it > 0 } ?: com.acecore.app.runtime.LaunchTimeline.now())
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, if (direct) "Launcher ready (direct from your folder)" else "Launcher ready (private copy up to date)")
             val spec = RgssLaunchSpec(
                 gameId = game.id, title = game.title, engine = game.effectiveEngine.name,
                 gamePath = gameDir.absolutePath, dataPath = dataDir.absolutePath, config = config, accentArgb = accent,
@@ -335,6 +342,7 @@ class LaunchCoordinator(
             }
             javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
             rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }
+            appendLine(); append(com.acecore.app.runtime.rgss.GameDiagnostics.summary(helperDir))
             log?.let { appendLine(); appendLine("== Game process log (last lines) =="); appendLine(it) }
         })
         val file = cr.save(context, game.id, report)

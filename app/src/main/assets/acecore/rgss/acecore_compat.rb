@@ -389,19 +389,21 @@ end
 #===============================================================================
 # Display (☰ › Display › Screen fit / Game size)
 #
-# AceArcade sizes the game surface on the Android side (Fit: the game's aspect ratio, Pixel-perfect: a whole-number
-# multiple of the game's resolution, Stretch: the whole area); the engine then simply fills its surface. This script:
-#   * reports the game's resolution (Graphics.width/height) to "screen" next to DISPLAY_FILE whenever it changes;
-#   * applies the mode the menu writes to DISPLAY_FILE: aspect lock off only for Stretch, nearest-neighbour scaling
-#     for Pixel-perfect (otherwise the player's filter choice, AceCoreCompat::SMOOTH);
-#   * keeps Stretch in effect: mkxp-z-android-reworked re-enables the aspect lock whenever its window is resized.
+# The Android surface stays full-screen; the engine lays the game out inside it:
+#   Fit = aspect locked, Stretch = aspect unlocked, Pixel-perfect = whole-number scaling (nearest-neighbour),
+#   Game size = Graphics.acearcade_area (share of the screen, centred; AceArcade's engine patch).
+# This script applies the launch values (AceCoreCompat::FIT / SIZE / SMOOTH), applies changes the menu writes to
+# DISPLAY_FILE, reports the game's resolution to "screen", and keeps Stretch in effect on engines without the
+# aspect-ratio fix.
 #===============================================================================
 module AceCoreCompat
   module Display
     @mtime = nil
     @frame = 0
     @fit = defined?(AceCoreCompat::FIT) ? AceCoreCompat::FIT : nil
+    @size = defined?(AceCoreCompat::SIZE) ? AceCoreCompat::SIZE : 100
     @reported = nil
+    @applied = false
 
     def self.dir
       f = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
@@ -410,16 +412,21 @@ module AceCoreCompat
 
     def self.tick
       @frame += 1
+      unless @applied
+        @applied = true
+        apply(@fit, @size) if @fit
+      end
       return unless (@frame % 30).zero?
       report_resolution
       path = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
       mtime = path && (File.mtime(path) rescue nil)
       if mtime && mtime != @mtime
         @mtime = mtime
-        fit = File.read(path)[/"screenFit"\s*:\s*"(\w+)"/, 1]
-        apply(fit) if fit
+        text = File.read(path)
+        fit = text[/"screenFit"\s*:\s*"(\w+)"/, 1] || @fit
+        size = (text[/"screenSize"\s*:\s*"(\d+)"/, 1] || @size).to_i
+        apply(fit, size) if fit
       end
-      # Re-assert Stretch (the engine turns the aspect lock back on after a window resize).
       if @fit == 'fill' && Graphics.respond_to?(:fixed_aspect_ratio) && Graphics.fixed_aspect_ratio
         Graphics.fixed_aspect_ratio = false
       end
@@ -435,15 +442,18 @@ module AceCoreCompat
       File.write(File.join(d, 'screen'), res + "\n")
     end
 
-    def self.apply(fit)
+    def self.apply(fit, size = @size)
       @fit = fit
-      Graphics.integer_scaling = false if Graphics.respond_to?(:integer_scaling=)
-      Graphics.last_mile_scaling = true if Graphics.respond_to?(:last_mile_scaling=)
+      @size = size.to_i.clamp(50, 100)
+      integer = fit == 'integer'
+      Graphics.last_mile_scaling = !integer if Graphics.respond_to?(:last_mile_scaling=)
       Graphics.fixed_aspect_ratio = (fit != 'fill') if Graphics.respond_to?(:fixed_aspect_ratio=)
+      Graphics.integer_scaling = integer if Graphics.respond_to?(:integer_scaling=)
       if Graphics.respond_to?(:smooth_scaling=)
         smooth = defined?(AceCoreCompat::SMOOTH) ? AceCoreCompat::SMOOTH : true
-        Graphics.smooth_scaling = fit == 'integer' ? false : smooth
+        Graphics.smooth_scaling = integer ? false : smooth
       end
+      Graphics.acearcade_area = @size / 100.0 if Graphics.respond_to?(:acearcade_area=)
     end
   end
 end
@@ -475,12 +485,111 @@ module AceCoreCompat
   end
 end
 
+#===============================================================================
+# Diagnostics: launch timeline, scene log and heartbeat (files next to DISPLAY_FILE)
+#
+#   timeline   "<CLOCK_BOOTTIME ms>\t<event>": engine ready, first data file, first frame, first map, first scenes
+#              (same clock as the launcher, so the whole launch can be measured end to end)
+#   scenes     scene and map changes with times, kept short (what the game was doing before a black screen)
+#   heartbeat  "<frame> <scene> <map>" about once a second; if it stops changing the game loop is not running
+#              (frozen, or busy loading), if it keeps changing the game is running even when the screen is black.
+#===============================================================================
+module AceCoreCompat
+  module Diag
+    @frame = 0
+    @scene = nil
+    @map = nil
+    @scene_lines = 0
+    @marks = {}
+
+    def self.dir
+      f = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
+      f && File.dirname(f)
+    end
+
+    def self.now
+      Process.clock_gettime(Process::CLOCK_BOOTTIME, :millisecond)
+    rescue StandardError
+      Process.clock_gettime(Process::CLOCK_MONOTONIC, :millisecond)
+    end
+
+    def self.append(name, text)
+      d = dir or return
+      File.open(File.join(d, name), 'a') { |f| f.write(text) }
+    rescue StandardError
+      nil
+    end
+
+    # Records an event once per launch (key) on the shared timeline.
+    def self.mark(key, event = key)
+      return if @marks[key]
+      @marks[key] = true
+      append('timeline', "#{now}\t#{event}\n")
+    end
+
+    def self.scene_name
+      sc = if defined?(SceneManager) && SceneManager.respond_to?(:scene) then SceneManager.scene else $scene end
+      sc && sc.class.name
+    rescue StandardError
+      nil
+    end
+
+    def self.tick
+      @frame += 1
+      mark('first_frame', 'First frame drawn') if @frame == 1
+      sc = scene_name
+      map = (defined?($game_map) && $game_map && $game_map.respond_to?(:map_id)) ? $game_map.map_id : nil
+      if sc != @scene || map != @map
+        if @scene_lines < 300
+          append('scenes', "#{now}\tscene=#{sc || '-'} map=#{map || '-'} frame=#{@frame}\n")
+          @scene_lines += 1
+        end
+        mark("scene_#{sc}", "Scene: #{sc}") if sc && @marks.size < 30
+        mark('first_map', "First map shown (map #{map})") if map && map > 0 && sc.to_s =~ /Map/
+        @scene = sc
+        @map = map
+      end
+      if (@frame % 60).zero?
+        d = dir
+        File.write(File.join(d, 'heartbeat'), "#{@frame} #{sc || '-'} #{map || '-'} #{now}\n") if d
+      end
+    rescue StandardError
+      nil
+    end
+  end
+end
+
+AceCoreCompat::Diag.mark('ruby', 'Engine ready, Ruby running (before the game\'s scripts)')
+
+module Kernel
+  if (private_method_defined?(:load_data) || method_defined?(:load_data)) &&
+     !(private_method_defined?(:__acearcade_load_data) || method_defined?(:__acearcade_load_data))
+    alias_method :__acearcade_load_data, :load_data
+    def load_data(*args)
+      name = args[0].to_s
+      AceCoreCompat::Diag.mark('first_data', "Game scripts running (first data file: #{name})")
+      AceCoreCompat::Diag.mark('plugins', 'Loading plugins (PluginScripts)') if name =~ /PluginScripts/i
+      AceCoreCompat::Diag.mark('first_mapdata', "Loading first map data (#{File.basename(name)})") if name =~ /Map\d+/i
+      __acearcade_load_data(*args)
+    end
+    private :load_data, :__acearcade_load_data
+  end
+end
+
+at_exit do
+  e = $!
+  if e && !e.is_a?(SystemExit)
+    AceCoreCompat::Diag.append('scenes', "#{AceCoreCompat::Diag.now}\texception=#{e.class}: #{e.message.to_s[0, 300]} at #{(e.backtrace || []).first}\n")
+  end
+end
+
 if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(:__acearcade_update)
   class << Graphics
     alias_method :__acearcade_update, :update
     def update(*args)
       AceCoreCompat::Display.tick
       AceCoreCompat::InputTest.tick
+      AceCoreCompat::Diag.tick
       __acearcade_update(*args)
     end
   end

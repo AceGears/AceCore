@@ -35,7 +35,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,16 +53,24 @@ private val GROUPS = listOf(
     EngineGroup("RPG Maker", listOf(Engine.RPG_MAKER_2K, Engine.RPG_MAKER_XP, Engine.RPG_MAKER_VX, Engine.RPG_MAKER_VX_ACE, Engine.RPG_MAKER_MV, Engine.RPG_MAKER_MZ, Engine.POKEMON_ESSENTIALS)),
     EngineGroup("Visual novel engines", listOf(Engine.RENPY, Engine.TYRANO)),
     EngineGroup("Web-based engines", listOf(Engine.HTML5, Engine.CONSTRUCT_2, Engine.CONSTRUCT_3)),
-    EngineGroup("Other engines", listOf(Engine.GODOT, Engine.FLASH)),
-    EngineGroup("Not possible on Android", listOf(Engine.UNITY, Engine.UNREAL, Engine.GAMEMAKER, Engine.WOLF_RPG)),
+    EngineGroup("Other engines", listOf(Engine.GODOT, Engine.FLASH, Engine.GAMEMAKER, Engine.WOLF_RPG, Engine.UNITY, Engine.UNREAL)),
 )
 
 /** Status levels shown per engine, from strongest to weakest evidence. */
 private enum class EngineStatus(val label: String, val color: Long) {
-    VERIFIED("Runs on this device", 0xFF1C7C54),
-    INSTALLED("Installed · not run here yet", 0xFF2F5D8A),
-    MISSING("Not in this version", 0xFF8A6D1A),
-    IMPOSSIBLE("Not supported", 0xFF7A1D26),
+    VERIFIED("Verified on this device", 0xFF1ED69B),
+    INSTALLED("Installed · not yet run here", 0xFF2E86FF),
+    MISSING("Runtime not in this version", 0xFFE8B931),
+    WINDOWS_ONLY("Windows builds can't run on Android", 0xFFFF6B7D),
+}
+
+/** Short, legible engine marks for the icon tiles (never truncated). */
+private fun Engine.iconLabel(): String = when (this) {
+    Engine.RPG_MAKER_2K -> "2K3"; Engine.RPG_MAKER_XP -> "XP"; Engine.RPG_MAKER_VX -> "VX"; Engine.RPG_MAKER_VX_ACE -> "ACE"
+    Engine.RPG_MAKER_MV -> "MV"; Engine.RPG_MAKER_MZ -> "MZ"; Engine.POKEMON_ESSENTIALS -> "PKMN"; Engine.RENPY -> "RPY"
+    Engine.TYRANO -> "TYR"; Engine.HTML5 -> "HTML"; Engine.CONSTRUCT_2 -> "C2"; Engine.CONSTRUCT_3 -> "C3"; Engine.GODOT -> "GD"
+    Engine.FLASH -> "SWF"; Engine.GAMEMAKER -> "GM"; Engine.WOLF_RPG -> "WOLF"; Engine.UNITY -> "UNITY"; Engine.UNREAL -> "UE"
+    else -> shortLabel().take(4)
 }
 
 @Composable
@@ -75,8 +82,8 @@ fun EnginesSection(s: AppSettings, onEngine: (Engine) -> Unit) {
         runCatching { if (Build.VERSION.SDK_INT >= 26) android.webkit.WebView.getCurrentWebViewPackage()?.versionName else null }.getOrNull()
     }
     Text(
-        "Every engine AceArcade recognises, grouped by family. “Installed” means the runtime is inside this build; an engine is only " +
-            "called working on your device after a game actually started with it.",
+        "Every engine AceArcade recognises. “Installed” means its runtime is inside this build; “Verified” appears only after a game " +
+            "actually started with it on this device. Tap an engine for details and its default settings.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     GROUPS.forEach { group ->
@@ -99,7 +106,7 @@ private fun EngineRow(e: Engine, s: AppSettings, games: Int, webViewVersion: Str
     val runtimeId = RuntimeRegistry.runtimeFor(e)
     val verifiedAt = s.runtimeVerifiedAt[runtimeId.name]
     val status = when {
-        e.family == EngineFamily.UNSUPPORTED_NATIVE -> EngineStatus.IMPOSSIBLE
+        e.family == EngineFamily.UNSUPPORTED_NATIVE -> EngineStatus.WINDOWS_ONLY
         !info.bundled -> EngineStatus.MISSING
         verifiedAt != null -> EngineStatus.VERIFIED
         else -> EngineStatus.INSTALLED
@@ -107,23 +114,35 @@ private fun EngineRow(e: Engine, s: AppSettings, games: Int, webViewVersion: Str
     Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             EngineIcon(e, status)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(e.displayName, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(e.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                // Status sits under the name (a small dot + label), so long names are never squeezed by a badge.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(status.color.toInt())))
+                    Spacer(Modifier.width(6.dp))
+                    Text(status.label, style = MaterialTheme.typography.labelMedium, color = Color(status.color.toInt()), maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
                 Text(
-                    info.id.displayName + if (games > 0) " · $games game${if (games == 1) "" else "s"}" else "",
+                    (if (e.family == EngineFamily.UNSUPPORTED_NATIVE) "No runtime" else info.id.displayName) +
+                        if (games > 0) " · $games game${if (games == 1) "" else "s"}" else "",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                status.label, style = MaterialTheme.typography.labelSmall, color = Color.White, textAlign = TextAlign.Center,
-                modifier = Modifier.background(Color(status.color.toInt()), RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 3.dp),
-            )
-            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, modifier = Modifier.padding(start = 4.dp))
+            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (open) "Hide details" else "Show details",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
         }
         AnimatedVisibility(open) {
-            Column(Modifier.padding(top = 10.dp, start = 52.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(info.status, style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.padding(top = 10.dp, start = 58.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (e.family == EngineFamily.UNSUPPORTED_NATIVE) Text(
+                    "${e.displayName} games for PC are compiled Windows programs (.exe). Android can't run Windows programs, " +
+                        "and there's no open runtime that plays these games' PC builds on Android. If the developer released an " +
+                        "Android version, it installs as its own app from the store or as an APK.",
+                    style = MaterialTheme.typography.bodySmall,
+                ) else Text(info.status, style = MaterialTheme.typography.bodySmall)
                 val version = when (runtimeId) {
                     RuntimeId.WEB -> webViewVersion?.let { "Android System WebView $it" }
                     RuntimeId.RUFFLE -> listOfNotNull(info.version, webViewVersion?.let { "on WebView $it" }).joinToString(" ")
@@ -155,12 +174,13 @@ private fun Detail(k: String, v: String) {
 private fun EngineIcon(e: Engine, status: EngineStatus) {
     val c = Color(status.color.toInt())
     Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(c.copy(alpha = 0.18f)).border(1.dp, c.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+        Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.copy(alpha = 0.14f)).border(1.dp, c.copy(alpha = 0.55f), RoundedCornerShape(13.dp)),
         contentAlignment = Alignment.Center,
     ) {
+        val label = e.iconLabel()
         Text(
-            e.shortLabel().take(6), fontSize = if (e.shortLabel().length > 4) 9.sp else 12.sp, fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+            label, fontSize = when (label.length) { in 0..2 -> 15.sp; 3 -> 13.sp; 4 -> 11.sp; else -> 10.sp },
+            fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, letterSpacing = 0.3.sp,
         )
     }
 }

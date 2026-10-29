@@ -26,8 +26,8 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
     /**
      * Size of the game surface inside an [availW]×[availH] area for a game running at [gameW]×[gameH]:
      * Fit = largest size with the game's proportions, Pixel-perfect = largest whole-number multiple, Stretch = the
-     * whole area; then scaled by [sizePercent]. Returns the whole area when the game's resolution isn't known yet or
-     * the result would be portrait in a landscape area (SDL ignores a surface whose orientation doesn't match).
+     * whole area, inside [sizePercent] of the screen. Same rules as the engine patch (display/graphics.cpp) uses, so the
+     * Display panel can show the size the engine draws at. Returns the area itself when the resolution isn't known.
      */
     fun surfaceSize(availW: Int, availH: Int, gameW: Int, gameH: Int): Pair<Int, Int> {
         val p = normalized().sizePercent / 100.0
@@ -42,7 +42,7 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
             }
             else -> fitIn(aw, ah, gameW, gameH)
         }
-        return if ((availW >= availH) != (w >= h)) aw to ah else w to h
+        return w to h
     }
 
     private fun fitIn(aw: Int, ah: Int, gw: Int, gh: Int): Pair<Int, Int> {

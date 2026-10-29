@@ -55,10 +55,10 @@ object RgssRuntime {
      * Header for the always-on compatibility preload (acecore_compat.rb, also used with the game helper off): the
      * device screen in landscape pixels, which upstream mkxp-z reports through Graphics.display_width/height.
      */
-    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true): String =
+    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true, sizePercent: Int = 100): String =
         "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\n" +
             "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
-            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\nend\n"
+            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent\nend\n"
 
     /** Real screen size in landscape orientation (games run landscape). */
     fun landscapeDisplaySize(context: Context): Pair<Int, Int> {
@@ -116,11 +116,11 @@ object RgssRuntime {
         dataDir.mkdirs()
         val dir = helperDir(dataDir).apply { mkdirs() }
         // Stale signals from a previous session must never be mistaken for this one.
-        listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species", "screen", "input_test", "input_state").forEach { File(dir, it).delete() }
+        listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species", "screen", "input_test", "input_state", "timeline", "heartbeat", "scenes").forEach { File(dir, it).delete() }
         val (dw, dh) = landscapeDisplaySize(context)
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
         val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir), DisplayPrefs.from(config).fit,
-            config[ConfigKey.FILTERING.id] != "sharp") + compatBody, Charsets.UTF_8) }
+            config[ConfigKey.FILTERING.id] != "sharp", DisplayPrefs.from(config).sizePercent) + compatBody, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
@@ -164,10 +164,10 @@ object RgssRuntime {
             buildJsonObject {
                 // Pixel-perfect: AceArcade sizes the surface to an exact multiple, so nearest-neighbour keeps it crisp.
                 put("smoothScaling", smooth && !display.integerScaling)
-                // AceArcade sizes the game surface itself (Fit / Pixel-perfect / Stretch); the engine just fills it.
+                // Fit / Stretch / Pixel-perfect are done by the engine inside the full-screen surface.
                 put("fixedAspectRatio", display.fixedAspectRatio)
-                put("integerScalingActive", false)
-                put("integerScalingLastMile", true)
+                put("integerScalingActive", display.integerScaling)
+                put("integerScalingLastMile", !display.integerScaling)
                 put("vsync", true)
                 put("frameSkip", false)
                 put("syncToRefreshrate", false)
