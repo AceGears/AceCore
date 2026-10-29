@@ -97,7 +97,7 @@ class RgssDirectLaunchTest {
             try {
                 Thread.sleep(1200)
                 touch(downTime, android.view.MotionEvent.ACTION_MOVE, x, y + 1)
-                if (attempts == 1) screenshot("rgss_walk.png")
+                if (attempts == 1) { screenshot("rgss_walk.png"); smallShot("rgss_walk_small.jpg") }
                 Thread.sleep(1800)
             } finally {
                 touch(downTime, android.view.MotionEvent.ACTION_UP, x, y + 1)
@@ -180,6 +180,14 @@ class RgssDirectLaunchTest {
         val dir = File(ctx.getExternalFilesDir(null), "testresults").apply { mkdirs() }
         File(dir, "metrics.txt").appendText("$key=$value\n")
         android.util.Log.i("AceCoreTest", "$key=$value")
+    }
+
+    /** A small JPEG the CI job can show inline (as base64 in a notice). */
+    private fun smallShot(name: String) {
+        val bmp = ui().takeScreenshot() ?: return
+        val small = Bitmap.createScaledBitmap(bmp, 360, (360f * bmp.height / bmp.width).toInt(), true)
+        val dir = File(ctx.getExternalFilesDir(null), "testresults").apply { mkdirs() }
+        File(dir, name).outputStream().use { small.compress(Bitmap.CompressFormat.JPEG, 45, it) }
     }
 
     private fun screenshot(name: String) {

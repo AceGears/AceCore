@@ -561,6 +561,11 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         SDLActivity.onNativeKeyDown(code); SDLActivity.onNativeKeyUp(code)
     }
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) Log.d("AceArcadeInput", "touch down at ${ev.x.toInt()},${ev.y.toInt()}")
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val fromMouse = (event.source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
         if (event.keyCode == KeyEvent.KEYCODE_BACK && !fromMouse) {

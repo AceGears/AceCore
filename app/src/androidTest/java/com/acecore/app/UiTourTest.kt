@@ -117,7 +117,7 @@ class UiTourTest {
             compose.onNode(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
             shot("03_game_menu")
             click("Game details")
-            compose.waitUntil(10_000) { compose.onAllNodes(hasText("How it starts", ignoreCase = true)).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodes(hasText("Launch configuration", ignoreCase = true)).fetchSemanticsNodes().isNotEmpty() }
             shot("04_details")
             compose.onRoot().performTouchInput { swipeUp() }
             shot("05_details_stats")

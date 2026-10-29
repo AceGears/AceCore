@@ -44,8 +44,9 @@ grep -E "AceArcadeInput" device-results/logcat.txt | head -n 20 > device-results
 note "on-screen input" device-results/input.txt
 { grep -E " godot  *:| Godot  *:|GodotFragment: [^ \t]" device-results/logcat.txt | grep -vE ": +at " | head -n 40; } > device-results/godot-start.txt
 note "godot log" device-results/godot-start.txt
-{ tail -n 30 device-results/testresults/easyrpg-easyrpg.log.txt 2>/dev/null || echo "no EasyRPG log file"; grep -E "EasyRPG Player" device-results/logcat.txt | tail -n 10; } > device-results/easyrpg.txt
+{ tail -n 15 device-results/testresults/godot-godot.log.txt 2>/dev/null; tail -n 30 device-results/testresults/easyrpg-easyrpg.log.txt 2>/dev/null || echo "no EasyRPG log file"; grep -E "EasyRPG Player" device-results/logcat.txt | tail -n 10; } > device-results/easyrpg.txt
 note "easyrpg log" device-results/easyrpg.txt
+[ -f device-results/testresults/rgss_walk_small.jpg ] && echo "::notice title=rgss screenshot (base64 jpeg)::$(base64 -w0 device-results/testresults/rgss_walk_small.jpg)"
 echo "::notice title=abilist::$(cat device-results/abilist.txt)"
 if [ $status -ne 0 ]; then
   echo "::error title=logcat (filtered)::$(tail -n 60 device-results/logcat-filtered.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
