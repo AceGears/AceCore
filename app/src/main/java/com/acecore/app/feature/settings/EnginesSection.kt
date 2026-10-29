@@ -58,9 +58,9 @@ private val GROUPS = listOf(
 
 /** Status levels shown per engine, from strongest to weakest evidence. */
 private enum class EngineStatus(val label: String, val color: Long) {
-    VERIFIED("Verified on this device", 0xFF1ED69B),
-    INSTALLED("Installed · not yet run here", 0xFF2E86FF),
-    MISSING("Runtime not in this version", 0xFFE8B931),
+    VERIFIED("Partially compatible · games have run here", 0xFF1ED69B),
+    INSTALLED("Installed · untested", 0xFF2E86FF),
+    MISSING("Unavailable · runtime not included", 0xFFE8B931),
     WINDOWS_ONLY("Windows builds can't run on Android", 0xFFFF6B7D),
 }
 

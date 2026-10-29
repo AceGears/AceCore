@@ -446,6 +446,16 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }.start()
     }
 
+    private var lastDpadBounds: android.graphics.Rect? = null
+
+    /** Writes the D-pad's on-screen rectangle to the helper folder ("dpad": left top right bottom) for diagnostics/tests. */
+    private fun reportDpadBounds(r: android.graphics.Rect) {
+        if (r == lastDpadBounds) return
+        lastDpadBounds = r
+        val dir = dataDir?.let { RgssRuntime.helperDir(it) } ?: return
+        Thread { runCatching { File(dir, "dpad").writeText("${r.left} ${r.top} ${r.right} ${r.bottom}") } }.start()
+    }
+
     private fun sendKey(key: WebKey, down: Boolean) {
         val code = key.androidKeyCode
         if (code == 0 || SDLActivity.mBrokenLibraries) return
@@ -604,6 +614,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     editing = editingLayout,
                     onEditDone = { editingLayout = false },
                     onButton = ::sendPad,
+                    onDpadBounds = ::reportDpadBounds,
                     onMenu = { menuOpen = true },
                     fourWay = true,
                 )
@@ -830,6 +841,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 append(com.acecore.app.runtime.CrashReports.header(s.title, com.acecore.app.core.model.Engine.fromName(s.engine).displayName, statusLine()))
                 appendLine(title)
                 appendLine("Display: ${display.fit} ${display.sizePercent}% · $layoutInfo")
+                appendLine("Surface: ${SDLActivity.mSurface?.width ?: 0}x${SDLActivity.mSurface?.height ?: 0} · window ${window.decorView.width}x${window.decorView.height}" +
+                    " · D-pad ${lastDpadBounds?.toShortString() ?: "hidden"}")
                 appendLine()
                 append(GameDiagnostics.summary(helper))
                 runCatching { File(helper, "runtime.log").readLines().takeLast(200).joinToString("\n") }.getOrNull()?.let {

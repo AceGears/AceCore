@@ -43,10 +43,11 @@ class RgssDirectLaunchTest {
         val gameId = 990_001L
         val dataDir = GameStorage.dataDir(ctx, gameId).apply { deleteRecursively() }
         val requestedAt = System.currentTimeMillis()
-        RgssRuntime.writeLaunchFiles(ctx, dataDir, Engine.RPG_MAKER_XP, emptyMap(), helper = true, cheatsEnabled = true, cheatFlags = emptyMap(), launchRequestedAt = requestedAt)
+        val config = mapOf(com.acecore.app.core.config.ConfigKey.GAMEPAD_MODE.id to "always")
+        RgssRuntime.writeLaunchFiles(ctx, dataDir, Engine.RPG_MAKER_XP, config, helper = true, cheatsEnabled = true, cheatFlags = emptyMap(), launchRequestedAt = requestedAt)
         val spec = RgssLaunchSpec(
             gameId = gameId, title = "AceCore Test", engine = Engine.RPG_MAKER_XP.name, gamePath = gameDir.absolutePath,
-            dataPath = dataDir.absolutePath, config = emptyMap(), direct = true, helper = true, cheatsEnabled = true, launchRequestedAt = requestedAt,
+            dataPath = dataDir.absolutePath, config = config, direct = true, helper = true, cheatsEnabled = true, launchRequestedAt = requestedAt,
         )
         ctx.startActivity(Intent(ctx, RgssActivity::class.java).putExtra(RgssLaunchSpec.EXTRA, spec.toJson()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
@@ -63,6 +64,50 @@ class RgssDirectLaunchTest {
         val result = File(helper, "result").takeIf { it.exists() }?.readText().orEmpty()
         assertTrue("Helper result: $result", result.startsWith("1\tok"))
         assertTrue("State should list the gold capability", File(helper, "state").readText().contains("gold"))
+
+        // ---- Walking: hold the on-screen D-pad (real touch events) and check the character moves, then stops.
+        if (!waitFor(30_000) { File(helper, "walk_ready").exists() && File(helper, "dpad").exists() }) fail("Walk phase not reached. " + diagnostics(helper))
+        val pad = File(helper, "dpad").readText().trim().split(' ').map { it.toInt() }
+        val x = (pad[0] + pad[2]) / 2f
+        val y = pad[1] + (pad[3] - pad[1]) * 0.83f       // lower arm of the D-pad = Down
+        val before = walk(helper)
+        report("walk_before", before.joinToString(" "))
+        val downTime = android.os.SystemClock.uptimeMillis()
+        touch(downTime, android.view.MotionEvent.ACTION_DOWN, x, y)
+        try {
+            Thread.sleep(1200)
+            touch(downTime, android.view.MotionEvent.ACTION_MOVE, x, y + 1)
+            screenshot("rgss_walk.png")
+            Thread.sleep(1800)
+        } finally {
+            touch(downTime, android.view.MotionEvent.ACTION_UP, x, y + 1)
+        }
+        val held = walk(helper)
+        report("walk_while_held", held.joinToString(" "))
+        Thread.sleep(1500)
+        val released = walk(helper)
+        Thread.sleep(1000)
+        val later = walk(helper)
+        report("walk_after_release", later.joinToString(" "))
+        File(helper, "walk_done").writeText("1")
+        // walk = steps, dir4, facing, frames skipped by the "delta > 0.25 s" rule, frames, uptime class
+        assertTrue("System.uptime must be seconds (Float): ${held.joinToString(" ")}", held[5] == "Float")
+        assertTrue("D-pad Down must reach Input.dir4 while held: ${held.joinToString(" ")}", held[1] == "2" || held[2] == "2")
+        assertTrue("Character should face down: ${held.joinToString(" ")}", held[2] == "2")
+        assertTrue("Character should walk at least 4 tiles in 3 s: before=${before.joinToString(" ")} held=${held.joinToString(" ")}",
+            held[0].toInt() - before[0].toInt() >= 4)
+        assertTrue("Direction must clear on release: ${released.joinToString(" ")}", released[1] == "0")
+        assertTrue("Character must stop after release: $released / $later", later[0] == released[0])
+    }
+
+    private fun walk(helper: File): List<String> =
+        File(helper, "walk").takeIf { it.exists() }?.readText()?.trim()?.split(' ') ?: listOf("0", "0", "0", "0", "0", "?")
+
+    private fun touch(downTime: Long, action: Int, x: Float, y: Float) {
+        val ev = android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
+        ev.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+        assertTrue("Touch injection failed", instrumentation.uiAutomation.injectInputEvent(ev, true))
+        ev.recycle()
     }
 
     private fun copyAsset(path: String, target: File) {

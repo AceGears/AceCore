@@ -116,7 +116,7 @@ object RgssRuntime {
         dataDir.mkdirs()
         val dir = helperDir(dataDir).apply { mkdirs() }
         // Stale signals from a previous session must never be mistaken for this one.
-        listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species", "screen", "input_test", "input_state", "timeline", "heartbeat", "scenes").forEach { File(dir, it).delete() }
+        listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species", "screen", "input_test", "input_state", "timeline", "heartbeat", "scenes", "dpad", "walk", "walk_done", "walk_ready").forEach { File(dir, it).delete() }
         val (dw, dh) = landscapeDisplaySize(context)
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
         val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir), DisplayPrefs.from(config).fit,

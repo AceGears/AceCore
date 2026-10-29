@@ -1,7 +1,10 @@
 # Generates a tiny RPG Maker XP (RGSS1) test game used by AceCore's emulator test:
 #   Game.ini + Data/Scripts.rxdata (Marshal + zlib, the format mkxp-z and RPG Maker XP read).
 # The game draws a screen, reports through AceCore's runtime helper, waits for a cheat to set its gold to 777,
-# records that it saw the change, then exits.
+# records that it saw the change, then enters a walking phase that moves a character exactly the way Pokémon
+# Essentials v21 does (time-based, "return if delta > 0.25", Input.dir4) while the instrumented test holds the
+# on-screen D-pad; it reports its position to "walk". The script is AceArcade's own code (no RPG Maker or
+# Essentials scripts are included).
 #   ruby ci/make_test_game.rb <output dir>
 require "zlib"
 require "fileutils"
@@ -10,6 +13,8 @@ out = ARGV[0] or abort("usage: make_test_game.rb <dir>")
 FileUtils.mkdir_p(File.join(out, "Data"))
 
 script = <<~'RUBY'
+  # Declares itself an Essentials v21 game for mkxp-z 2.4.2, like real v21 games do in their Settings script.
+  module Essentials; VERSION = "21.1"; MKXPZ_VERSION = "2.4.2/c9378cf"; end
   dir = defined?(AceCoreBoot) ? AceCoreBoot::DIR : "."
   mark = lambda { |name, text| File.open(File.join(dir, name), "wb") { |f| f.write(text.to_s) } }
   begin
@@ -40,7 +45,39 @@ script = <<~'RUBY'
         break
       end
     end
-    90.times { Graphics.update }
+    # ---- Walking, Essentials v21 style -------------------------------------------------------------------
+    hero = Sprite.new
+    hero.bitmap = Bitmap.new(32, 32)
+    hero.bitmap.fill_rect(0, 0, 32, 32, Color.new(255, 230, 40))
+    hero.x = 304; hero.y = 32; hero.z = 10
+    steps = 0; facing = 8; frames = 0; skipped = 0; held = 0.0
+    last = System.uptime
+    mark.call("walk_ready", "1")
+    while frames < 60 * 150
+      Graphics.update
+      Input.update
+      frames += 1
+      now = System.uptime
+      dt = now - last
+      last = now
+      d = Input.dir4
+      if dt > 0.25
+        skipped += 1          # Game_Character#update: "return if @delta_t > 0.25"
+      elsif d > 0
+        facing = d
+        held += dt
+        while held >= 0.25    # one tile per 0.25 s held
+          held -= 0.25
+          if d == 2 then steps += 1; hero.y += 8 end
+        end
+      else
+        held = 0.0
+      end
+      mark.call("walk", "#{steps} #{d} #{facing} #{skipped} #{frames} #{now.class}") if frames % 5 == 0
+      break if File.exist?(File.join(dir, "walk_done"))
+    end
+    mark.call("walk", "#{steps} #{Input.dir4} #{facing} #{skipped} #{frames} #{System.uptime.class}")
+    30.times { Graphics.update }
   rescue Exception => e
     mark.call("test_error", "#{e.class}: #{e.message}")
   end

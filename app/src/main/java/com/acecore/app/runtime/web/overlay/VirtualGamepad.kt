@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -84,6 +86,8 @@ fun VirtualGamepad(
     onMenu: () -> Unit,
     /** 4-way D-pad (no diagonals): RPG Maker XP/VX/Ace move in four directions only. */
     fourWay: Boolean = false,
+    /** Reports where the D-pad is on screen (window pixels), for diagnostics and the emulator input test. */
+    onDpadBounds: ((android.graphics.Rect) -> Unit)? = null,
 ) {
     val orientation = if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) "port" else "land"
     val offsets = remember(orientation) { mutableStateMapOf<PadGroup, Offset>().apply { putAll(store.load(orientation)) } }
@@ -115,7 +119,7 @@ fun VirtualGamepad(
             ) { content() }
         }
 
-        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * scale).dp, accent, enabled = !editing, fourWay = fourWay, onButton = press) }
+        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * scale).dp, accent, enabled = !editing, fourWay = fourWay, onButton = press, onBounds = onDpadBounds) }
         Group(PadGroup.FACE, Alignment.BottomEnd) { FaceButtons((58 * scale).dp, accent, enabled = !editing, onButton = press) }
         Group(PadGroup.LEFT_SHOULDER, Alignment.TopStart) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -188,7 +192,8 @@ private fun FaceButtons(size: Dp, accent: Color, enabled: Boolean, onButton: (Pa
 }
 
 @Composable
-private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = false, onButton: (PadButton, Boolean) -> Unit) {
+private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = false, onButton: (PadButton, Boolean) -> Unit,
+                 onBounds: ((android.graphics.Rect) -> Unit)? = null) {
     var active by remember { mutableStateOf(emptySet<PadButton>()) }
     fun setDirs(next: Set<PadButton>) {
         (active - next).forEach { onButton(it, false) }
@@ -196,7 +201,12 @@ private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = f
         active = next
     }
     Box(
-        Modifier.size(size).clip(CircleShape)
+        Modifier.size(size)
+            .then(if (onBounds != null) Modifier.onGloballyPositioned { c ->
+                val b = c.boundsInWindow()
+                onBounds(android.graphics.Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
+            } else Modifier)
+            .clip(CircleShape)
             .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.55f))))
             .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape)
             .then(if (enabled) Modifier.pointerInput(Unit) {

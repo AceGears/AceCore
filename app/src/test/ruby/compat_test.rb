@@ -19,12 +19,36 @@ module Kernel
   private :load_data
 end
 $scene = nil
-module System; def self.platform; "Android"; end; end
+# Like the Android engine: times in whole microseconds (upstream mkxp-z >= 2.4.2 uses Float seconds).
+$fake_us = 5_000_000
+module System
+  def self.platform; "Android"; end
+  def self.delta; $fake_us; end
+  def self.uptime; $fake_us; end
+end
+module Input
+  def self.time?(button); 30_000; end
+end
+class << Graphics
+  def delta = 16_667
+end
 module Audio; def self.bgm_play(*a); end; end
 module AceCoreCompat; DISPLAY_W = 3120; DISPLAY_H = 1440; DISPLAY_FILE = DISPLAY_TMP; FIT = 'fit'; SMOOTH = true; SIZE = 100; end
 load COMPAT
 Dir.chdir(game)
 def check(name, got, want) = (got == want ? puts("ok   #{name}") : (puts("FAIL #{name}: #{got.inspect} != #{want.inspect}"); $fail = true))
+# Time units (Essentials v21 skips every character update when a frame takes "> 0.25" — i.e. always, in µs)
+check "uptime in seconds", System.uptime, 5.0
+$fake_us += 16_667
+check "frame step below Essentials' 0.25 s limit", (System.uptime - 5.0) < 0.25, true
+check "Graphics.delta unchanged before the game's version is known", Graphics.delta, 16_667
+module Essentials; VERSION = "20.1"; end
+check "Essentials v20: microseconds kept", Input.time?(2), 30_000
+AceCoreCompat::Timing.reset!
+module Essentials; MKXPZ_VERSION = "2.4.2/c9378cf"; end
+check "Essentials for mkxp-z 2.4.2: Graphics.delta in seconds", Graphics.delta, 16_667 / 1_000_000.0
+check "Essentials for mkxp-z 2.4.2: Input.time? in seconds", Input.time?(2), 0.03
+check "Essentials for mkxp-z 2.4.2: System.delta in seconds", System.delta, $fake_us / 1_000_000.0
 check "zlib", Zlib::Inflate.inflate(Zlib::Deflate.deflate("x")), "x"
 check "display_width", Graphics.display_width, 3120
 check "display_height", Graphics.display_height, 1440

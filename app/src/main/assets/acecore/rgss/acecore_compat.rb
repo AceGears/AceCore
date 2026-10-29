@@ -4,7 +4,8 @@
 # The Android port of mkxp-z is older than the mkxp-z that PC games ship with (e.g. Pokémon Essentials v21.1).
 # This file makes the Android engine match upstream mkxp-z where the port is behind, so the same game scripts run:
 #   * loads Ruby's zlib extension at start-up, as upstream mkxp-z does (Essentials' PluginManager needs Zlib);
-#   * adds the upstream mkxp-z functions the port lacks, each only if the engine doesn't define it already.
+#   * adds the upstream mkxp-z functions the port lacks, each only if the engine doesn't define it already;
+#   * reports time in seconds where the game expects upstream's units (see "Time units").
 # AceArcade prepends a header defining AceCoreCompat::DISPLAY_W / DISPLAY_H (the device screen in landscape pixels).
 # Never touches game files.
 
@@ -106,6 +107,79 @@ if defined?(Audio)
     end
     def Audio.bgm_volume(track = nil); AceCoreCompat.bgm_volumes[track]; end
     def Audio.bgm_set_volume(volume, track = nil); AceCoreCompat.bgm_volumes[track] = volume.to_i; nil; end
+  end
+end
+
+#===============================================================================
+# Time units
+#
+# mkxp-z changed its timing functions from whole microseconds to seconds (Float) in 2.4.2. The Android port is
+# older: System.uptime, System.delta, Graphics.delta and Input.time? still return microseconds (e.g. 16667 for one
+# frame instead of 0.0167). Pokémon Essentials v21 is written for 2.4.2: Game_Character#update starts with
+# "return if @delta_t > 0.25" (seconds), so with microseconds EVERY character update was skipped — the player
+# never turned or walked, events never moved, and event scripts waiting for a move route never finished (intros
+# stalled). Menus still worked because they read Input.trigger?/repeat? directly.
+#
+#   System.uptime  -> always seconds. It is the 2.4.2 API; games call it only when written for seconds.
+#   System.delta, Graphics.delta, Input.time?, Input.timeex?
+#                  -> seconds for games written for mkxp-z 2.4.2 or later (detected from Essentials::MKXPZ_VERSION /
+#                     Essentials::VERSION >= 21), unchanged microseconds for older games that expect them.
+# Only applied when the engine really returns integers, so a fixed engine is left alone.
+#===============================================================================
+module AceCoreCompat
+  module Timing
+    US_PER_S = 1_000_000.0
+
+    module_function
+
+    # true: the game expects seconds; false: microseconds. Decided once the game's own version constants exist.
+    def seconds_api?
+      return @seconds unless @seconds.nil?
+      ess = defined?(::Essentials) ? ::Essentials : nil
+      if ess && ess.const_defined?(:MKXPZ_VERSION, false)
+        v = ess.const_get(:MKXPZ_VERSION).to_s[/\d+(\.\d+)*/].to_s.split('.').map(&:to_i)
+        @seconds = (v <=> [2, 4, 2]) >= 0
+      elsif ess && ess.const_defined?(:VERSION, false)
+        @seconds = ess.const_get(:VERSION).to_s.to_f >= 21
+      else
+        false # not known yet (or not Essentials): keep the engine's own units, decide again next call
+      end
+    end
+
+    def convert(value)
+      value.is_a?(Integer) && seconds_api? ? value / US_PER_S : value
+    end
+
+    def reset!
+      @seconds = nil
+    end
+  end
+end
+
+if defined?(System) && System.respond_to?(:uptime) && System.uptime.is_a?(Integer)
+  class << System
+    alias_method :__acearcade_uptime_us, :uptime
+    def uptime; __acearcade_uptime_us / AceCoreCompat::Timing::US_PER_S; end
+    if method_defined?(:delta)
+      alias_method :__acearcade_delta_us, :delta
+      def delta; AceCoreCompat::Timing.convert(__acearcade_delta_us); end
+    end
+  end
+end
+if defined?(Graphics) && Graphics.respond_to?(:delta) && !Graphics.respond_to?(:__acearcade_delta_us)
+  class << Graphics
+    alias_method :__acearcade_delta_us, :delta
+    def delta; AceCoreCompat::Timing.convert(__acearcade_delta_us); end
+  end
+end
+if defined?(Input) && Input.respond_to?(:time?) && !Input.respond_to?(:__acearcade_time_us)
+  class << Input
+    alias_method :__acearcade_time_us, :time?
+    def time?(*args); AceCoreCompat::Timing.convert(__acearcade_time_us(*args)); end
+    if method_defined?(:timeex?)
+      alias_method :__acearcade_timeex_us, :timeex?
+      def timeex?(*args); AceCoreCompat::Timing.convert(__acearcade_timeex_us(*args)); end
+    end
   end
 end
 
