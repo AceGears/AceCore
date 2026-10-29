@@ -5,6 +5,7 @@ require "zlib"; require "fileutils"
 out = ARGV[0] or abort("usage: make_launch_test_rgss.rb <dir>")
 FileUtils.mkdir_p(File.join(out, "Data"))
 script = <<~'RUBY'
+  File.open("launch_started", "wb") { |f| f.write(Dir.pwd) } rescue nil
   begin
     bg = Sprite.new; bg.bitmap = Bitmap.new(640, 480); bg.bitmap.fill_rect(0, 0, 640, 480, Color.new(11, 8, 32))
     t = Sprite.new; t.bitmap = Bitmap.new(640, 80); t.y = 200

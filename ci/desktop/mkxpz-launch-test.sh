@@ -16,13 +16,18 @@ for i in $(seq 1 120); do
   [ -f launch_ok ] || [ -f launch_error ] && break
   kill -0 $PID 2>/dev/null || break
 done
-sleep 2; kill $PID 2>/dev/null; wait $PID 2>/dev/null
-echo "--- engine log"; tail -40 engine.log
+sleep 2; kill $PID 2>/dev/null; wait $PID 2>/dev/null; CODE=$?
+echo "--- engine log (exit $CODE)"; cat engine.log
+ls -la
+n=0
+while IFS= read -r line; do n=$((n+1)); [ $n -le 8 ] && echo "::notice title=mkxp-z log $n::${line:0:900}"; done < <(fold -w 900 engine.log | tail -8)
+CR=$(ls -t ~/Library/Logs/DiagnosticReports/*mkxp* 2>/dev/null | head -1)
+[ -n "$CR" ] && echo "::notice title=mkxp-z crash report::$(grep -m1 -A12 -i 'exception\|"exception"\|Crashed' "$CR" | tr '\n' ' ' | cut -c1-900)"
 if [ -f launch_ok ]; then
   echo "::notice title=mkxp-z launch test passed::$(cat launch_ok)"
   [ -n "$shot" ] && echo "::notice title=mkxp-z launch screenshot (jpeg base64)::$(base64 < "$2/shot.jpg" | tr -d '\n')"
   exit 0
 fi
-msg="$( [ -f launch_error ] && cat launch_error || echo "no result after ${i}s" ) | $(tail -5 engine.log | tr '\n' ' ')"
+msg="exit $CODE after ${i}s: $( [ -f launch_error ] && cat launch_error || echo "the game script wrote no result" )$( [ -f launch_started ] && echo " (script started)" || echo " (script never started)")"
 echo "::error title=mkxp-z launch test failed::${msg:0:900}"
 exit 1

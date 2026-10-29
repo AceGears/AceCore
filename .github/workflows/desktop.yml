@@ -128,6 +128,12 @@ jobs:
       - name: Build mkxp-z
         if: steps.cache.outputs.cache-hit != 'true'
         run: bash ci/desktop/build-mkxpz-macos.sh "$PWD/mkxpz-out"
+      - name: Save the engine build (even if the launch test fails)
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: mkxpz-out
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Launch test (runs a generated RPG Maker XP game)
         run: |
           EXE=$(ls "$PWD"/mkxpz-out/mkxp-z.* | grep -v '\.txt$' | head -1)
