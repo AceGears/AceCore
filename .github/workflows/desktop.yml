@@ -47,6 +47,8 @@ jobs:
     name: Windows portable zip
     needs: test
     runs-on: windows-latest
+    env:
+      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -67,17 +69,41 @@ jobs:
           unzip -q ruffle.zip -d $R/ruffle
           echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A"
           find $R -maxdepth 3 -iname '*.exe' | head
-      - name: Build portable app (zip)
+      - name: Build portable app
         shell: bash
         run: |
           set -e
           GRADLE_LOG=win.log bash ci/run-gradle.sh :desktop:createDistributable
-          D=desktop/build/compose/binaries/main/app
-          ls $D/AceArcade
-          test -f $D/AceArcade/AceArcade.exe
+          ls desktop/build/compose/binaries/main/app/AceArcade
+          test -f desktop/build/compose/binaries/main/app/AceArcade/AceArcade.exe
+      # Optional: Microsoft's Azure Trusted Signing (gains SmartScreen reputation fastest).
+      - name: Sign with Azure Trusted Signing
+        if: env.AZURE_SIGNING_ACCOUNT != ''
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: desktop/build/compose/binaries/main/app/AceArcade
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Sign and zip
+        shell: bash
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          SIGNED_BY_AZURE: ${{ env.AZURE_SIGNING_ACCOUNT != '' && '1' || '' }}
+        run: |
+          set -e
           V=$(grep -m1 'appVersion *=' desktop/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
-          (cd $D && 7z a -tzip -mx=7 "$GITHUB_WORKSPACE/dist/AceArcade-$V-windows-x64.zip" AceArcade >/dev/null)
+          bash ci/desktop/windows-sign.sh desktop/build/compose/binaries/main/app/AceArcade "$GITHUB_WORKSPACE/dist/AceArcade-$V-windows-x64.zip"
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
@@ -109,19 +135,21 @@ jobs:
           ditto -x -k godot.zip $R/godot
           echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION"
           ls -la $R/*
-      - name: Build portable app (zip)
+      - name: Build, sign, notarize and zip
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           set -e
           chmod +x gradlew && GRADLE_LOG=mac.log bash ci/run-gradle.sh :desktop:createDistributable
           D=desktop/build/compose/binaries/main/app
-          ls $D
           test -x $D/AceArcade.app/Contents/MacOS/AceArcade
-          # Ad-hoc signature so Apple Silicon will run the unsigned app once the user allows it.
-          codesign --force --deep --sign - $D/AceArcade.app
           V=$(grep -m1 'appVersion *=' desktop/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
-          # ditto keeps the app bundle's symlinks, permissions and signature intact.
-          ditto -c -k --sequesterRsrc --keepParent $D/AceArcade.app "dist/AceArcade-$V-macos-$(uname -m).zip"
+          bash ci/desktop/macos-sign.sh $D/AceArcade.app "$PWD/dist/AceArcade-$V-macos-$(uname -m).zip"
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
