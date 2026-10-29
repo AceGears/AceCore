@@ -51,7 +51,11 @@ object CrashReports {
         .replace(Regex("/data/user/\\d+/[A-Za-z0-9_.]+"), "<app-data>")
         .replace(Regex("/data/data/[A-Za-z0-9_.]+"), "<app-data>")
 
-    data class ExitRecord(val reason: String, val description: String?, val status: Int, val trace: String?, val signal: String?)
+    data class ExitRecord(
+        val reason: String, val description: String?, val status: Int, val trace: String?, val signal: String?,
+        /** Decoded native crash record (API 31+), when Android provided one. */
+        val tombstone: Tombstone.Summary? = null,
+    )
 
     /** The most recent exit of the ":rgss" (or ":game") process after [since], as recorded by Android. */
     fun lastExit(context: Context, processSuffix: String, since: Long): ExitRecord? {
@@ -72,14 +76,17 @@ object CrashReports {
             ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "A process it depended on died"
             else -> "Ended (reason code ${info.reason})"
         }
-        val trace = runCatching {
-            info.traceInputStream?.use { input ->
-                val bytes = input.readBytes()
-                if (info.reason == ApplicationExitInfo.REASON_CRASH_NATIVE) printableStrings(bytes) else String(bytes).take(20_000)
-            }
-        }.getOrNull()
-        val signal = if (info.reason == ApplicationExitInfo.REASON_CRASH_NATIVE || info.reason == ApplicationExitInfo.REASON_SIGNALED) signalName(info.status) else null
-        return ExitRecord(reason, info.description, info.status, trace, signal)
+        val bytes = runCatching { info.traceInputStream?.use { it.readBytes() } }.getOrNull()
+        val native = info.reason == ApplicationExitInfo.REASON_CRASH_NATIVE
+        val tomb = if (native && bytes != null) Tombstone.parse(bytes) else null
+        val trace = when {
+            bytes == null -> null
+            tomb != null -> Tombstone.format(tomb)
+            native -> printableStrings(bytes) // pre-protobuf format or undecodable: readable strings only
+            else -> String(bytes).take(20_000)
+        }
+        val signal = if (native || info.reason == ApplicationExitInfo.REASON_SIGNALED) signalName(info.status) else null
+        return ExitRecord(reason, info.description, info.status, trace, signal, tomb)
     }
 
     /** Native tombstones are protobuf (API 31+); the readable strings (signal, abort message, frames) are enough here. */
@@ -100,7 +107,10 @@ object CrashReports {
         else -> "signal $sig"
     }
 
-    /** The shared libraries named in a native crash, in the order they appear (e.g. libmkxp-z.so, libruby.so). */
+    /**
+     * The shared libraries named in a native crash, in the order they appear. Only meaningful for undecoded traces,
+     * where it can include libraries from threads that did not crash; prefer [Tombstone.Summary.culprit].
+     */
     fun librariesIn(trace: String?): List<String> =
         Regex("lib[A-Za-z0-9_+.-]+\\.so").findAll(trace.orEmpty()).map { it.value }.distinct().take(6).toList()
 

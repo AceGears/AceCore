@@ -300,12 +300,20 @@ class LaunchCoordinator(
         val javaCrash = runCatching { cr.javaCrashFile(helperDir).readText() }.getOrNull()
         val log = runCatching { File(helperDir, "runtime.log").readLines().takeLast(250).joinToString("\n") }.getOrNull()
         val activityError = if (resultCode == Activity.RESULT_FIRST_USER) data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) else null
-        val libs = cr.librariesIn(exit?.trace)
         val (cause, identified) = when {
             rubyError != null -> "Ruby script error: ${rubyError.lineSequence().first()}" to true
             javaCrash != null -> "Java/Kotlin crash in the game process: ${javaCrash.lineSequence().first()}" to true
-            exit != null && exit.reason == "Native crash" ->
-                "Native crash (${exit.signal ?: "signal"})" + (if (libs.isNotEmpty()) " in ${libs.joinToString()}" else "") to true
+            exit != null && exit.reason == "Native crash" && exit.tombstone != null -> {
+                val t = exit.tombstone
+                val where = t.culprit?.let { f ->
+                    " in " + com.acecore.app.runtime.Tombstone.libName(f.file) + (if (f.function.isNotEmpty()) " (${f.function})" else "")
+                } ?: ""
+                val thread = t.crashing?.name?.let { " on thread $it" } ?: ""
+                val abort = t.abortMessage?.let { ": $it" } ?: ""
+                "Native crash (${t.signal ?: exit.signal ?: "signal"})$where$thread$abort" to true
+            }
+            // Without a decodable crash record the faulting library is unknown: don't name libraries from other threads.
+            exit != null && exit.reason == "Native crash" -> "Native crash (${exit.signal ?: "signal"}); crashing library not recorded" to true
             exit != null && exit.reason != "Exited normally" -> exit.reason + (exit.description?.let { ": $it" } ?: "") to true
             activityError != null -> activityError to true
             else -> "The game process ended without reporting an error. The cause hasn't been identified yet." to false
@@ -320,7 +328,7 @@ class LaunchCoordinator(
                 appendLine("== Android exit record ==")
                 appendLine("${it.reason} · status ${it.status}${it.signal?.let { s -> " ($s)" } ?: ""}")
                 it.description?.let { d -> appendLine(d) }
-                it.trace?.let { t -> appendLine(); appendLine("== Crash trace ==" ); appendLine(t.take(12_000)) }
+                it.trace?.let { t -> appendLine(); appendLine("== Crash trace ==" ); appendLine(t.take(30_000)) }
             }
             javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
             rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }

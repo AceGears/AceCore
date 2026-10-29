@@ -129,6 +129,10 @@ jobs:
         run: |
           # Only arm64-v8a dependencies were compiled above, so build only that ABI.
           sed -i 's/^APP_ABI.*/APP_ABI := arm64-v8a/' app/jni/Application.mk
+          # 16 KB page support (Android 15+ devices with 16 KB pages): the final shared libraries must be linked with
+          # 16 KB-aligned LOAD segments; NDK 23 defaults to 4 KB. Checked after the build.
+          printf '\nAPP_LDFLAGS += -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384\n' >> app/jni/Application.mk
+          tail -n 5 app/jni/Application.mk
           sed -i "s/include 'arm64-v8a', 'armeabi-v7a'/include 'arm64-v8a'/" app/build.gradle
           chmod +x gradlew
           set +e
@@ -162,6 +166,24 @@ jobs:
             test -f "natives/arm64-v8a/lib$lib.so" || { echo "missing lib$lib.so"; exit 1; }
           done
           echo "${MKXPZ_PORT_REPO}@${MKXPZ_PORT_REF}" > natives/SOURCE.txt
+          # NDK 23's libc++_shared.so is 4 KB-aligned; NDK r27's is 16 KB-aligned and ABI-compatible (same __ndk1 ABI,
+          # newer is a superset), so ship that one.
+          SDKMANAGER=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -1)
+          "$SDKMANAGER" --install "ndk;27.2.12479018" > /dev/null
+          cp "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" natives/arm64-v8a/
+          # Unstripped copies, for turning crash-report addresses into function names.
+          mkdir -p natives/symbols
+          find port/app/build -path '*obj/local/arm64-v8a/*.so' -exec cp {} natives/symbols/ \; || true
+          ls -la natives/symbols || true
+      - name: Verify 16 KB alignment of every native library
+        run: |
+          bad=0
+          for f in natives/arm64-v8a/*.so; do
+            aligns=$(readelf -lW "$f" | awk '/LOAD/{print $NF}')
+            echo "$(basename "$f"): $aligns"
+            for a in $aligns; do [ $((a)) -ge 16384 ] || bad=1; done
+          done
+          [ $bad -eq 0 ] || { echo "::error::a native library is not 16 KB-aligned"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: rgss-natives-arm64-v8a
