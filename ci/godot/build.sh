@@ -20,6 +20,8 @@ export PATH="$HOME/.local/bin:$PATH"
 export ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
 echo "ANDROID_HOME=$ANDROID_HOME scons=$(command -v scons)"
 LOG="$OUT/../godot-build.log"
+# Swappy frame pacing, as in official Godot Android builds (Godot's own installer script).
+python3 misc/scripts/install_swappy_android.py > "$OUT/../swappy.log" 2>&1 || fail "Swappy download failed" "$OUT/../swappy.log"
 scons platform=android target=template_release arch=arm64 production=yes disable_path_overrides=no \
   -j"$(nproc)" > "$LOG" 2>&1 || fail "scons failed" "$LOG"
 SO=$(find bin platform/android/java/lib/libs -name 'libgodot*.so' -path '*arm64*' | head -1)
