@@ -508,7 +508,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 Text("Game: ${s.title}", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                 Text("Engine: ${com.acecore.app.core.model.Engine.fromName(s.engine).displayName} · RGSS runtime (mkxp-z)", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                 Text("Stage: ${f.stage}", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
-                Text("Files: " + if (s.direct) "direct from ${s.gamePath}" else "AceCore's private copy", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text("Files: " + if (s.direct) "direct from ${s.gamePath}" else "AceArcade's private copy", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                 Text(f.reason, color = Color.White, fontSize = 14.sp)
                 if (details) Text(logTail(s, 60), color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -518,9 +518,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 MenuItem(Icons.Rounded.Edit, if (details) "Hide details" else "View error details", accent,
                     subtitle = "Engine log. Copy it to share with support.") { details = !details }
                 if (details) MenuItem(Icons.Rounded.Edit, "Copy details", accent) {
-                    val text = "AceCore start-up failure\nGame: ${s.title}\nStage: ${f.stage}\nReason: ${f.reason}\nPath: ${s.gamePath}\n\n${logTail(s, 300)}"
+                    val text = "AceArcade start-up failure\nGame: ${s.title}\nStage: ${f.stage}\nReason: ${f.reason}\nPath: ${s.gamePath}\n\n${logTail(s, 300)}"
                     (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                        .setPrimaryClip(android.content.ClipData.newPlainText("AceCore log", text))
+                        .setPrimaryClip(android.content.ClipData.newPlainText("AceArcade log", text))
                     android.widget.Toast.makeText(this@RgssActivity, "Copied", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 if (!f.detected) MenuItem(Icons.Rounded.PlayArrow, "Keep waiting", accent) { failure = null; starting = true; watchStartup(s) }

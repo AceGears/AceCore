@@ -141,7 +141,7 @@ fun GameQuickMenu(game: GameEntity, targets: GameMenuTargets, onDismiss: () -> U
             modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth()
                 .graphicsLayer { scaleX = appear.value; scaleY = appear.value; alpha = ((appear.value - 0.9f) * 10f).coerceIn(0f, 1f) }
                 .aceGlow(t.glow, t.glowIntensity * 0.5f, 26.dp, 18.dp)
-                .border(1.dp, Brush.linearGradient(listOf(t.glow.copy(alpha = 0.7f), t.chrome.copy(alpha = 0.2f))), RoundedCornerShape(26.dp)),
+                .border(1.dp, Brush.linearGradient(listOf(t.glow.copy(alpha = 0.75f), t.glowAlt.copy(alpha = 0.55f))), RoundedCornerShape(26.dp)),
         ) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -265,14 +265,14 @@ fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRem
                 title = { Text("Remove “${game.title}”?") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("This removes the game from your AceCore library. The game's own files on your device are not deleted, and you can add the folder again at any time.")
+                        Text("This removes the game from your AceArcade library. The game's own files on your device are not deleted, and you can add the folder again at any time.")
                         if (installed > 0) Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { deleteData = !deleteData },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(checked = deleteData, onCheckedChange = { deleteData = it })
                             Text(
-                                "Also delete AceCore's own data for this game (${installed / 1_048_576} MB: private copy, settings and any saves stored by AceCore).",
+                                "Also delete AceArcade's own data for this game (${installed / 1_048_576} MB: private copy, settings and any saves stored by AceArcade).",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }

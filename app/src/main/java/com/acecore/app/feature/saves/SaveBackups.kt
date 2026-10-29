@@ -21,7 +21,7 @@ data class SaveFile(val file: File, val where: SaveLocation, val relative: Strin
 
 enum class SaveLocation(val label: String, val folder: String) {
     /** AceCore's per-game data folder (SDL pref path; Pokémon Essentials v19+ saves here). */
-    DATA("AceCore game data", "data"),
+    DATA("AceArcade game data", "data"),
     /** The folder the game runs from (your folder in direct mode, AceCore's copy otherwise). */
     GAME("Game folder", "game"),
 }
@@ -177,7 +177,7 @@ class SaveBackupManager(private val context: Context) {
 
     /** Copies [files] from the private copy into the user's folder. Existing files there are never overwritten. */
     fun copySavesToDirectFolder(game: GameEntity, files: List<File>): MoveResult {
-        val target = GameLocations.directGameDir(context, game) ?: error("AceCore can't open your game folder directly yet.")
+        val target = GameLocations.directGameDir(context, game) ?: error("AceArcade can't open your game folder directly yet.")
         val copied = mutableListOf<String>()
         val conflicts = mutableListOf<String>()
         for (f in files) {

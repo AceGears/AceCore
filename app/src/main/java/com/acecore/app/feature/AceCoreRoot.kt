@@ -106,7 +106,7 @@ fun AceCoreRoot(pendingLaunchId: Long?, onPendingLaunchConsumed: () -> Unit) {
     val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
     val s = settings
     if (s == null) {
-        Box(Modifier.fillMaxSize().background(Color(0xFF0B0B0E)))
+        Box(Modifier.fillMaxSize().background(Color(0xFF06051A)))
         return
     }
     AceCoreTheme(s.theme, s.reduceMotion) {
@@ -294,7 +294,7 @@ private fun CopyProgressDialog(st: StagingState) {
                 else LinearProgressIndicator(progress = { pr.fraction }, modifier = Modifier.fillMaxWidth())
                 Text(
                     when {
-                        pr == null -> "Comparing your folder with AceCore's copy…"
+                        pr == null -> "Comparing your folder with AceArcade's copy…"
                         pr.filesTotal == 0 -> "Up to date."
                         else -> "${pr.filesDone} of ${pr.filesTotal} files · ${pr.copiedBytes / 1_048_576} / ${pr.totalBytes / 1_048_576} MB"
                     },
@@ -302,7 +302,7 @@ private fun CopyProgressDialog(st: StagingState) {
                 )
                 Text(
                     if (st.firstCopy) "This game uses a private copy (Game settings › How games are loaded). This happens once; later launches start immediately."
-                    else "The game was rescanned, so AceCore is copying new or changed files. Saves made in AceCore are kept.",
+                    else "The game was rescanned, so AceArcade is copying new or changed files. Saves made in AceArcade are kept.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -324,21 +324,21 @@ fun FileAccessDialog(title: String, directPossible: Boolean, onAllow: () -> Unit
                 if (directPossible) {
                     Text(
                         "RPG Maker XP/VX/VX Ace and Pokémon Essentials games are read by their engine as ordinary files. " +
-                            "To run them straight from where they are, with nothing copied, Android needs to give AceCore \"All files access\".",
+                            "To run them straight from where they are, with nothing copied, Android needs to give AceArcade \"All files access\".",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "AceCore only opens the game folders in your library. Games save where they normally save, which for many RPG Maker games is the game's own folder.",
+                        "AceArcade only opens the game folders in your library. Games save where they normally save, which for many RPG Maker games is the game's own folder.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Prefer not to? A private copy works too: AceCore copies the game into its own storage once (this takes time and space for big games).",
+                        "Prefer not to? A private copy works too: AceArcade copies the game into its own storage once (this takes time and space for big games).",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     Text(
                         "This folder comes from a storage provider that has no ordinary file path (for example a cloud or network provider), so the engine can't read it in place. " +
-                            "AceCore can copy the game into its own storage once and run that copy.",
+                            "AceArcade can copy the game into its own storage once and run that copy.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -441,18 +441,18 @@ private fun LaunchFailureDialog(f: com.acecore.app.runtime.LaunchFailure, onRetr
                 Text("Stage: ${f.stage}", style = MaterialTheme.typography.bodySmall)
                 Text(f.cause, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "AceCore itself kept running: games run in their own process. A report was saved (Settings › Advanced › Crash reports).",
+                    "AceArcade itself kept running: games run in their own process. A report was saved (Settings › Advanced › Crash reports).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TextButton(onClick = { onRetry(LaunchOptions()) }) { Text("Retry") }
-                if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceCore's game helper") }
+                if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceArcade's game helper") }
                 if (f.wasDirect) TextButton(onClick = { onRetry(LaunchOptions(forceCopy = true)) }) { Text("Retry from a private copy (diagnostic)") }
                 TextButton(onClick = { details = !details }) { Text(if (details) "Hide error details" else "View error details") }
                 if (details) {
                     Text(f.report.take(6000), style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                     TextButton(onClick = {
                         (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                            .setPrimaryClip(android.content.ClipData.newPlainText("AceCore crash report", f.report))
+                            .setPrimaryClip(android.content.ClipData.newPlainText("AceArcade crash report", f.report))
                         android.widget.Toast.makeText(ctx, "Report copied", android.widget.Toast.LENGTH_SHORT).show()
                     }) { Text("Copy full report") }
                 }

@@ -47,20 +47,20 @@ object LaunchFileRules {
         fun actual(n: String) = siblings.firstOrNull { it.equals(n, ignoreCase = true) } ?: n
 
         fun unavailable(what: String) =
-            LaunchEvaluation.Unsupported("$what games can't be played in this version of AceCore (no runtime is built in).")
+            LaunchEvaluation.Unsupported("$what games can't be played in this version of AceArcade (no runtime is built in).")
 
         return when (ext) {
             "html", "htm" -> if (runtimeAvailable(EngineFamily.WEB)) LaunchEvaluation.Supported(
-                path, EngineFamily.WEB, "Web page. AceCore opens it with the web runtime.",
+                path, EngineFamily.WEB, "Web page. AceArcade opens it with the web runtime.",
             ) else unavailable("HTML5")
 
             "swf" -> if (runtimeAvailable(EngineFamily.FLASH)) LaunchEvaluation.Supported(
-                path, EngineFamily.FLASH, "Flash movie. AceCore plays it with Ruffle.",
+                path, EngineFamily.FLASH, "Flash movie. AceArcade plays it with Ruffle.",
             ) else unavailable("Flash")
 
             "ini" -> when {
                 name.equals("Game.ini", ignoreCase = true) && looksRgss(siblings) -> rgss(prefix + name, runtimeAvailable,
-                    "Game.ini is the game's configuration file, not a program. Choosing it tells AceCore which folder holds the game; " +
+                    "Game.ini is the game's configuration file, not a program. Choosing it tells AceArcade which folder holds the game; " +
                         "the RGSS runtime reads it and starts the game's scripts.")
                 name.equals("Game.ini", ignoreCase = true) -> LaunchEvaluation.Unsupported(
                     "There is no Data folder next to this Game.ini, so it doesn't belong to an RPG Maker XP/VX/VX Ace game.",
@@ -72,7 +72,7 @@ object LaunchFileRules {
                 val base = name.substringBeforeLast('.')
                 when {
                     looksRgss(siblings) && has("Game.ini") -> rgss(prefix + actual("Game.ini"), runtimeAvailable,
-                        "$name is the Windows launcher, which can't run on Android. AceCore's RGSS runtime starts the game " +
+                        "$name is the Windows launcher, which can't run on Android. AceArcade's RGSS runtime starts the game " +
                             "from ${actual("Game.ini")} and the Data folder instead.")
                     looksRgss(siblings) && has("$base.ini") -> LaunchEvaluation.Unsupported(
                         "This RPG Maker game keeps its settings in ${actual("$base.ini")}, but the RGSS runtime only reads Game.ini. " +
@@ -82,14 +82,14 @@ object LaunchFileRules {
                         val entry = if (has("www")) "${prefix}${actual("www")}/index.html" else prefix + actual("index.html")
                         if (runtimeAvailable(EngineFamily.WEB)) LaunchEvaluation.Supported(
                             entry, EngineFamily.WEB,
-                            "$name is the Windows (NW.js/Electron) launcher. AceCore opens the game's web files ($entry) instead.",
+                            "$name is the Windows (NW.js/Electron) launcher. AceArcade opens the game's web files ($entry) instead.",
                         ) else unavailable("HTML5")
                     }
                     has("RPG_RT.ldb") || has("RPG_RT.lmt") -> LaunchEvaluation.Unsupported(
                         "This is an RPG Maker 2000/2003 game. That engine isn't playable in this version of AceCore.",
                     )
                     else -> LaunchEvaluation.Unsupported(
-                        "$name is a Windows program. Android can't run Windows programs, and AceCore found no game files it " +
+                        "$name is a Windows program. Android can't run Windows programs, and AceArcade found no game files it " +
                             "knows how to start next to it.",
                     )
                 }
@@ -98,14 +98,14 @@ object LaunchFileRules {
             "rxdata", "rvdata", "rvdata2" -> if (name.substringBeforeLast('.').equals("Scripts", ignoreCase = true) && dir.substringAfterLast('/').equals("Data", ignoreCase = true)) {
                 val gameDir = dir.substringBeforeLast('/', "")
                 rgss(if (gameDir.isEmpty()) "Game.ini" else "$gameDir/Game.ini", runtimeAvailable,
-                    "The game's script file. AceCore starts the game from the folder that contains Data/ (it must also contain Game.ini).")
+                    "The game's script file. AceArcade starts the game from the folder that contains Data/ (it must also contain Game.ini).")
             } else LaunchEvaluation.Unsupported("“$name” is RPG Maker game data (a map, save or database file), not a launch file.")
 
             "pck" -> unavailable("Godot")
             "rpy", "rpyc", "rpa" -> unavailable("Ren'Py")
             "ldb", "lmt" -> unavailable("RPG Maker 2000/2003")
-            "" -> LaunchEvaluation.Unsupported("“$name” has no file extension, so AceCore can't tell how to start it.")
-            else -> LaunchEvaluation.Unsupported("AceCore can't start games from .$ext files.")
+            "" -> LaunchEvaluation.Unsupported("“$name” has no file extension, so AceArcade can't tell how to start it.")
+            else -> LaunchEvaluation.Unsupported("AceArcade can't start games from .$ext files.")
         }
     }
 

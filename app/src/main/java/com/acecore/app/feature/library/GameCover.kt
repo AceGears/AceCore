@@ -128,7 +128,7 @@ fun GameTile(
                 .then(
                     when {
                         selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
-                        lib.coverBorder -> Modifier.border(t.borderWidth.coerceAtLeast(1.dp), Brush.linearGradient(listOf(borderColor.copy(alpha = 0.9f), t.chrome.copy(alpha = 0.35f))), shape)
+                        lib.coverBorder -> Modifier.border(t.borderWidth.coerceAtLeast(1.dp), Brush.linearGradient(listOf(borderColor.copy(alpha = 0.9f), t.glowAlt.copy(alpha = 0.5f))), shape)
                         else -> Modifier
                     },
                 )

@@ -140,4 +140,4 @@ class CheatStore(context: Context) {
 }
 
 @Serializable
-data class CheatExport(val format: Int = 1, val app: String = "AceCore", val config: CheatConfig)
+data class CheatExport(val format: Int = 1, val app: String = "AceArcade", val config: CheatConfig)

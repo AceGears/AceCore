@@ -191,7 +191,7 @@ private fun Hero(g: GameEntity, coverWidth: Dp, vertical: Boolean) {
     val engine = g.effectiveEngine
     val cover = @Composable {
         CoverImage(g, Modifier.width(coverWidth).aspectRatio(0.75f).aceGlow(t.glow, t.glowIntensity, 16.dp).clip(RoundedCornerShape(16.dp))
-            .border(1.dp, Brush.linearGradient(listOf(t.glow.copy(alpha = 0.8f), t.chrome.copy(alpha = 0.3f))), RoundedCornerShape(16.dp)))
+            .border(1.dp, Brush.linearGradient(listOf(t.glow.copy(alpha = 0.8f), t.glowAlt.copy(alpha = 0.6f))), RoundedCornerShape(16.dp)))
     }
     val text = @Composable { align: Alignment.Horizontal ->
         Column(horizontalAlignment = align) {
@@ -247,7 +247,7 @@ private fun PrimaryActions(g: GameEntity, onOpenSettings: () -> Unit) {
 private fun Notices(g: GameEntity) {
     val ctx = LocalContext.current
     val access = remember(g.treeUri) { ctx.container.games.hasAccess(g.treeUri) }
-    if (!access && g.effectiveEngine.family != EngineFamily.RGSS) Warning("AceCore no longer has permission to read this folder. Remove the game and add its folder again.")
+    if (!access && g.effectiveEngine.family != EngineFamily.RGSS) Warning("AceArcade no longer has permission to read this folder. Remove the game and add its folder again.")
     if (g.lastLaunchOk == false && g.lastError != null) Warning("Last launch: ${g.lastError}")
 }
 
@@ -272,7 +272,7 @@ private fun LaunchCard(g: GameEntity, onChange: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             rows.forEach { (k, v) -> KeyValue(k, v) }
             Text(
-                if (g.isManualLaunch) "Chosen by you. AceCore uses it every time." else "Chosen automatically from the game's files.",
+                if (g.isManualLaunch) "Chosen by you. AceArcade uses it every time." else "Chosen automatically from the game's files.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -294,7 +294,7 @@ fun launchDescription(g: GameEntity): List<Pair<String, String>> {
             if (g.launchFile?.endsWith(".exe", true) == true) out += "Note" to "${g.launchFile!!.substringAfterLast('/')} is the Windows launcher; it isn't run on Android."
         }
         EngineFamily.WEB -> {
-            out += "Runtime" to "AceCore web runtime"
+            out += "Runtime" to "AceArcade web runtime"
             if (g.entry != null && g.entry != g.launchFile) out += "Opens" to g.entry
         }
         EngineFamily.FLASH -> {
@@ -356,7 +356,7 @@ private fun StatsGrid(g: GameEntity, totals: SessionTotals) {
         }
         val legacy = g.playtimeMs - totals.totalMs
         if (legacy > 60_000 && g.sessionCount < g.launchCount) Text(
-            "Includes ${GameActivity.formatDuration(legacy)} played before detailed session tracking (AceCore 0.4).",
+            "Includes ${GameActivity.formatDuration(legacy)} played before detailed session tracking (AceArcade 0.4).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, start = 4.dp),
         )
         Text(

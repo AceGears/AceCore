@@ -45,38 +45,52 @@ data class AceTokens(
     val reduceMotion: Boolean,
     val isDark: Boolean,
     val chrome: Color,
+    /** Second neon of the brand (electric blue next to magenta): dual-tone gradients, borders and highlights. */
+    val glowAlt: Color,
 )
 
 val LocalAceTokens = staticCompositionLocalOf {
-    AceTokens(Color(0xFFE3132B), 0.45f, 0.6f, 1.dp, 16.dp, 1f, 1f, false, true, Color(0xFFC9CDD3))
+    AceTokens(Color(0xFFF03AD6), 0.45f, 0.6f, 1.dp, 16.dp, 1f, 1f, false, true, Color(0xFFD4D8E4), Color(0xFF2E86FF))
 }
 
 object AceTheme {
     val tokens: AceTokens @Composable get() = LocalAceTokens.current
 }
 
-/** Brand palette extracted from the supplied AceCore logo and icon: crimson, chrome silver, near-black. */
+/**
+ * AceArcade brand palette, sampled from the AceArcade icon and logo: neon magenta and hot pink (the "A" and
+ * "ARCADE"), electric and cobalt blue (the orbit rings), cyan sparks, violet, chrome silver ("ACE") and a deep
+ * blue-black base.
+ */
 object AcePalette {
-    val Crimson = Color(0xFFE3132B)
-    val CrimsonDeep = Color(0xFF8E0716)
-    val CrimsonGlow = Color(0xFFFF4D5E)
-    val Chrome = Color(0xFFC9CDD3)
-    val ChromeBright = Color(0xFFF1F2F4)
-    val Gunmetal = Color(0xFF2A2B31)
-    val Carbon = Color(0xFF0B0B0E)
+    val NeonMagenta = Color(0xFFF03AD6)
+    val HotPink = Color(0xFFE5199C)
+    val PinkGlow = Color(0xFFFF5CC8)
+    val ElectricBlue = Color(0xFF2E86FF)
+    val Cobalt = Color(0xFF1840D8)
+    val Cyan = Color(0xFF2ED2FF)
+    val Violet = Color(0xFF8A1CF0)
+    val Chrome = Color(0xFFD4D8E4)
+    val ChromeBright = Color(0xFFF4F6FB)
+    val Gunmetal = Color(0xFF2A2840)
+    val Night = Color(0xFF06051A)
+    val NightSurface = Color(0xFF110C2A)
 }
 
-private data class PresetSeed(val primary: Long, val secondary: Long, val accent: Long, val background: Long, val surface: Long, val glow: Long)
+private data class PresetSeed(
+    val primary: Long, val secondary: Long, val accent: Long, val background: Long, val surface: Long, val glow: Long,
+    val glowAlt: Long,
+)
 
 private fun seedFor(preset: ThemePreset): PresetSeed = when (preset) {
-    ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE3132B, 0xFFC9CDD3, 0xFFFF4D5E, 0xFF0B0B0E, 0xFF16161B, 0xFFE3132B)
-    ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC8102E, 0xFF5B5F66, 0xFFE3132B, 0xFFF5F5F7, 0xFFFFFFFF, 0xFFE3132B)
-    ThemePreset.AMOLED -> PresetSeed(0xFFE3132B, 0xFFB8BCC2, 0xFFFF4D5E, 0xFF000000, 0xFF0A0A0B, 0xFFE3132B)
-    ThemePreset.MIDNIGHT_BLUE -> PresetSeed(0xFF4C8DFF, 0xFFB9C6E0, 0xFF7FB2FF, 0xFF070B18, 0xFF111833, 0xFF4C8DFF)
-    ThemePreset.CRIMSON_RED -> PresetSeed(0xFFFF1E3C, 0xFFFFB3BC, 0xFFFF6B7D, 0xFF140509, 0xFF230A10, 0xFFFF1E3C)
-    ThemePreset.ROYAL_PURPLE -> PresetSeed(0xFF9B5CFF, 0xFFD3C2F5, 0xFFC08BFF, 0xFF0D0816, 0xFF1A1129, 0xFF9B5CFF)
-    ThemePreset.EMERALD_GREEN -> PresetSeed(0xFF1ED69B, 0xFFB5E8D6, 0xFF5CF0C0, 0xFF04120D, 0xFF0B2219, 0xFF1ED69B)
-    ThemePreset.GOLD_EDITION -> PresetSeed(0xFFE8B931, 0xFFF5E6B8, 0xFFFFD866, 0xFF0E0B05, 0xFF1C170B, 0xFFE8B931)
+    ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF06051A, 0xFF110C2A, 0xFFF03AD6, 0xFF2E86FF)
+    ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC4127F, 0xFF1E5BD8, 0xFF8A1CF0, 0xFFF7F5FC, 0xFFFFFFFF, 0xFFE5199C, 0xFF1E5BD8)
+    ThemePreset.AMOLED -> PresetSeed(0xFFE5199C, 0xFFD4D8E4, 0xFF2ED2FF, 0xFF000000, 0xFF0A0712, 0xFFF03AD6, 0xFF2E86FF)
+    ThemePreset.MIDNIGHT_BLUE -> PresetSeed(0xFF4C8DFF, 0xFFB9C6E0, 0xFF7FB2FF, 0xFF070B18, 0xFF111833, 0xFF4C8DFF, 0xFF2ED2FF)
+    ThemePreset.CRIMSON_RED -> PresetSeed(0xFFFF1E3C, 0xFFFFB3BC, 0xFFFF6B7D, 0xFF140509, 0xFF230A10, 0xFFFF1E3C, 0xFFFF6B7D)
+    ThemePreset.ROYAL_PURPLE -> PresetSeed(0xFF9B5CFF, 0xFFD3C2F5, 0xFFC08BFF, 0xFF0D0816, 0xFF1A1129, 0xFF9B5CFF, 0xFFF03AD6)
+    ThemePreset.EMERALD_GREEN -> PresetSeed(0xFF1ED69B, 0xFFB5E8D6, 0xFF5CF0C0, 0xFF04120D, 0xFF0B2219, 0xFF1ED69B, 0xFF2ED2FF)
+    ThemePreset.GOLD_EDITION -> PresetSeed(0xFFE8B931, 0xFFF5E6B8, 0xFFFFD866, 0xFF0E0B05, 0xFF1C170B, 0xFFE8B931, 0xFFFFD866)
     ThemePreset.DYNAMIC, ThemePreset.CUSTOM -> seedFor(ThemePreset.SIGNATURE_DARK)
 }
 
@@ -95,7 +109,7 @@ fun Color.toArgbLong(): Long = (((alpha * 255f + 0.5f).toInt() shl 24) or ((red 
 
 private fun schemeFrom(primary: Color, secondary: Color, accent: Color, background: Color, surface: Color, surfaceAlpha: Float): ColorScheme {
     val dark = background.luminance() < 0.4f
-    val onBg = if (dark) Color(0xFFF1F2F4) else Color(0xFF141418)
+    val onBg = if (dark) Color(0xFFF4F3FB) else Color(0xFF15122A)
     val onPrimary = if (primary.luminance() > 0.5f) Color.Black else Color.White
     val surf = surface.copy(alpha = 1f)
     val variant = lerpColor(surf, onBg, if (dark) 0.08f else 0.05f)
@@ -178,20 +192,24 @@ fun AceCoreTheme(settings: ThemeSettings, reduceMotion: Boolean = false, content
     }
 
     val glowColor: Color
+    val glowAltColor: Color
     val scheme: ColorScheme = when {
         effectivePreset == ThemePreset.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val s = if (systemDark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             glowColor = s.primary
+            glowAltColor = s.tertiary
             s
         }
         effectivePreset == ThemePreset.CUSTOM -> {
             glowColor = settings.glowColor.toColor()
+            glowAltColor = settings.secondary.toColor()
             schemeFrom(settings.primary.toColor(), settings.secondary.toColor(), settings.accent.toColor(),
                 settings.background.toColor(), settings.surface.toColor(), surfaceAlpha)
         }
         else -> {
             val seed = seedFor(effectivePreset)
             glowColor = Color(seed.glow.toInt())
+            glowAltColor = Color(seed.glowAlt.toInt())
             schemeFrom(Color(seed.primary.toInt()), Color(seed.secondary.toInt()), Color(seed.accent.toInt()),
                 Color(seed.background.toInt()), Color(seed.surface.toInt()), surfaceAlpha)
         }
@@ -209,6 +227,7 @@ fun AceCoreTheme(settings: ThemeSettings, reduceMotion: Boolean = false, content
         reduceMotion = reduceMotion || sysReduce,
         isDark = isDark,
         chrome = if (isDark) AcePalette.Chrome else AcePalette.Gunmetal,
+        glowAlt = glowAltColor,
     )
     val c = tokens.corner
     val shapes = Shapes(

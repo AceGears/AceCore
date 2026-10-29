@@ -202,7 +202,7 @@ class GameActivity : ComponentActivity() {
             }.onFailure { e ->
                 Log.e(TAG, "Index failed", e)
                 showError(
-                    if (e is SecurityException) "AceCore no longer has permission to read this game's folder. Remove and re-add the game from the library."
+                    if (e is SecurityException) "AceArcade no longer has permission to read this game's folder. Remove and re-add the game from the library."
                     else "Could not read the game folder: ${e.message}",
                 )
             }

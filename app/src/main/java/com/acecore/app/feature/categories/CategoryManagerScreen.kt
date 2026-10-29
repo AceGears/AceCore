@@ -300,7 +300,7 @@ private fun CategoryCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Scan automatically", style = MaterialTheme.typography.bodyLarge)
-                            Text("When AceCore starts (at most every 6 hours).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("When AceArcade starts (at most every 6 hours).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = c.autoScan, enabled = dirs.isNotEmpty(), onCheckedChange = { v -> scope.launch { repo.update(c.copy(autoScan = v)) } })
                     }

@@ -80,7 +80,7 @@ fun LibraryLayoutSheet(lib: LibrarySettings, onDismiss: () -> Unit) {
                 ToggleRow("Cover glow", lib.coverGlow) { v -> update { it.copy(coverGlow = v) } }
                 if (lib.coverBorder || lib.coverGlow) {
                     Label("Border & glow colour")
-                    val colors = listOf(0L, 0xFFE3132BL, 0xFFFF4D5EL, 0xFFC9CDD3L, 0xFF4C8DFFL, 0xFF9B5CFFL, 0xFF1ED69BL, 0xFFE8B931L, 0xFFFFFFFFL)
+                    val colors = listOf(0L, 0xFFF03AD6L, 0xFFE5199CL, 0xFF2E86FFL, 0xFF2ED2FFL, 0xFF8A1CF0L, 0xFFD4D8E4L, 0xFFE3132BL, 0xFF4C8DFFL, 0xFF9B5CFFL, 0xFF1ED69BL, 0xFFE8B931L, 0xFFFFFFFFL)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         colors.forEach { c ->
                             val sel = lib.borderColor == c

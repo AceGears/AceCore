@@ -1,4 +1,4 @@
-# AceCore
+# AceArcade
 
 Premium Android launcher for PC-origin indie games. **Version 0.4.0**: direct game launching (no full copies),
 a launch-file browser, categories, a redesigned library and game page, real play statistics, and a cheat manager for

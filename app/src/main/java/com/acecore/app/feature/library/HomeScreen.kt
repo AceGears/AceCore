@@ -241,7 +241,7 @@ fun HomeScreen(
                     games == null -> Unit
                     games.isEmpty() -> EmptyState(
                         Icons.Rounded.SportsEsports, "Your library is empty",
-                        "Add a game folder. AceCore detects the engine and plays the game from where it is. Nothing is copied unless you ask for it.",
+                        "Add a game folder. AceArcade detects the engine and plays the game from where it is. Nothing is copied unless you ask for it.",
                         Modifier.padding(top = 40.dp),
                     ) {
                         ExtendedFloatingActionButton(onClick = { pickFolder.launch(null) }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Choose a game folder") })
@@ -297,7 +297,7 @@ fun HomeScreen(
     if (confirmBatchRemove) AlertDialog(
         onDismissRequest = { confirmBatchRemove = false },
         title = { Text("Remove ${selection.size} game(s) from the library?") },
-        text = { Text("Only the library entries are removed. Game files stay on your device, and AceCore keeps its own saved data for them.") },
+        text = { Text("Only the library entries are removed. Game files stay on your device, and AceArcade keeps its own saved data for them.") },
         confirmButton = {
             TextButton(onClick = {
                 val ids = selection.toList()
@@ -326,9 +326,9 @@ private fun Header(searchOpen: Boolean, onSearch: () -> Unit, onLayout: () -> Un
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
-            painterResource(R.drawable.acecore_logo), contentDescription = "AceCore",
+            painterResource(R.drawable.acearcade_logo), contentDescription = "AceArcade",
             contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
-            modifier = Modifier.weight(1f).height(52.dp),
+            modifier = Modifier.weight(1f).height(56.dp),
         )
         IconButton(onClick = onSearch) { Icon(if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search, if (searchOpen) "Close search" else "Search") }
         IconButton(onClick = onLayout) { Icon(Icons.Rounded.GridView, "Library layout") }

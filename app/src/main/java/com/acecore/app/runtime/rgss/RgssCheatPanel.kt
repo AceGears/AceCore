@@ -61,8 +61,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val Panel = Color(0xF2141418)
-private val Card = Color(0xFF1E1E24)
+private val Panel = Color(0xF20E0B22)
+private val Card = Color(0xFF1A1536)
 private val Muted = Color.White.copy(alpha = 0.62f)
 
 /** Something the user is about to change, shown in a confirm/edit dialog before anything is sent to the game. */
@@ -158,7 +158,7 @@ fun RgssCheatPanel(spec: RgssLaunchSpec, appContext: Context, accent: Color, onC
                     Section("Cheats are off for this game") {
                         Text(
                             if (config.enabled) "Cheats are turned on and will work the next time you start the game."
-                            else "Turn them on now; they take effect the next time the game starts. AceCore only loads its hooks into games with cheats on.",
+                            else "Turn them on now; they take effect the next time the game starts. AceArcade only loads its hooks into games with cheats on.",
                             color = Muted, fontSize = 13.sp,
                         )
                         if (!config.enabled) Chip("Turn on for next launch", accent) { config = config.copy(enabled = true); store.save(spec.gameId, config) }
@@ -339,7 +339,7 @@ private fun Overlay(onClose: () -> Unit, content: @Composable () -> Unit) {
     ) {
         Column(
             Modifier.widthIn(max = 520.dp).fillMaxWidth().padding(16.dp).heightIn(max = 600.dp)
-                .background(Color(0xFF17171C), RoundedCornerShape(22.dp)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
+                .background(Color(0xFF151130), RoundedCornerShape(22.dp)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .verticalScroll(rememberScrollState()).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

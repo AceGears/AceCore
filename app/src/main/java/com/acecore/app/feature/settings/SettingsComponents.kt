@@ -210,7 +210,7 @@ fun ColorPickerDialog(title: String, initial: Long, onDismiss: () -> Unit, onPic
     var v by remember { mutableFloatStateOf(hsv[2]) }
     val current = android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)).toLong() and 0xFFFFFFFFL
     var hex by remember(current) { mutableStateOf("%06X".format(current and 0xFFFFFF)) }
-    val presets = listOf(0xFFE3132B, 0xFFFF4D5E, 0xFFC9CDD3, 0xFF4C8DFF, 0xFF9B5CFF, 0xFF1ED69B, 0xFFE8B931, 0xFFFF7A1A, 0xFF00C2D1, 0xFFFFFFFF, 0xFF16161B, 0xFF000000)
+    val presets = listOf(0xFFF03AD6, 0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF8A1CF0, 0xFFD4D8E4, 0xFFE3132B, 0xFFFF4D5E, 0xFF4C8DFF, 0xFF9B5CFF, 0xFF1ED69B, 0xFFE8B931, 0xFFFF7A1A, 0xFF00C2D1, 0xFFFFFFFF, 0xFF16161B, 0xFF000000)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },

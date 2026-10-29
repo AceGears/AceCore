@@ -75,7 +75,7 @@ fun EnginesSection(s: AppSettings, onEngine: (Engine) -> Unit) {
         runCatching { if (Build.VERSION.SDK_INT >= 26) android.webkit.WebView.getCurrentWebViewPackage()?.versionName else null }.getOrNull()
     }
     Text(
-        "Every engine AceCore recognises, grouped by family. “Installed” means the runtime is inside this build; an engine is only " +
+        "Every engine AceArcade recognises, grouped by family. “Installed” means the runtime is inside this build; an engine is only " +
             "called working on your device after a game actually started with it.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )

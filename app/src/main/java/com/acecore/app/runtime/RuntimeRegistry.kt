@@ -5,7 +5,7 @@ import com.acecore.app.core.model.EngineFamily
 
 /** A runtime that may be bundled with AceCore. */
 enum class RuntimeId(val displayName: String) {
-    WEB("AceCore Web Runtime (Android System WebView)"),
+    WEB("AceArcade Web Runtime (Android System WebView)"),
     RGSS_MKXPZ("RGSS runtime (mkxp-z based)"),
     EASYRPG("EasyRPG Player"),
     RENPY("Ren'Py runtime"),
@@ -41,10 +41,10 @@ object RuntimeRegistry {
         ),
         RuntimeId.RGSS_MKXPZ to RuntimeInfo(
             RuntimeId.RGSS_MKXPZ, bundled = false,
-            status = "Integrated, but the native mkxp-z libraries are not in this build. Builds produced by AceCore's CI workflow include them.",
+            status = "Integrated, but the native mkxp-z libraries are not in this build. Builds produced by AceArcade's CI workflow include them.",
             blocker = "Build with the 'AceCore full build' GitHub Actions workflow (it compiles mkxp-z, Ruby 3.1, SDL2 and OpenAL with the NDK), " +
                 "or place the native libraries in app/src/main/jniLibs. See docs/RGSS_RUNTIME.md.",
-            license = "GPL-2.0-or-later (mkxp-z); AceCore is distributed under GPL-3.0-or-later",
+            license = "GPL-2.0-or-later (mkxp-z); AceArcade is distributed under GPL-3.0-or-later",
         ),
         RuntimeId.EASYRPG to RuntimeInfo(
             RuntimeId.EASYRPG, bundled = false,
@@ -77,7 +77,7 @@ object RuntimeRegistry {
             RuntimeId.NONE, bundled = false,
             status = "This kind of game cannot run on Android through AceCore.",
             blocker = "Native Windows code (x86/x64) cannot execute on Android without a full Windows " +
-                "compatibility layer, which AceCore does not include.",
+                "compatibility layer, which AceArcade does not include.",
         ),
     )
 
@@ -100,8 +100,8 @@ object RuntimeRegistry {
     private val rgssAvailableInfo = RuntimeInfo(
         RuntimeId.RGSS_MKXPZ, bundled = true,
         version = "mkxp-z via mkxp-z-android-reworked @ b668e08 · Ruby 3.1 · SDL 2.26.3",
-        status = "Bundled (mkxp-z for Android). Games run directly from their folder when AceCore has file access, otherwise from a private copy.",
-        license = "GPL-2.0-or-later (mkxp-z); AceCore is distributed under GPL-3.0-or-later",
+        status = "Bundled (mkxp-z for Android). Games run directly from their folder when AceArcade has file access, otherwise from a private copy.",
+        license = "GPL-2.0-or-later (mkxp-z); AceArcade is distributed under GPL-3.0-or-later",
     )
 
     fun info(id: RuntimeId): RuntimeInfo =

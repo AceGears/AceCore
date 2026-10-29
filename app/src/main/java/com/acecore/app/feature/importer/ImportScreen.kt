@@ -89,7 +89,7 @@ class ImportViewModel(
                 }
                 UiState.Results(outcome) as UiState
             }.getOrElse { e ->
-                UiState.Failed(if (e is SecurityException) "AceCore wasn't given access to that folder." else "Scanning failed: ${e.message}")
+                UiState.Failed(if (e is SecurityException) "AceArcade wasn't given access to that folder." else "Scanning failed: ${e.message}")
             }
         }
     }

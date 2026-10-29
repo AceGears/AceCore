@@ -390,7 +390,7 @@ class DetectionEngine(
                 if (snap.filesWhere { it.endsWith(".rpgmvp") || it.endsWith(".png_") }.isNotEmpty()) out += Diagnostic(
                     Severity.INFO, "Encrypted image assets detected. They are decrypted by the game's own scripts at runtime.",
                 )
-                out += Diagnostic(Severity.INFO, "Saves are stored per game inside AceCore (browser storage), not in the game's save/ folder.")
+                out += Diagnostic(Severity.INFO, "Saves are stored per game inside AceArcade (browser storage), not in the game's save/ folder.")
             }
             Engine.POKEMON_ESSENTIALS -> out += Diagnostic(
                 Severity.INFO,
@@ -432,7 +432,7 @@ class DetectionEngine(
                     pe == null -> "Not a valid Windows executable"
                     runnable && engine.family == EngineFamily.RGSS ->
                         "Windows launcher. On Android the RGSS runtime starts the game from ${entry?.substringAfterLast('/')} and the Data folder."
-                    runnable -> "Windows launcher. AceCore opens the game's files ($entry) instead."
+                    runnable -> "Windows launcher. AceArcade opens the game's files ($entry) instead."
                     else -> "Windows ${pe.machine.label} program – not runnable on Android"
                 }
                 add(LaunchCandidate(exe.path, LaunchKind.EXE, if (runnable && pe != null) entry else null, runnable && pe != null, note))

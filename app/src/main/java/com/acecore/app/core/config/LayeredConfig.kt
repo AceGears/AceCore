@@ -53,15 +53,15 @@ enum class ConfigKey(
     PAUSE_AUDIO("pauseAudio", "Pause audio in background", "Suspend game audio when you leave AceCore.", ConfigType.BOOL, "true", section = "Audio"),
     GAME_FILES(
         "gameFiles", "How games are loaded",
-        "Direct: AceCore runs the game straight from your folder (needs Android's \"All files access\"; nothing is copied). " +
-            "Private copy: AceCore copies the game into its own storage once and runs that copy.",
+        "Direct: AceArcade runs the game straight from your folder (needs Android's \"All files access\"; nothing is copied). " +
+            "Private copy: AceArcade copies the game into its own storage once and runs that copy.",
         ConfigType.CHOICE, "direct",
         listOf("direct" to "Direct from your folder", "copy" to "Private copy"),
         section = "Advanced", appliesTo = { it.family == EngineFamily.RGSS },
     ),
     RGSS_HELPER(
-        "rgssHelper", "AceCore game helper",
-        "A small script AceCore loads before the game's own scripts. It reports when the game has started (launch statistics) " +
+        "rgssHelper", "AceArcade game helper",
+        "A small script AceArcade loads before the game's own scripts. It reports when the game has started (launch statistics) " +
             "and powers the in-game cheat menu. Turn it off if a game misbehaves.",
         ConfigType.BOOL, "true", section = "Advanced", appliesTo = { it.family == EngineFamily.RGSS },
     ),

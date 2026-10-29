@@ -22,8 +22,8 @@ import java.io.IOException
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "acecore_settings")
 
 enum class ThemePreset(val label: String) {
-    SIGNATURE_DARK("AceCore Signature Dark"),
-    SIGNATURE_LIGHT("AceCore Signature Light"),
+    SIGNATURE_DARK("AceArcade Neon"),
+    SIGNATURE_LIGHT("AceArcade Neon Light"),
     AMOLED("AMOLED Black"),
     MIDNIGHT_BLUE("Midnight Blue"),
     CRIMSON_RED("Crimson Red"),
@@ -58,12 +58,12 @@ data class ThemeSettings(
     val preset: ThemePreset = ThemePreset.SIGNATURE_DARK,
     /** When true, Signature Dark/Light follow the system dark-mode setting automatically. */
     val followSystem: Boolean = true,
-    val primary: Long = 0xFFE3132BL,
-    val secondary: Long = 0xFFC9CDD3L,
-    val accent: Long = 0xFFFF4D5EL,
-    val background: Long = 0xFF0B0B0EL,
-    val surface: Long = 0xFF16161BL,
-    val glowColor: Long = 0xFFE3132BL,
+    val primary: Long = 0xFFE5199CL,
+    val secondary: Long = 0xFF2E86FFL,
+    val accent: Long = 0xFF2ED2FFL,
+    val background: Long = 0xFF06051AL,
+    val surface: Long = 0xFF110C2AL,
+    val glowColor: Long = 0xFFF03AD6L,
     val surfaceOpacity: Int = 100,
     val gradientIntensity: Int = 60,
     val glowIntensity: Int = 45,

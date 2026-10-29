@@ -124,7 +124,7 @@ object CrashReports {
     }.getOrNull()
 
     fun header(gameTitle: String, engine: String, stage: String): String = buildString {
-        appendLine("AceCore ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        appendLine("AceArcade ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ABIs ${Build.SUPPORTED_ABIS.joinToString()}")
         appendLine("Game: $gameTitle · Engine: $engine · Runtime: ${RuntimeRegistry.info(RuntimeId.RGSS_MKXPZ).version ?: "mkxp-z"}")

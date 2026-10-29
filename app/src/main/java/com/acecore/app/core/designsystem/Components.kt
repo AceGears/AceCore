@@ -59,16 +59,24 @@ fun Modifier.aceGlow(color: Color, intensity: Float, corner: Dp, radius: Dp = 14
         }
     }
 
-/** Subtle crimson-to-transparent wash used on headers and hero areas. */
+/** Neon wash for headers and hero areas: magenta at the top melting into electric blue, then the background. */
 @Composable
 fun aceHeroBrush(): Brush {
     val t = AceTheme.tokens
     val bg = MaterialTheme.colorScheme.background
     return Brush.verticalGradient(
-        0f to t.glow.copy(alpha = 0.32f * t.gradientIntensity).compositeOverSafe(bg),
-        0.55f to bg,
+        0f to t.glow.copy(alpha = 0.34f * t.gradientIntensity).compositeOverSafe(bg),
+        0.38f to t.glowAlt.copy(alpha = 0.16f * t.gradientIntensity).compositeOverSafe(bg),
+        0.75f to bg,
         1f to bg,
     )
+}
+
+/** Signature dual-tone neon edge (magenta to electric blue) for highlighted cards, covers and dialogs. */
+@Composable
+fun aceNeonEdge(alpha: Float = 0.85f): Brush {
+    val t = AceTheme.tokens
+    return Brush.linearGradient(listOf(t.glow.copy(alpha = alpha), t.glowAlt.copy(alpha = alpha * 0.8f)))
 }
 
 private fun Color.compositeOverSafe(bg: Color) = androidx.compose.ui.graphics.lerp(bg, this.copy(alpha = 1f), this.alpha)

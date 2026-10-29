@@ -121,7 +121,7 @@ class LaunchCoordinator(
             game.id, "Game files are packed", "This build keeps its game inside an archive. Extract it, then rescan the game.", canRescan = true,
         )
         val entry = game.entry ?: return LaunchPreparation.Blocked(
-            game.id, "No launch file", "AceCore couldn't find a file to start this game with. Choose a launch file or rescan the game.",
+            game.id, "No launch file", "AceArcade couldn't find a file to start this game with. Choose a launch file or rescan the game.",
             canRescan = true, fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
         )
         val s = settings.current()
@@ -150,7 +150,7 @@ class LaunchCoordinator(
 
     private fun folderAccessLost(game: GameEntity) = LaunchPreparation.Blocked(
         game.id, "Folder access lost",
-        "Android no longer lets AceCore read this game's folder (it may have been moved, deleted, or the permission was revoked). Remove the game and add its folder again.",
+        "Android no longer lets AceArcade read this game's folder (it may have been moved, deleted, or the permission was revoked). Remove the game and add its folder again.",
     )
 
     private fun missingLaunchFile(game: GameEntity, path: String) = LaunchPreparation.Blocked(
@@ -178,7 +178,7 @@ class LaunchCoordinator(
             val dir = withContext(Dispatchers.IO) { GameLocations.directGameDir(context, game) }
             if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
                 game.id, "Game folder not found",
-                "AceCore can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
+                "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
             )
             if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, "Game.ini") } == null) {
                 return missingLaunchFile(game, "${GameLocations.rgssSubdir(game.entry).let { if (it.isEmpty()) "" else "$it/" }}Game.ini")

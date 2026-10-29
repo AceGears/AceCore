@@ -23,7 +23,7 @@ data class RgssLaunchSpec(
     /** Absolute path of the per-game private data directory (SDL pref path). */
     val dataPath: String,
     val config: Map<String, String>,
-    val accentArgb: Long = 0xFFE3132BL,
+    val accentArgb: Long = 0xFFF03AD6L,
     /** True when the game runs straight from the user's folder (no private copy). */
     val direct: Boolean = false,
     /** Whether AceCore's runtime helper (and therefore the in-game cheat menu) is loaded. */

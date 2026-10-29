@@ -494,7 +494,7 @@ class GameRepository(
         }
         suspend fun categoryId(name: String): Long = catIds.getOrPut(name.lowercase()) {
             categoryDao.findByName(name)?.id ?: categoryDao.insert(
-                com.acecore.app.core.database.CategoryEntity(name = name, icon = "folder", color = 0xFFE3132BL, sortOrder = categoryDao.maxSortOrder() + 1),
+                com.acecore.app.core.database.CategoryEntity(name = name, icon = "folder", color = 0xFFF03AD6L, sortOrder = categoryDao.maxSortOrder() + 1),
             )
         }
         var restored = 0

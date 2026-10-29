@@ -137,7 +137,7 @@ fun GameFilesCard(g: GameEntity) {
                             direct && i?.directPath == null -> "Direct play isn't possible for this folder"
                             direct && access -> "Game folder not found"
                             direct -> "Direct play: waiting for file access"
-                            i?.copyInstalled == true -> "Played from AceCore's private copy"
+                            i?.copyInstalled == true -> "Played from AceArcade's private copy"
                             else -> "Private copy (made on first launch)"
                         },
                         style = MaterialTheme.typography.titleSmall,
@@ -145,11 +145,11 @@ fun GameFilesCard(g: GameEntity) {
                     Text(
                         when {
                             direct && i?.directReadable == true -> "Nothing is copied. Launches go straight to the engine."
-                            direct && i?.directPath == null -> "Its storage provider has no ordinary file path, so AceCore uses a private copy instead."
+                            direct && i?.directPath == null -> "Its storage provider has no ordinary file path, so AceArcade uses a private copy instead."
                             direct && access -> "Nothing is at ${i?.directPath?.absolutePath}. If you moved the game, remove it and add it again."
                             direct -> "Allow \"All files access\" so the engine can read the game where it is."
-                            i?.copyInstalled == true -> "${formatBytes(i.copyBytes)} in AceCore's storage" + if (i.copyOutdated) " · updates on next launch (the game was rescanned)" else " · up to date"
-                            else -> "The first launch copies the game into AceCore's storage."
+                            i?.copyInstalled == true -> "${formatBytes(i.copyBytes)} in AceArcade's storage" + if (i.copyOutdated) " · updates on next launch (the game was rescanned)" else " · up to date"
+                            else -> "The first launch copies the game into AceArcade's storage."
                         },
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -170,7 +170,7 @@ fun GameFilesCard(g: GameEntity) {
             }
             if (i != null && i.savesInCopy.isNotEmpty()) {
                 Text(
-                    "${i.savesInCopy.size} save file(s) exist only in AceCore's private copy: ${i.savesInCopy.joinToString { it.name }}.",
+                    "${i.savesInCopy.size} save file(s) exist only in AceArcade's private copy: ${i.savesInCopy.joinToString { it.name }}.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (i.directReadable) FilledTonalButton(onClick = {

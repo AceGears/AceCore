@@ -53,7 +53,7 @@ class WebGameServer(
             if (url.scheme == "data" || url.scheme == "blob") return null
             if (allowNetwork) return null
             blockedRequests++
-            return text(403, "Forbidden", "Network access is disabled for this game in AceCore settings.")
+            return text(403, "Forbidden", "Network access is disabled for this game in AceArcade settings.")
         }
         val path = url.encodedPath ?: "/"
         if (path.startsWith("/__acecore/")) return internal(path)
@@ -61,7 +61,7 @@ class WebGameServer(
             serveFile(path, request.requestHeaders)
         } catch (e: SecurityException) {
             Log.w(TAG, "Permission lost for $path", e)
-            text(403, "Forbidden", "AceCore lost access to the game folder. Re-add it from the library.")
+            text(403, "Forbidden", "AceArcade lost access to the game folder. Re-add it from the library.")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to serve $path", e)
             text(500, "Internal Error", e.message ?: "error")

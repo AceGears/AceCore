@@ -126,7 +126,7 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
             runCatching { tree.children(dirId, dirPath) }
         }.onSuccess { list ->
             listing = list.sortedWith(compareByDescending<SafNode> { it.isDirectory }.thenByDescending { LaunchFileRules.isCandidateName(it.name) }.thenBy { it.name.lowercase() })
-        }.onFailure { loadError = if (it is SecurityException) "AceCore no longer has access to this folder." else (it.message ?: it.toString()) }
+        }.onFailure { loadError = if (it is SecurityException) "AceArcade no longer has access to this folder." else (it.message ?: it.toString()) }
     }
     val siblings = listing.orEmpty().map { it.name }
     val evaluation = selected?.let { sel ->
@@ -152,7 +152,7 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                 AnimatedContent(mode, label = "mode", modifier = Modifier.weight(1f)) { m ->
                     if (m == Mode.AUTO) {
                         Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("AceCore analyses the folder and picks the entry the runtime needs.", style = MaterialTheme.typography.bodyMedium)
+                            Text("AceArcade analyses the folder and picks the entry the runtime needs.", style = MaterialTheme.typography.bodyMedium)
                             if (autoCandidate != null || detection?.entry != null) {
                                 ResultCard(
                                     ok = true,
@@ -255,7 +255,7 @@ private fun com.acecore.app.core.model.EngineFamily.representative(): com.acecor
 private fun runtimeLabel(ev: LaunchEvaluation.Supported): String = when (ev.family) {
     com.acecore.app.core.model.EngineFamily.RGSS -> "RGSS-compatible Android runtime (mkxp-z)"
     com.acecore.app.core.model.EngineFamily.FLASH -> "Ruffle (Flash) in the web runtime"
-    com.acecore.app.core.model.EngineFamily.WEB -> "AceCore web runtime"
+    com.acecore.app.core.model.EngineFamily.WEB -> "AceArcade web runtime"
     else -> ev.family.name
 }
 

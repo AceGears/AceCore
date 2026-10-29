@@ -150,7 +150,7 @@ fun CheatManagerScreen(gameId: Long, onBack: () -> Unit) {
                         Switch(config.autoBackup, { save(config.copy(autoBackup = it)) })
                     }
                     Text(
-                        "How it works: AceCore calls the game's own functions while it runs (it never edits save files directly). " +
+                        "How it works: AceArcade calls the game's own functions while it runs (it never edits save files directly). " +
                             "Each cheat is offered only if this game version supports it, and changes become permanent when you save in the game. " +
                             "Open the in-game menu (Back button or the menu button) › Cheats.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

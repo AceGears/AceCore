@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.acecore.app.core.config.WebKey
 
-internal val PanelBg = Color(0xF0101014)
+internal val PanelBg = Color(0xF00C0A1E)
 
 /** On-screen PC keyboard with sticky modifiers. Sends real keydown/keyup pairs into the game. */
 @Composable
@@ -166,7 +166,7 @@ fun PauseMenu(
             MenuItem(Icons.Rounded.Refresh, "Reload game", accent, onClick = onReload)
             MenuItem(Icons.Rounded.Storage, "Rebuild file cache & reload", accent, subtitle = state.cacheText, onClick = onRebuildCache)
             if (!state.lastErrors.isNullOrBlank()) {
-                Row(Modifier.fillMaxWidth().background(Color(0x33E3132B), RoundedCornerShape(12.dp)).padding(10.dp)) {
+                Row(Modifier.fillMaxWidth().background(Color(0x33F03AD6), RoundedCornerShape(12.dp)).padding(10.dp)) {
                     Icon(Icons.Rounded.BugReport, null, tint = accent, modifier = Modifier.size(18.dp))
                     Text(" Recent script errors:\n${state.lastErrors}", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp)
                 }

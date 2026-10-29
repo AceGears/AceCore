@@ -108,7 +108,7 @@ private val SECTIONS = listOf(
         listOf("cache", "backup", "restore", "export", "import", "storage", "clear")),
     SectionDef("advanced", "Advanced", "Network access, debugging, diagnostics", Icons.Rounded.Build,
         listOf("network", "internet", "debug", "diagnostic", "log", "developer")),
-    SectionDef("about", "About AceCore", "Version, licenses, privacy", Icons.Rounded.Info, listOf("version", "license", "privacy", "about", "open source")),
+    SectionDef("about", "About AceArcade", "Version, licenses, privacy", Icons.Rounded.Info, listOf("version", "license", "privacy", "about", "open source")),
 )
 
 @Composable
@@ -232,7 +232,7 @@ private fun AppearanceSection(s: AppSettings) {
     if (confirmReset) AlertDialog(
         onDismissRequest = { confirmReset = false },
         title = { Text("Reset appearance?") },
-        text = { Text("Theme, colours and effects return to AceCore Signature Dark defaults.") },
+        text = { Text("Theme, colours and effects return to the AceArcade Neon defaults.") },
         confirmButton = { TextButton(onClick = { scope.launch { repo.resetTheme() }; confirmReset = false }) { Text("Reset") } },
         dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
     )
@@ -243,7 +243,7 @@ private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: 
     val previewTheme = current.copy(preset = preset)
     val accent = accentArgbFor(previewTheme).toColor()
     val bg = when (preset) {
-        ThemePreset.SIGNATURE_LIGHT -> Color(0xFFF5F5F7)
+        ThemePreset.SIGNATURE_LIGHT -> Color(0xFFF7F5FC)
         ThemePreset.AMOLED -> Color.Black
         ThemePreset.MIDNIGHT_BLUE -> Color(0xFF070B18)
         ThemePreset.CRIMSON_RED -> Color(0xFF140509)
@@ -252,7 +252,7 @@ private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: 
         ThemePreset.GOLD_EDITION -> Color(0xFF0E0B05)
         ThemePreset.CUSTOM -> current.background.toColor()
         ThemePreset.DYNAMIC -> MaterialTheme.colorScheme.background
-        else -> Color(0xFF0B0B0E)
+        else -> Color(0xFF06051A)
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
         Box(
@@ -395,7 +395,7 @@ private fun StorageSection() {
 
     SettingsGroupTitle("Asset path cache")
     Text(
-        "AceCore indexes each game's files so they load without repeated folder searches, and fixes upper/lower-case mismatches from Windows games. The cache rebuilds automatically after a rescan.",
+        "AceArcade indexes each game's files so they load without repeated folder searches, and fixes upper/lower-case mismatches from Windows games. The cache rebuilds automatically after a rescan.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     Text("${stats.first} game index(es) · ${formatBytes(stats.second)}", modifier = Modifier.padding(20.dp))
@@ -417,7 +417,7 @@ private fun StorageSection() {
         }
         Text(
             "RPG Maker XP/VX/VX Ace and Pokémon Essentials engines read games as ordinary files. With Android's \"All files access\" " +
-                "AceCore runs them straight from your folders: no copying, instant launches. Without it, each game is copied into AceCore's storage once.",
+                "AceArcade runs them straight from your folders: no copying, instant launches. Without it, each game is copied into AceArcade's storage once.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
         )
         Text(if (access) "Allowed: games run in place." else "Not allowed: games use a private copy.", modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp))
@@ -449,7 +449,7 @@ private fun StorageSection() {
             if (confirm) AlertDialog(
                 onDismissRequest = { confirm = false },
                 title = { Text("Delete leftover copies?") },
-                text = { Text("This permanently deletes AceCore's copies of games you removed from the library, including any saves inside them. Your original game folders are not affected.") },
+                text = { Text("This permanently deletes AceArcade's copies of games you removed from the library, including any saves inside them. Your original game folders are not affected.") },
                 confirmButton = { TextButton(onClick = { confirm = false; scope.launch { games.deleteOrphanData(); usage = games.storageUsage() } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
             )
@@ -458,7 +458,7 @@ private fun StorageSection() {
 
     SettingsGroupTitle("Library backup")
     Text(
-        "Exports library metadata (titles, covers chosen from game folders, categories, playtime, per-game settings) and your AceCore settings. It does NOT contain game files or game saves.",
+        "Exports library metadata (titles, covers chosen from game folders, categories, playtime, per-game settings) and your AceArcade settings. It does NOT contain game files or game saves.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -469,10 +469,10 @@ private fun StorageSection() {
 
     SettingsGroupTitle("Game saves")
     Text(
-        "Web-runtime games (RPG Maker MV/MZ, HTML5, Construct, Tyrano, Flash) store saves in AceCore's private browser storage, separately for each game. " +
-            "RPG Maker XP/VX/VX Ace games save where the game decides: in direct mode usually inside your game folder, in copy mode inside AceCore's copy. " +
+        "Web-runtime games (RPG Maker MV/MZ, HTML5, Construct, Tyrano, Flash) store saves in AceArcade's private browser storage, separately for each game. " +
+            "RPG Maker XP/VX/VX Ace games save where the game decides: in direct mode usually inside your game folder, in copy mode inside AceArcade's copy. " +
             "Pokémon Essentials v19+ saves in a private per-game data folder. Backups and restores are in each game's Cheats page (Save backups). " +
-            "AceCore's own data is removed if you uninstall it or clear its data; files in your game folders are not.",
+            "AceArcade's own data is removed if you uninstall it or clear its data; files in your game folders are not.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
 }
@@ -504,13 +504,13 @@ private fun AdvancedSection(s: AppSettings) {
     )
     OutlinedButton(onClick = {
         val report = buildDiagnostics(ctx, games)
-        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceCore diagnostics", report))
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceArcade diagnostics", report))
         Toast.makeText(ctx, "Diagnostic report copied", Toast.LENGTH_SHORT).show()
     }, modifier = Modifier.padding(20.dp)) { Text("Copy diagnostic report") }
 }
 
 private fun buildDiagnostics(@Suppress("UNUSED_PARAMETER") ctx: Context, games: List<com.acecore.app.core.database.GameEntity>): String = buildString {
-    appendLine("AceCore ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+    appendLine("AceArcade ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
     appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ABIs ${Build.SUPPORTED_ABIS.joinToString()}")
     val webView = runCatching { if (Build.VERSION.SDK_INT >= 26) android.webkit.WebView.getCurrentWebViewPackage()?.let { "${it.packageName} ${it.versionName}" } else null }.getOrNull()
     appendLine("WebView: ${webView ?: "unknown"}")
@@ -527,19 +527,19 @@ private fun buildDiagnostics(@Suppress("UNUSED_PARAMETER") ctx: Context, games: 
 private fun AboutSection() {
     var licenses by remember { mutableStateOf(false) }
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("AceCore ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge)
+        Text("AceArcade ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge)
         Text("Build ${BuildConfig.VERSION_CODE} · ${if (BuildConfig.DEBUG) "debug" else "release"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Text(
-            "AceCore works offline. It has no accounts, analytics, ads or tracking, and sends no data anywhere. Your library and settings stay on this device. " +
+            "AceArcade works offline. It has no accounts, analytics, ads or tracking, and sends no data anywhere. Your library and settings stay on this device. " +
                 "Games cannot reach the internet unless you allow it in Advanced settings.",
             style = MaterialTheme.typography.bodyMedium,
         )
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("Licence", style = MaterialTheme.typography.titleMedium)
         Text(
-            "AceCore is free software, licensed under the GNU General Public License v3.0 or later. You may use, study, share and modify it under those terms. " +
+            "AceArcade is free software, licensed under the GNU General Public License v3.0 or later. You may use, study, share and modify it under those terms. " +
                 "If you received this app, you are entitled to its complete source code, including the build scripts and exact versions of the native runtimes.",
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -548,7 +548,7 @@ private fun AboutSection() {
         TextButton(onClick = { licenses = !licenses }) { Text(if (licenses) "Hide notices" else "Show notices") }
         if (licenses) Text(OPEN_SOURCE_NOTICES, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("AceCore is an independent project and is not affiliated with JoiPlay, Kirin, KADOKAWA (RPG Maker), Ren'Py, Godot, Scirra (Construct) or The Pokémon Company. Only play games you legally own.",
+        Text("AceArcade is an independent project and is not affiliated with JoiPlay, Kirin, KADOKAWA (RPG Maker), Ren'Py, Godot, Scirra (Construct) or The Pokémon Company. Only play games you legally own.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -591,7 +591,7 @@ private fun CrashReportsSection() {
     var open by remember { mutableStateOf<java.io.File?>(null) }
     SettingsGroupTitle("Troubleshooting · crash reports")
     Text(
-        "When a game stops before it starts, AceCore saves what it could find out (Android's crash record, the game's log, the launch stage) on this device only. " +
+        "When a game stops before it starts, AceArcade saves what it could find out (Android's crash record, the game's log, the launch stage) on this device only. " +
             "Personal storage paths are removed. Nothing is uploaded; share a report yourself if you want help.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
@@ -616,7 +616,7 @@ private fun CrashReportsSection() {
             },
             dismissButton = {
                 TextButton(onClick = {
-                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceCore crash report", text))
+                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceArcade crash report", text))
                     Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
                 }) { Text("Copy") }
             },

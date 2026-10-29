@@ -141,7 +141,7 @@ fun TroubleshootingScreen(gameId: Long, onBack: () -> Unit) {
                     detection?.diagnostics?.forEach { appendLine("diag ${it.severity}: ${it.message}") }
                     helperLog?.let { appendLine("helper log:\n$it") }
                 }
-                (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceCore troubleshooting", report))
+                (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("AceArcade troubleshooting", report))
                 Toast.makeText(ctx, "Copied to clipboard", Toast.LENGTH_SHORT).show()
             }, modifier = Modifier.padding(20.dp)) { Text("Copy report") }
             Spacer(Modifier.navigationBarsPadding().height(8.dp))
