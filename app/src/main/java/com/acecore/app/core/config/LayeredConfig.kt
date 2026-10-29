@@ -9,6 +9,9 @@ enum class ConfigType { BOOL, INT, CHOICE, BUTTON_MAP }
 private val WEB_FLASH_RGSS: (Engine) -> Boolean =
     { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH || it.family == EngineFamily.RGSS }
 
+/** Engines with AceArcade's on-screen controller and key mapping (adds Godot). */
+private val WITH_CONTROLS: (Engine) -> Boolean = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.GODOT || it.family == EngineFamily.EASYRPG }
+
 /**
  * Settings that can be set globally, per engine, and per game. Each key declares which engines it actually
  * affects so the UI never shows an option that would do nothing for the selected game.
@@ -52,13 +55,13 @@ enum class ConfigKey(
     GAMEPAD_MODE(
         "gamepadMode", "On-screen controls", "When to show the virtual gamepad.", ConfigType.CHOICE, "auto",
         listOf("auto" to "Auto (hide when a controller is connected)", "always" to "Always", "never" to "Never"),
-        section = "Controls", appliesTo = WEB_FLASH_RGSS,
+        section = "Controls", appliesTo = WITH_CONTROLS,
     ),
-    GAMEPAD_OPACITY("gamepadOpacity", "Controls opacity", "Transparency of on-screen buttons.", ConfigType.INT, "55", range = 15..100, section = "Controls", appliesTo = WEB_FLASH_RGSS),
-    GAMEPAD_SCALE("gamepadScale", "Controls size", "Size of on-screen buttons (%).", ConfigType.INT, "100", range = 60..160, section = "Controls", appliesTo = WEB_FLASH_RGSS),
-    HAPTICS("haptics", "Haptic feedback", "Vibrate briefly when on-screen buttons are pressed.", ConfigType.BOOL, "true", section = "Controls", appliesTo = WEB_FLASH_RGSS),
+    GAMEPAD_OPACITY("gamepadOpacity", "Controls opacity", "Transparency of on-screen buttons.", ConfigType.INT, "55", range = 15..100, section = "Controls", appliesTo = WITH_CONTROLS),
+    GAMEPAD_SCALE("gamepadScale", "Controls size", "Size of on-screen buttons (%).", ConfigType.INT, "100", range = 60..160, section = "Controls", appliesTo = WITH_CONTROLS),
+    HAPTICS("haptics", "Haptic feedback", "Vibrate briefly when on-screen buttons are pressed.", ConfigType.BOOL, "true", section = "Controls", appliesTo = WITH_CONTROLS),
     DEADZONE("deadzone", "Stick dead zone", "Analog stick travel ignored before a direction registers (%).", ConfigType.INT, "30", range = 5..70, section = "Controls"),
-    BUTTON_MAP("buttonMap", "Controller mapping", "Which keyboard key each controller button sends.", ConfigType.BUTTON_MAP, ButtonMap.DEFAULT_ENCODED, section = "Controls", appliesTo = WEB_FLASH_RGSS),
+    BUTTON_MAP("buttonMap", "Controller mapping", "Which keyboard key each controller button sends.", ConfigType.BUTTON_MAP, ButtonMap.DEFAULT_ENCODED, section = "Controls", appliesTo = WITH_CONTROLS),
     MASTER_VOLUME(
         "masterVolume", "Master volume", "Game volume (%). RPG Maker MV/MZ only – uses the engine's own audio mixer.", ConfigType.INT, "100",
         section = "Audio", appliesTo = { it == Engine.RPG_MAKER_MV || it == Engine.RPG_MAKER_MZ },
@@ -88,6 +91,8 @@ enum class ConfigKey(
     fun defaultFor(engine: Engine?): String = when {
         this == BUTTON_MAP && engine == Engine.FLASH -> ButtonMap.FLASH_DEFAULT_ENCODED
         this == BUTTON_MAP && engine?.family == EngineFamily.RGSS -> ButtonMap.RGSS_DEFAULT_ENCODED
+        this == BUTTON_MAP && engine?.family == EngineFamily.GODOT -> ButtonMap.GODOT_DEFAULT_ENCODED
+        this == BUTTON_MAP && engine?.family == EngineFamily.EASYRPG -> ButtonMap.EASYRPG_DEFAULT_ENCODED
         else -> default
     }
 

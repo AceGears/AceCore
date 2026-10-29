@@ -28,6 +28,10 @@ class AceCoreApp : Application() {
     override fun onCreate() {
         super.onCreate()
         com.acecore.app.runtime.RuntimeRegistry.rgssNativeAvailable = com.acecore.app.runtime.rgss.RgssRuntime.isPresent(this)
+        com.acecore.app.runtime.RuntimeRegistry.easyRpgNativeAvailable = runCatching {
+            val loader = classLoader as? dalvik.system.BaseDexClassLoader
+            loader != null && loader.findLibrary("easyrpg_android") != null && loader.findLibrary("SDL3") != null
+        }.getOrDefault(false)
     }
 }
 

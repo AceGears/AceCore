@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.acecore.app.core.config.WebKey
 
-internal val PanelBg = Color(0xF00C0A1E)
+val PanelBg = Color(0xF00C0A1E)
 
 /** On-screen PC keyboard with sticky modifiers. Sends real keydown/keyup pairs into the game. */
 @Composable

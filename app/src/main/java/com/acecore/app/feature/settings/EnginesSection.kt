@@ -150,6 +150,8 @@ private fun EngineRow(e: Engine, s: AppSettings, games: Int, webViewVersion: Str
                 }
                 version?.let { Detail("Version", it) }
                 verifiedAt?.let { Detail("Last ran on this device", DateUtils.getRelativeTimeSpanString(it).toString()) }
+                info.formats?.let { Detail("Runs", it) }
+                info.limitations?.let { Detail("Known limitations", it) }
                 info.blocker?.let { Detail("What's needed", it) }
                 info.license?.let { Detail("Licence", it) }
                 if (info.bundled) FilledTonalButton(onClick = { onEngine(e) }) { Text("Engine defaults") }

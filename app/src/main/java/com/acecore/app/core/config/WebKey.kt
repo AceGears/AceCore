@@ -108,6 +108,25 @@ object ButtonMap {
     )
     val RGSS_DEFAULT_ENCODED: String = encode(RGSS_DEFAULT)
 
+    /**
+     * Godot games exported for PC: arrows move, Enter = ui_accept, Esc = ui_cancel (Godot's built-in actions), Space
+     * and Shift are the most common jump/run keys.
+     */
+    val GODOT_DEFAULT: Map<PadButton, String> = DEFAULT + mapOf(
+        PadButton.A to "ENTER", PadButton.B to "ESCAPE", PadButton.X to "SPACE", PadButton.Y to "SHIFT",
+        PadButton.L1 to "Q", PadButton.R1 to "E", PadButton.L2 to "TAB", PadButton.R2 to "CTRL",
+        PadButton.START to "ESCAPE", PadButton.SELECT to "TAB",
+    )
+    val GODOT_DEFAULT_ENCODED: String = encode(GODOT_DEFAULT)
+
+    /** EasyRPG Player (RPG Maker 2000/2003): Enter/Z = OK, X/Esc = cancel and menu, Shift = run/special. */
+    val EASYRPG_DEFAULT: Map<PadButton, String> = DEFAULT + mapOf(
+        PadButton.A to "ENTER", PadButton.B to "X", PadButton.X to "SHIFT", PadButton.Y to "ESCAPE",
+        PadButton.L1 to "PAGEUP", PadButton.R1 to "PAGEDOWN", PadButton.L2 to "D1", PadButton.R2 to "D2",
+        PadButton.START to "ESCAPE", PadButton.SELECT to "F",
+    )
+    val EASYRPG_DEFAULT_ENCODED: String = encode(EASYRPG_DEFAULT)
+
     fun defaultFor(rgss: Boolean) = if (rgss) RGSS_DEFAULT else DEFAULT
 
     /** Like [decode], filling unmapped buttons from [base]. */

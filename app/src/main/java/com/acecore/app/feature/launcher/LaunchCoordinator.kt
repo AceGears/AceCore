@@ -133,6 +133,8 @@ class LaunchCoordinator(
             val cfg = if (options.disableHelper) config + (ConfigKey.RGSS_HELPER.id to "false") else config
             return prepareRgss(game, cfg, accent, options, requestedAt)
         }
+        if (engine.family == EngineFamily.GODOT) return prepareGodot(game, config, accent, requestedAt)
+        if (engine.family == EngineFamily.EASYRPG) return prepareEasyRpg(game, config, accent, requestedAt)
 
         if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
         // The selected entry must still exist (one query per path segment, not a folder scan).
@@ -212,6 +214,94 @@ class LaunchCoordinator(
         }
     }
 
+    // ------------------------------------------------------------------ Godot 4
+
+    /** Godot games always run straight from the user's folder (the engine reads the pack with normal file access). */
+    private suspend fun prepareGodot(game: GameEntity, config: Map<String, String>, accent: Long, requestedAt: Long): LaunchPreparation {
+        val root = GameLocations.directRoot(context, game) ?: return LaunchPreparation.Blocked(
+            game.id, "Folder can't be opened directly",
+            "Godot games run straight from your folder, and this folder's storage (for example a cloud drive) has no file path " +
+                "Android can open directly. Move the game to your device storage or SD card and add it again.",
+        )
+        if (!DirectStorage.hasAccess(context)) return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = true)
+        val sub = game.entry?.replace('\\', '/')?.trim('/')?.substringBeforeLast('/', "").orEmpty()
+        val dir = withContext(Dispatchers.IO) { if (sub.isEmpty()) root else DirectStorage.resolveRelative(root, sub) }
+        if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
+            game.id, "Game folder not found",
+            "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
+        )
+        val entryName = game.entry?.replace('\\', '/')?.substringAfterLast('/')
+        return when (val check = withContext(Dispatchers.IO) { com.acecore.app.runtime.godot.GodotPack.check(dir, entryName) }) {
+            is com.acecore.app.runtime.godot.GodotPack.Check.Unsupported -> LaunchPreparation.Blocked(game.id, check.title, check.message)
+            is com.acecore.app.runtime.godot.GodotPack.Check.Ok -> {
+                val intent = withContext(Dispatchers.IO) {
+                    val dataDir = GameStorage.dataDir(context, game.id)
+                    val helperDir = RgssRuntime.helperDir(dataDir).apply { mkdirs() }
+                    listOf("ready", "timeline", "dpad", "godot.log").forEach { File(helperDir, it).delete() }
+                    com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Play tapped", tapElapsed.takeIf { it > 0 } ?: com.acecore.app.runtime.LaunchTimeline.now())
+                    com.acecore.app.runtime.LaunchTimeline.mark(helperDir,
+                        "Launcher ready (Godot ${check.pack.version} pack" + (if (check.pack.embedded) " inside ${check.pack.file.name}" else "") + ")")
+                    check.warnings.forEach { com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Note: $it") }
+                    val spec = com.acecore.app.runtime.godot.GodotLaunchSpec(
+                        gameId = game.id, title = game.title, helperDir = helperDir.absolutePath,
+                        buttonMap = config[ConfigKey.BUTTON_MAP.id].orEmpty(), accentArgb = accent,
+                        gamepadMode = config[ConfigKey.GAMEPAD_MODE.id] ?: "auto",
+                        opacity = ConfigKey.GAMEPAD_OPACITY.int(config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55"),
+                        scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
+                        haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
+                    )
+                    com.acecore.app.runtime.godot.GodotLaunchSpec.intent(context, spec, check.pack.file, File(helperDir, "godot.log"))
+                }
+                startSession(game.id, requestedAt)
+                games.markLaunched(game.id)
+                LaunchPreparation.Ready(intent, game.id, game.title)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ EasyRPG (RPG Maker 2000/2003)
+
+    /**
+     * Runs from the user's folder: by real path when AceArcade has file access, otherwise through Android's document
+     * access (EasyRPG reads content:// folders itself). Never copies the game.
+     */
+    private suspend fun prepareEasyRpg(game: GameEntity, config: Map<String, String>, accent: Long, requestedAt: Long): LaunchPreparation {
+        val sub = game.entry?.replace('\\', '/')?.trim('/')?.substringBeforeLast('/', "").orEmpty()
+        val realRoot = GameLocations.directRoot(context, game)?.takeIf { DirectStorage.hasAccess(context) }
+        val project: String = withContext(Dispatchers.IO) {
+            val realDir = realRoot?.let { if (sub.isEmpty()) it else DirectStorage.resolveRelative(it, sub) }?.takeIf { DirectStorage.canList(it) }
+            realDir?.absolutePath ?: run {
+                if (!games.hasAccess(game.treeUri)) return@run null
+                val tree = SafTree(context.contentResolver, Uri.parse(game.treeUri))
+                val docId = if (sub.isEmpty()) game.rootDocId else tree.findPath(game.rootDocId, sub)?.docId
+                docId?.let { DirectStorage.documentUri(Uri.parse(game.treeUri), it).toString() }
+            }
+        } ?: return folderAccessLost(game)
+        val intent = withContext(Dispatchers.IO) {
+            val dataDir = GameStorage.dataDir(context, game.id)
+            val helperDir = RgssRuntime.helperDir(dataDir).apply { mkdirs() }
+            listOf("ready", "timeline", "dpad", "easyrpg.log").forEach { File(helperDir, it).delete() }
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Play tapped", tapElapsed.takeIf { it > 0 } ?: com.acecore.app.runtime.LaunchTimeline.now())
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir,
+                "Launcher ready (" + (if (project.startsWith("content://")) "document access" else "direct from your folder") + ")")
+            val configDir = File(dataDir, "easyrpg").apply { mkdirs() }
+            val log = File(helperDir, "easyrpg.log")
+            val spec = org.easyrpg.player.player.EasyRpgLaunchSpec(
+                gameId = game.id, title = game.title, helperDir = helperDir.absolutePath, logFile = log.absolutePath,
+                arguments = org.easyrpg.player.player.EasyRpgLaunchSpec.arguments(project, configDir, log),
+                buttonMap = config[ConfigKey.BUTTON_MAP.id].orEmpty(), accentArgb = accent,
+                gamepadMode = config[ConfigKey.GAMEPAD_MODE.id] ?: "auto",
+                opacity = ConfigKey.GAMEPAD_OPACITY.int(config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55"),
+                scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
+                haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
+            )
+            org.easyrpg.player.player.EasyRpgLaunchSpec.intent(context, spec)
+        }
+        startSession(game.id, requestedAt)
+        games.markLaunched(game.id)
+        return LaunchPreparation.Ready(intent, game.id, game.title)
+    }
+
     /** When Play was tapped (elapsedRealtime), for the launch timeline. */
     private var tapElapsed = 0L
 
@@ -254,6 +344,8 @@ class LaunchCoordinator(
     suspend fun onResult(gameId: Long, resultCode: Int, data: Intent?): com.acecore.app.runtime.LaunchFailure? {
         val game = games.get(gameId) ?: return null
         val rgss = game.effectiveEngine.family == EngineFamily.RGSS
+        // Godot and EasyRPG report readiness through the same helper folder ("ready").
+        val godot = game.effectiveEngine.family == EngineFamily.GODOT || game.effectiveEngine.family == EngineFamily.EASYRPG
         // Keep the game's settings page in step with what was chosen in-game (☰ › Display).
         if (rgss) importDisplayChanges(game)
         val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
@@ -262,7 +354,7 @@ class LaunchCoordinator(
         val markers = if (rgss) withContext(Dispatchers.IO) {
             Triple(File(helperDir, "boot").exists(), runCatching { File(helperDir, "stage").readText().trim() }.getOrNull(), File(helperDir, "ready").exists())
         } else null
-        val (rubyReady, rubyError) = if (rgss) withContext(Dispatchers.IO) {
+        val (rubyReady, rubyError) = if (rgss || godot) withContext(Dispatchers.IO) {
             val ready = runCatching { File(helperDir, "ready").readText().trim().toLongOrNull() }.getOrNull()
             val err = runCatching { File(helperDir, "error").readText().trim().takeIf { it.isNotEmpty() } }.getOrNull()
             ready to err
@@ -271,13 +363,18 @@ class LaunchCoordinator(
 
         val fromResult = data?.getLongExtra(GameActivity.EXTRA_SESSION_MS, -1L)?.takeIf { it >= 0 }
         val ms = maxOf(record?.ms ?: 0L, fromResult ?: 0L)
-        val readyAt = if (rgss) rubyReady else record?.readyAt
+        val readyAt = if (rgss || godot) rubyReady else record?.readyAt
         val helperUsed = !rgss || File(GameStorage.dataDir(context, gameId), RgssRuntime.PRELOAD_FILE).exists()
         // Without the helper, RGSS readiness can't be observed: count a session that lasted a while as a real run.
         val reached = readyAt != null || (!helperUsed && ms >= 10_000)
         val error = when {
             resultCode == Activity.RESULT_FIRST_USER -> data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) ?: "The game reported an error."
             rubyError != null -> "The game stopped with a script error: ${rubyError.lineSequence().first()}"
+            !reached && godot -> "The game closed before it finished starting." + withContext(Dispatchers.IO) {
+                listOf("godot.log", "easyrpg.log").firstNotNullOfOrNull { n ->
+                    runCatching { File(helperDir, n).readLines().lastOrNull { it.contains("ERROR", true) || it.contains("Error:") } }.getOrNull()
+                }?.let { "\n$it" }.orEmpty()
+            }
             !reached && helperUsed -> "The game closed before it finished loading."
             else -> null
         }

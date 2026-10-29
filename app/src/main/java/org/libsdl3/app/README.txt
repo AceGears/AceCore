@@ -1,0 +1,1 @@
+SDL3 3.4.8 Java sources (zlib license), relocated from org.libsdl.app to org.libsdl3.app so they can live next to the SDL2 copy used by the RGSS runtime. The native libSDL3.so is built by CI with the same relocation (ci/easyrpg/build.sh).

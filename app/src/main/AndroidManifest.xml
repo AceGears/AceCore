@@ -71,6 +71,31 @@
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
             tools:targetApi="33" />
 
+        <!-- Godot 4 games (org.godotengine:godot). Own process: the engine can't be restarted inside a process. -->
+        <activity
+            android:name=".runtime.godot.GodotGameActivity"
+            android:exported="false"
+            android:process=":godot"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.AceCore.Game"
+            android:resizeableActivity="false"
+            android:excludeFromRecents="false"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|density|keyboard|navigation|screenLayout|uiMode"
+            tools:ignore="DiscouragedApi" />
+
+        <!-- RPG Maker 2000/2003 (EasyRPG Player, GPL-3.0). Own process; the class name is fixed by EasyRPG's native code. -->
+        <activity
+            android:name="org.easyrpg.player.player.EasyRpgPlayerActivity"
+            android:exported="false"
+            android:process=":easyrpg"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.AceCore.Game"
+            android:enableOnBackInvokedCallback="false"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|navigation"
+            tools:targetApi="33" />
+
         <activity
             android:name=".ShortcutLaunchActivity"
             android:exported="true"

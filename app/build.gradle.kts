@@ -25,8 +25,8 @@ android {
         applicationId = "com.acecore.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.6.3"
+        versionCode = 12
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         // Optional single-ABI build (CI emulator tests: arm64 only, so an x86_64 emulator runs it through ARM translation).
@@ -77,6 +77,8 @@ android {
     }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        // The RGSS natives ship the NDK's libc++_shared; keep one copy if a library brings its own.
+        jniLibs { pickFirsts += "**/libc++_shared.so" }
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -96,6 +98,8 @@ ksp {
 }
 
 dependencies {
+    // Godot 4 Android engine (MIT), runs Godot 4.0–4.7 game packs. Keep GodotPack.ENGINE_MINOR in step.
+    implementation("org.godotengine:godot:4.7.0.stable")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

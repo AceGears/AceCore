@@ -25,6 +25,10 @@ data class RuntimeInfo(
     val license: String? = null,
     /** Version of the bundled runtime, when known at build time. */
     val version: String? = null,
+    /** What kinds of game files it runs. */
+    val formats: String? = null,
+    /** Known limitations, stated plainly. */
+    val limitations: String? = null,
 )
 
 /**
@@ -48,22 +52,33 @@ object RuntimeRegistry {
         ),
         RuntimeId.EASYRPG to RuntimeInfo(
             RuntimeId.EASYRPG, bundled = false,
-            status = "Detected, but EasyRPG Player is not built into this version.",
-            blocker = "Requires building EasyRPG Player + liblcf for Android via NDK. EasyRPG Player is GPL-3.0.",
+            formats = "RPG Maker 2000 / 2003 games (RPG_RT.ldb, RPG_RT.lmt, Map*.lmu)",
+            status = "Detected, but this APK was built without EasyRPG Player's native libraries.",
+            blocker = "AceArcade's CI builds them (EasyRPG Player + liblcf + SDL3, job \"easyrpg-natives\"); use an APK that includes them.",
             license = "GPL-3.0 (Player), MIT (liblcf)",
         ),
         RuntimeId.RENPY to RuntimeInfo(
             RuntimeId.RENPY, bundled = false,
-            status = "Detected, but no Ren'Py runtime is built into this version.",
-            blocker = "Ren'Py games embed engine code matched to a specific Ren'Py/Python version. Needs Python 2.7 " +
-                "(Ren'Py <= 7) and Python 3 (Ren'Py 8) builds for Android, plus version-matched renpy modules.",
+            status = "Detected, but no Ren'Py runtime is included in this version.",
+            blocker = "A PC Ren'Py game ships its own engine (renpy/ folder) as Python code plus compiled modules for Windows/" +
+                "Linux/macOS only. Running it on Android needs a Python interpreter of the same generation (Python 2.7 for " +
+                "Ren'Py 6–7, Python 3.9+ for Ren'Py 8) built for Android with Ren'Py's native modules (pygame_sdl2, " +
+                "renpy.display.accelerator, ffmedia…) compiled for that exact Ren'Py version. Ren'Py's own Android tooling " +
+                "(renpy-build/RAPT) builds one APK per game; a general launcher needs a runtime per Ren'Py release line. " +
+                "That build work has not been done for this version.",
+            formats = "Ren'Py 6.x–8.x PC releases (game/*.rpa, *.rpyc)",
             license = "MIT (Ren'Py), with LGPL components",
         ),
         RuntimeId.GODOT to RuntimeInfo(
-            RuntimeId.GODOT, bundled = false,
-            status = "Detected, but no Godot runtime is built into this version.",
-            blocker = "A .pck only runs on the exact Godot major/minor that exported it; needs per-version Android " +
-                "engine libraries started with --main-pack. GDExtension/C# games cannot run.",
+            RuntimeId.GODOT, bundled = true,
+            version = "Godot 4.7.0 (org.godotengine:godot)",
+            formats = "Godot 4.0–4.7 exports: Game.pck next to the .exe, or the pack embedded in the .exe",
+            limitations = "Godot 3 games, C# (.NET) games and GDExtension plugins (Windows DLLs) can't run. Games exported " +
+                "for PC use desktop texture formats, which the engine converts at load time on phones without them (slower " +
+                "first load). Keyboard-only games are played with the on-screen controller, which sends keys.",
+            status = "Bundled: the Godot 4.7 Android engine runs Godot 4.0–4.7 games straight from your folder (.pck file, or " +
+                "the pack inside the game's .exe). Godot 3 games, C# (.NET) games and games that rely on Windows-only " +
+                "extensions (GDExtension DLLs) can't run.",
             license = "MIT",
         ),
         RuntimeId.RUFFLE to RuntimeInfo(
@@ -101,11 +116,32 @@ object RuntimeRegistry {
         RuntimeId.RGSS_MKXPZ, bundled = true,
         version = "mkxp-z via mkxp-z-android-reworked @ b668e08 · Ruby 3.1 · SDL 2.26.3",
         status = "Bundled (mkxp-z for Android). Games run directly from their folder when AceArcade has file access, otherwise from a private copy.",
+        formats = "RPG Maker XP / VX / VX Ace games (Game.ini + Data/Scripts.*), incl. Pokémon Essentials",
+        limitations = "Windows-only script calls (Win32API) work only where AceArcade implements them (WinInet downloads, " +
+            "a few kernel32 calls). The Android engine is an older mkxp-z; AceArcade's compatibility layer adds the newer " +
+            "functions games use (Essentials v21 timing in seconds, Graphics.display_*, System.*, Audio volumes).",
         license = "GPL-2.0-or-later (mkxp-z); AceArcade is distributed under GPL-3.0-or-later",
     )
 
-    fun info(id: RuntimeId): RuntimeInfo =
-        if (id == RuntimeId.RGSS_MKXPZ && rgssNativeAvailable) rgssAvailableInfo else runtimes.getValue(id)
+    /** True when this APK contains EasyRPG Player's native libraries (CI "easyrpg-natives" job). */
+    @Volatile var easyRpgNativeAvailable: Boolean = false
+
+    private val easyRpgAvailableInfo = RuntimeInfo(
+        RuntimeId.EASYRPG, bundled = true,
+        version = "EasyRPG Player (096c004, Oct 2026) · liblcf · SDL 3.4.8",
+        status = "Bundled (EasyRPG Player). RPG Maker 2000/2003 games run straight from your folder. Games that rely on the " +
+            "RTP (FullPackageFlag=0) need the RTP files; patched engines (DynRPG, some Maniac Patch features) may not work fully.",
+        license = "GPL-3.0 (EasyRPG Player), MIT (liblcf)",
+        formats = "RPG Maker 2000 / 2003 games (RPG_RT.ldb, RPG_RT.lmt, Map*.lmu)",
+        limitations = "Games that use the RTP need the RTP installed. DynRPG plugins (Windows DLLs) don't run; Maniac " +
+            "Patch support follows EasyRPG's own progress.",
+    )
+
+    fun info(id: RuntimeId): RuntimeInfo = when {
+        id == RuntimeId.RGSS_MKXPZ && rgssNativeAvailable -> rgssAvailableInfo
+        id == RuntimeId.EASYRPG && easyRpgNativeAvailable -> easyRpgAvailableInfo
+        else -> runtimes.getValue(id)
+    }
     fun info(engine: Engine): RuntimeInfo = info(runtimeFor(engine))
     fun canLaunch(engine: Engine): Boolean = info(engine).bundled
     fun all(): List<RuntimeInfo> = runtimes.keys.map { info(it) }
