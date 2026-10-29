@@ -29,7 +29,7 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
       - name: Test
-        run: chmod +x gradlew && ./gradlew --no-daemon :desktop:test
+        run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=desktop-test.log ci/run-gradle.sh :desktop:test
       - name: Test summary
         if: always()
         run: |
@@ -69,7 +69,7 @@ jobs:
           find $R -maxdepth 3 -iname '*.exe' | head
       - name: Build MSI and EXE installers
         shell: bash
-        run: ./gradlew --no-daemon :desktop:packageMsi :desktop:packageExe
+        run: GRADLE_LOG=win.log bash ci/run-gradle.sh :desktop:packageMsi :desktop:packageExe
       - uses: actions/upload-artifact@v4
         with:
           name: AceArcade-windows
@@ -103,7 +103,7 @@ jobs:
           echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION"
           ls -la $R/*
       - name: Build disk image
-        run: ./gradlew --no-daemon :desktop:packageDmg
+        run: chmod +x gradlew && GRADLE_LOG=mac.log bash ci/run-gradle.sh :desktop:packageDmg
       - uses: actions/upload-artifact@v4
         with:
           name: AceArcade-macos
