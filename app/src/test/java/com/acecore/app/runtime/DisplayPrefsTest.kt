@@ -22,9 +22,23 @@ class DisplayPrefsTest {
         assertFalse(DisplayPrefs("fill").fixedAspectRatio)
         assertTrue(DisplayPrefs("integer").integerScaling)
         val json = RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "integer"))
-        assertTrue(json, json.contains("\"fixedAspectRatio\":true") && json.contains("\"integerScalingActive\":true") &&
-            json.contains("\"integerScalingLastMile\":false"))
+        assertTrue(json, json.contains("\"fixedAspectRatio\":true") && json.contains("\"integerScalingActive\":false") &&
+            json.contains("\"smoothScaling\":false"))
         assertTrue(RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "fill")).contains("\"fixedAspectRatio\":false"))
+    }
+
+    @Test fun surfaceSizes() {
+        // Galaxy S26 Ultra landscape 3120x1440, Essentials 512x384 (4:3).
+        assertEquals(1920 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 512, 384))
+        assertEquals(3120 to 1440, DisplayPrefs("fill", 100).surfaceSize(3120, 1440, 512, 384))
+        assertEquals(1536 to 1152, DisplayPrefs("integer", 100).surfaceSize(3120, 1440, 512, 384)) // 3x
+        assertEquals(1440 to 1080, DisplayPrefs("fit", 75).surfaceSize(3120, 1440, 512, 384))
+        assertEquals(1024 to 768, DisplayPrefs("integer", 60).surfaceSize(3120, 1440, 512, 384)) // 864 tall -> 2x
+        assertEquals(1560 to 720, DisplayPrefs("fill", 50).surfaceSize(3120, 1440, 512, 384))
+        assertEquals("unknown resolution: whole area", 3120 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 0, 0))
+        assertEquals("portrait game in landscape: whole area", 3120 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 384, 512).let {
+            // 1080x1440 would be portrait -> whole area, engine letterboxes
+            it })
     }
 
     @Test fun pendingChangeRoundTrip() {

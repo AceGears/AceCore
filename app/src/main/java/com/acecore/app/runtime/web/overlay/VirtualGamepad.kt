@@ -82,6 +82,8 @@ fun VirtualGamepad(
     onEditDone: () -> Unit,
     onButton: (PadButton, Boolean) -> Unit,
     onMenu: () -> Unit,
+    /** 4-way D-pad (no diagonals): RPG Maker XP/VX/Ace move in four directions only. */
+    fourWay: Boolean = false,
 ) {
     val orientation = if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) "port" else "land"
     val offsets = remember(orientation) { mutableStateMapOf<PadGroup, Offset>().apply { putAll(store.load(orientation)) } }
@@ -113,7 +115,7 @@ fun VirtualGamepad(
             ) { content() }
         }
 
-        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * scale).dp, accent, enabled = !editing, onButton = press) }
+        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * scale).dp, accent, enabled = !editing, fourWay = fourWay, onButton = press) }
         Group(PadGroup.FACE, Alignment.BottomEnd) { FaceButtons((58 * scale).dp, accent, enabled = !editing, onButton = press) }
         Group(PadGroup.LEFT_SHOULDER, Alignment.TopStart) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,7 +188,7 @@ private fun FaceButtons(size: Dp, accent: Color, enabled: Boolean, onButton: (Pa
 }
 
 @Composable
-private fun DPad(size: Dp, accent: Color, enabled: Boolean, onButton: (PadButton, Boolean) -> Unit) {
+private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = false, onButton: (PadButton, Boolean) -> Unit) {
     var active by remember { mutableStateOf(emptySet<PadButton>()) }
     fun setDirs(next: Set<PadButton>) {
         (active - next).forEach { onButton(it, false) }
@@ -205,6 +207,17 @@ private fun DPad(size: Dp, accent: Color, enabled: Boolean, onButton: (PadButton
                         val dx = p.x - w / 2; val dy = p.y - h / 2
                         if (hypot(dx, dy) < w * 0.12f) return emptySet()
                         val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).let { if (it < 0) it + 360 else it }
+                        if (fourWay) {
+                            // One direction at a time. RPG Maker's movement reads a single direction and only walks
+                            // when that same key has been held >20 ms (Input.time?); two keys at once made the player
+                            // turn on the spot instead of walking. A 15° margin keeps the current direction while
+                            // the thumb rests near a boundary, so it doesn't flicker between two keys.
+                            val centers = mapOf(PadButton.RIGHT to 0.0, PadButton.DOWN to 90.0, PadButton.LEFT to 180.0, PadButton.UP to 270.0)
+                            fun dist(a: Double, b: Double) = Math.abs(((a - b + 540) % 360) - 180)
+                            val current = active.singleOrNull()
+                            if (current != null && dist(angle, centers.getValue(current)) <= 45 + 15) return setOf(current)
+                            return setOf(centers.minBy { dist(angle, it.value) }.key)
+                        }
                         // 8 sectors of 45°: right=0°, down=90°, left=180°, up=270°.
                         return when (((angle + 22.5) / 45).toInt() % 8) {
                             0 -> setOf(PadButton.RIGHT)

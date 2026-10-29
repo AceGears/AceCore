@@ -23,6 +23,33 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
     val fixedAspectRatio get() = fit != FILL
     val integerScaling get() = fit == INTEGER
 
+    /**
+     * Size of the game surface inside an [availW]×[availH] area for a game running at [gameW]×[gameH]:
+     * Fit = largest size with the game's proportions, Pixel-perfect = largest whole-number multiple, Stretch = the
+     * whole area; then scaled by [sizePercent]. Returns the whole area when the game's resolution isn't known yet or
+     * the result would be portrait in a landscape area (SDL ignores a surface whose orientation doesn't match).
+     */
+    fun surfaceSize(availW: Int, availH: Int, gameW: Int, gameH: Int): Pair<Int, Int> {
+        val p = normalized().sizePercent / 100.0
+        val aw = (availW * p).toInt(); val ah = (availH * p).toInt()
+        if (gameW <= 0 || gameH <= 0 || aw <= 0 || ah <= 0) return aw to ah
+        val (w, h) = when (normalized().fit) {
+            FILL -> aw to ah
+            INTEGER -> {
+                val k = maxOf(1, minOf(aw / gameW, ah / gameH))
+                // Whole-number multiple if it fits; on a screen smaller than the game, fall back to Fit.
+                if (gameW * k <= aw && gameH * k <= ah) (gameW * k) to (gameH * k) else fitIn(aw, ah, gameW, gameH)
+            }
+            else -> fitIn(aw, ah, gameW, gameH)
+        }
+        return if ((availW >= availH) != (w >= h)) aw to ah else w to h
+    }
+
+    private fun fitIn(aw: Int, ah: Int, gw: Int, gh: Int): Pair<Int, Int> {
+        val scale = minOf(aw.toDouble() / gw, ah.toDouble() / gh)
+        return (gw * scale).toInt() to (gh * scale).toInt()
+    }
+
     companion object {
         const val FIT = "fit"
         const val FILL = "fill"

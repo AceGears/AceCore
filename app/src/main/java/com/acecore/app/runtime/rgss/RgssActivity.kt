@@ -165,6 +165,10 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     /** Screen fit and game size; changed live from ☰ › Display and saved for this game. */
     private var display by mutableStateOf(DisplayPrefs())
     private var appliedSurfaceSize: Pair<Int, Int>? = null
+    /** The game's own resolution (Graphics.width × height), reported by acecore_compat.rb; null until known. */
+    private var gameRes by mutableStateOf<Pair<Int, Int>?>(null)
+    /** Screen area and game surface currently in use, shown in the Display panel. */
+    private var layoutInfo by mutableStateOf("")
     /** True until the game draws its first frame (reported by AceCore's runtime helper). */
     private var starting by mutableStateOf(true)
     /** Current launch stage shown in the start-up indicator. */
@@ -238,6 +242,17 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (r - l != oldR - oldL || b - t != oldB - oldT) layout.post { applySurfaceSize() }
         }
         layout.post { applySurfaceSize() }
+        // The game reports its resolution once Ruby runs (and again if it changes, e.g. Graphics.resize_screen).
+        val screenFile = dataDir?.let { File(RgssRuntime.helperDir(it), "screen") } ?: return
+        lifecycleScope.launch {
+            while (true) {
+                val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { screenFile.readText().trim().split(' ').map { it.toInt() } }.getOrNull()
+                }?.takeIf { it.size == 2 && it[0] > 0 && it[1] > 0 }?.let { it[0] to it[1] }
+                if (res != null && res != gameRes) { gameRes = res; applySurfaceSize() }
+                kotlinx.coroutines.delay(if (gameRes == null) 250 else 1000)
+            }
+        }
     }
 
     /**
@@ -249,15 +264,16 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         val surface = SDLActivity.mSurface ?: return
         val w = layout.width; val h = layout.height
         if (w <= 0 || h <= 0) return
-        val pct = display.sizePercent.coerceIn(DisplayPrefs.MIN_SIZE, 100)
-        // Keep the screen's proportions so the surface never flips orientation (SDL ignores a portrait surface in landscape).
-        val sw = if (pct >= 100) w else (w * pct / 100)
-        val sh = if (pct >= 100) h else (h * pct / 100)
+        val (gw, gh) = gameRes ?: (0 to 0)
+        val (sw, sh) = display.surfaceSize(w, h, gw, gh)
+        layoutInfo = (if (gameRes != null) "Game ${gw}×${gh}" else "Game resolution not reported yet") +
+            " · screen ${w}×${h} · game area ${sw}×${sh}"
         if (appliedSurfaceSize == (sw to sh)) return
         appliedSurfaceSize = sw to sh
+        val full = sw == w && sh == h
         surface.layoutParams = RelativeLayout.LayoutParams(
-            if (pct >= 100) ViewGroup.LayoutParams.MATCH_PARENT else sw,
-            if (pct >= 100) ViewGroup.LayoutParams.MATCH_PARENT else sh,
+            if (full) ViewGroup.LayoutParams.MATCH_PARENT else sw,
+            if (full) ViewGroup.LayoutParams.MATCH_PARENT else sh,
         ).apply { addRule(RelativeLayout.CENTER_IN_PARENT) }
     }
 
@@ -564,6 +580,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     onEditDone = { editingLayout = false },
                     onButton = ::sendPad,
                     onMenu = { menuOpen = true },
+                    fourWay = true,
                 )
             }
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
@@ -675,7 +692,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 Text(
                     when (display.fit) {
                         DisplayPrefs.FILL -> "Fills the whole area; the picture is stretched to the screen's shape."
-                        DisplayPrefs.INTEGER -> "Largest whole-number scale that fits: crisp pixels, may leave borders."
+                        DisplayPrefs.INTEGER -> "Largest whole-number multiple of the game's resolution: crisp pixels, may leave borders."
                         else -> "Largest size that keeps the game's proportions."
                     },
                     color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
@@ -690,6 +707,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     valueRange = DisplayPrefs.MIN_SIZE.toFloat()..100f, steps = (100 - DisplayPrefs.MIN_SIZE) / 5 - 1,
                     colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
                 )
+                Text(layoutInfo, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                 Text("Saved for this game. Also in the game's settings in the library.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         }

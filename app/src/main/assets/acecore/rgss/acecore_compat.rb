@@ -387,34 +387,63 @@ if defined?(MiniFFI)
 end
 
 #===============================================================================
-# Live display changes from AceArcade's in-game menu (☰ › Display › Screen fit)
+# Display (☰ › Display › Screen fit / Game size)
 #
-# The menu writes AceCoreCompat::DISPLAY_FILE ({"screenFit":"fit|fill|integer", ...}); this checks it about twice a
-# second and switches the engine's own scaling. (The game-size setting is applied by Android's layout instead.)
+# AceArcade sizes the game surface on the Android side (Fit: the game's aspect ratio, Pixel-perfect: a whole-number
+# multiple of the game's resolution, Stretch: the whole area); the engine then simply fills its surface. This script:
+#   * reports the game's resolution (Graphics.width/height) to "screen" next to DISPLAY_FILE whenever it changes;
+#   * applies the mode the menu writes to DISPLAY_FILE: aspect lock off only for Stretch, nearest-neighbour scaling
+#     for Pixel-perfect (otherwise the player's filter choice, AceCoreCompat::SMOOTH);
+#   * keeps Stretch in effect: mkxp-z-android-reworked re-enables the aspect lock whenever its window is resized.
 #===============================================================================
 module AceCoreCompat
   module Display
     @mtime = nil
     @frame = 0
+    @fit = defined?(AceCoreCompat::FIT) ? AceCoreCompat::FIT : nil
+    @reported = nil
+
+    def self.dir
+      f = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
+      f && File.dirname(f)
+    end
 
     def self.tick
       @frame += 1
       return unless (@frame % 30).zero?
+      report_resolution
       path = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
-      return unless path
-      mtime = (File.mtime(path) rescue nil)
-      return if mtime.nil? || mtime == @mtime
-      @mtime = mtime
-      fit = File.read(path)[/"screenFit"\s*:\s*"(\w+)"/, 1]
-      apply(fit) if fit
+      mtime = path && (File.mtime(path) rescue nil)
+      if mtime && mtime != @mtime
+        @mtime = mtime
+        fit = File.read(path)[/"screenFit"\s*:\s*"(\w+)"/, 1]
+        apply(fit) if fit
+      end
+      # Re-assert Stretch (the engine turns the aspect lock back on after a window resize).
+      if @fit == 'fill' && Graphics.respond_to?(:fixed_aspect_ratio) && Graphics.fixed_aspect_ratio
+        Graphics.fixed_aspect_ratio = false
+      end
     rescue StandardError
       nil
     end
 
+    def self.report_resolution
+      d = dir or return
+      res = "#{Graphics.width} #{Graphics.height}"
+      return if res == @reported
+      @reported = res
+      File.write(File.join(d, 'screen'), res + "\n")
+    end
+
     def self.apply(fit)
+      @fit = fit
+      Graphics.integer_scaling = false if Graphics.respond_to?(:integer_scaling=)
+      Graphics.last_mile_scaling = true if Graphics.respond_to?(:last_mile_scaling=)
       Graphics.fixed_aspect_ratio = (fit != 'fill') if Graphics.respond_to?(:fixed_aspect_ratio=)
-      Graphics.integer_scaling = (fit == 'integer') if Graphics.respond_to?(:integer_scaling=)
-      Graphics.last_mile_scaling = (fit != 'integer') if Graphics.respond_to?(:last_mile_scaling=)
+      if Graphics.respond_to?(:smooth_scaling=)
+        smooth = defined?(AceCoreCompat::SMOOTH) ? AceCoreCompat::SMOOTH : true
+        Graphics.smooth_scaling = fit == 'integer' ? false : smooth
+      end
     end
   end
 end
