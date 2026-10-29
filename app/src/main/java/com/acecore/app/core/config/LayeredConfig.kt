@@ -61,8 +61,11 @@ enum class ConfigKey(
         section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
     ),
     FF_MODE(
-        "ffMode", "Fast-forward button", "Toggle: tap to switch on and off. Hold: fast-forward only while the button is held.",
-        ConfigType.CHOICE, "toggle", listOf("toggle" to "Toggle (tap on / tap off)", "hold" to "Hold"),
+        "ffMode", "Fast-forward button",
+        "Cycle: each tap moves to the next speed (1.25× … 8×, then off). Toggle: tap on / tap off at the chosen speed. " +
+            "Hold: fast-forward only while the button is held.",
+        ConfigType.CHOICE, "cycle",
+        listOf("cycle" to "Cycle through speeds", "onoff" to "Toggle (tap on / tap off)", "hold" to "Hold"),
         section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
     ),
     FF_AUDIO(

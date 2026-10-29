@@ -170,7 +170,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     // ---- Fast-forward and quick save (acecore_compat.rb › Tools)
     private var ffOn by mutableStateOf(false)
     private var ffSpeed by mutableStateOf(2f)
-    private var ffHold by mutableStateOf(false)
+    /** "cycle" (tap = next speed), "toggle" or "hold". */
+    private var ffMode by mutableStateOf("cycle")
     private var ffQuiet by mutableStateOf(true)
     private var padFf by mutableStateOf(true)
     private var padQs by mutableStateOf(true)
@@ -237,7 +238,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             gameButtonNames = RgssKeys.gameNames(runCatching { File(s.gamePath, "mkxp.json").takeIf { it.length() < 256_000 }?.readText() }.getOrNull())
             gamepadMode = s.config[ConfigKey.GAMEPAD_MODE.id] ?: "auto"
             ffSpeed = (s.config[ConfigKey.FF_SPEED.id] ?: "2").toFloatOrNull()?.coerceIn(1.25f, 8f) ?: 2f
-            ffHold = s.config[ConfigKey.FF_MODE.id] == "hold"
+            // "toggle" was 0.8.0's default and was saved with any speed change; it now means cycling.
+            ffMode = (s.config[ConfigKey.FF_MODE.id] ?: "cycle").takeIf { it == "onoff" || it == "hold" } ?: "cycle"
             ffQuiet = (s.config[ConfigKey.FF_AUDIO.id] ?: "quiet") == "quiet"
             padFf = ConfigKey.PAD_FF.bool(s.config[ConfigKey.PAD_FF.id] ?: "true")
             padQs = ConfigKey.PAD_QS.bool(s.config[ConfigKey.PAD_QS.id] ?: "true")
@@ -497,9 +499,26 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         writeSpeed()
     }
 
-    /** FF button: toggle mode flips on press; hold mode is on while held. */
+    private val ffPresets = listOf(1.25f, 1.5f, 2f, 3f, 4f, 6f, 8f)
+
+    /**
+     * FF button. Cycle: each tap goes to the next speed, after 8× back to off. Toggle: tap on / tap off at the chosen
+     * speed. Hold: on while held.
+     */
     private fun onFastForwardButton(down: Boolean) {
-        if (ffHold) setFastForward(down) else if (down) setFastForward(!ffOn)
+        when (ffMode) {
+            "hold" -> setFastForward(down)
+            "onoff" -> if (down) setFastForward(!ffOn)
+            else -> if (down) {
+                if (!ffOn) { ffSpeed = ffPresets.first(); ffOn = true }
+                else {
+                    val next = ffPresets.firstOrNull { it > ffSpeed + 0.01f }
+                    if (next == null) ffOn = false else ffSpeed = next
+                }
+                writeSpeed()
+                showNotice(if (ffOn) "Fast-forward ${speedLabel(ffSpeed)}" else "Normal speed")
+            }
+        }
     }
 
     private fun showNotice(text: String) {
@@ -534,7 +553,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     }
 
     private fun saveTools() = savePending(mapOf(
-        ConfigKey.FF_SPEED.id to ffSpeed.toString().removeSuffix(".0"), ConfigKey.FF_MODE.id to if (ffHold) "hold" else "toggle",
+        ConfigKey.FF_SPEED.id to ffSpeed.toString().removeSuffix(".0"), ConfigKey.FF_MODE.id to ffMode,
         ConfigKey.FF_AUDIO.id to if (ffQuiet) "quiet" else "normal", ConfigKey.PAD_FF.id to padFf.toString(),
         ConfigKey.PAD_QS.id to padQs.toString(), ConfigKey.PAD_QL.id to padQl.toString(),
         ConfigKey.TOOLS_SCALE.id to (toolsScale * 100).toInt().toString(), ConfigKey.TOOLS_OPACITY.id to (toolsOpacity * 100).toInt().toString(),
@@ -1020,9 +1039,19 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 Text("Opacity ${(toolsOpacity * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
                 androidx.compose.material3.Slider(value = toolsOpacity, valueRange = 0.15f..1f, onValueChange = { toolsOpacity = it },
                     colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
-                ToggleRow("Hold to fast-forward (instead of tap on / tap off)", ffHold, accent) { ffHold = it; if (ffOn) setFastForward(false) }
+                Text("FF button", color = Color.White, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("cycle" to "Cycle speeds", "onoff" to "Tap on/off", "hold" to "Hold").forEach { (v, label) ->
+                        val sel = ffMode == v
+                        Box(
+                            Modifier.clip(RoundedCornerShape(50)).background(if (sel) accent.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.08f))
+                                .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
+                                .clickable { ffMode = v; if (ffOn) setFastForward(false) }.padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) { Text(label, color = Color.White, fontSize = 13.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
+                    }
+                }
                 ToggleRow("Quiet while fast-forwarding (no sound effects)", ffQuiet, accent) { ffQuiet = it; if (ffOn) writeSpeed() }
-                Text("Fast-forward speed", color = Color.White, fontSize = 13.sp)
+                Text(if (ffMode == "cycle") "Speed (the FF button also cycles through these)" else "Fast-forward speed", color = Color.White, fontSize = 13.sp)
                 SpeedChips(accent)
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                     androidx.compose.material3.TextButton(onClick = { toolsOpen = false; saveTools() }) { Text("Done", color = accent) }

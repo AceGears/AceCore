@@ -91,7 +91,7 @@ $game_temp = Game_Temp.new; $game_system = Game_System.new; $game_map = Game_Map
 $game_variables = [nil, 10, 20]
 $scene = Scene_Map.new
 poll!
-check "scene hook installed", Scene_Map.method_defined?(:__acearcade_map_update), true
+check "scene hook installed", AceCoreCompat::Tools.hooked?, true
 
 def request(id, action)
   File.write(File.join(HELPER, "tools_cmd"), "#{id}\t#{action}")
@@ -153,8 +153,47 @@ File.delete(slot)
 $game_variables = [nil, 7]
 check "Essentials quick save", request(10, "quicksave")[1], "ok"
 $game_variables = [nil, 0]
+# Like Essentials: Spriteset_Map#dispose reaches the renderer through $scene, so the scene must still be $scene.
+class Renderer; def remove_tileset(_) = nil; end
+class EssSpriteset
+  def initialize(owner) = (@owner = owner)
+  def dispose
+    raise NoMethodError, "undefined method `remove_tileset' for nil:NilClass" unless $scene.equal?(@owner) && $scene.map_renderer
+    $scene.map_renderer.remove_tileset("x")
+  end
+end
+class Scene_Map
+  attr_reader :map_renderer, :created
+  def createSpritesets
+    @map_renderer ||= Renderer.new
+    @spritesets = { 1 => EssSpriteset.new(self) }
+    @spritesetGlobal = Object.new.tap { |o| def o.dispose; end }
+    @created = (@created || 0) + 1
+  end
+  def disposeSpritesets = (@spritesets || {}).each_value(&:dispose).then { @spritesets = {} }
+end
+$scene = Scene_Map.new; $scene.createSpritesets
+$game_temp.instance_variable_set(:@followers, :cached)
+essentials_scene = $scene
 check "Essentials quick load", request(11, "quickload")[1], "ok"
 check "Essentials values restored", [$game_variables[1], $loaded_player, $map_loaded, $autoplay], [7, [3, 4], true, true]
+check "Essentials reload stays in the running map scene (no remove_tileset crash)", $scene.equal?(essentials_scene), true
+check "Essentials sprites rebuilt for the loaded state", essentials_scene.created, 2
+check "Essentials followers rebuilt from the save", $game_temp.instance_variable_get(:@followers), nil
+
+# During dialogue Essentials doesn't call Scene_Map#update: the request is answered "not now" instead of hanging.
+File.write(File.join(HELPER, "tools_cmd"), "20\tquicksave"); poll!
+AceCoreCompat::Tools.instance_variable_set(:@pending_at, Time.now - 5)
+poll!
+check "request during dialogue gets an answer", File.read(File.join(HELPER, "tools_result")).split("\t")[0..1], ["20", "error"]
+
+# A game script that replaces Scene_Map#update after the hook was installed: the hook is installed again.
+class Scene_Map; def update; end; end
+File.write(File.join(HELPER, "tools_cmd"), "21\tquicksave"); poll!
+AceCoreCompat::Tools.instance_variable_set(:@pending_at, Time.now - 2)
+AceCoreCompat::Tools.instance_variable_set(:@hook_seen, Time.now - 3)
+poll!; $scene.update
+check "hook re-installed after a game replaced Scene_Map#update", File.read(File.join(HELPER, "tools_result")).split("\t")[0..1], ["21", "ok"]
 File.delete(slot)
 module SaveData; def self.compile_save_hash = { v: 1 }; end
 request(12, "quicksave")

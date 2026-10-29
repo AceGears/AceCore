@@ -729,8 +729,26 @@ module AceCoreCompat
       check_speed
       check_command
       install_scene_hook
+      expire_pending
     rescue StandardError
       nil
+    end
+
+    # Essentials runs messages, menus and battles in their own loops, so Scene_Map#update (where requests run) isn't
+    # called then. Answer such requests after a moment instead of leaving them unanswered.
+    def expire_pending
+      return unless @pending
+      @pending_at ||= Time.now
+      waited = Time.now - @pending_at
+      # A game script may have replaced Scene_Map#update after the hook was installed: install it again.
+      if waited > 1.5 && map_scene? && !busy? && (@hook_seen.nil? || Time.now - @hook_seen > 1.5)
+        @hooked = false
+        install_scene_hook
+      end
+      return if waited < 4
+      id, = @pending
+      @pending = nil
+      reply(id, "error", "Not now: the game is in a message, menu or event. Quick save and load work while you can walk on the map.")
     end
 
     def check_speed
@@ -778,6 +796,7 @@ module AceCoreCompat
       end
       @pending = [id, action]
       @pending_since = nil
+      @pending_at = Time.now
     end
 
     def reply(id, status, message)
@@ -799,14 +818,23 @@ module AceCoreCompat
 
     def install_scene_hook
       return if @hooked || !defined?(::Scene_Map) || !::Scene_Map.method_defined?(:update)
-      ::Scene_Map.class_eval do
-        alias_method :__acearcade_map_update, :update
-        def update(*args)
-          return if AceCoreCompat::Tools.run_pending
-          __acearcade_map_update(*args)
-        end
+      @hook_gen = (@hook_gen || 0) + 1
+      original = :"__acearcade_map_update_#{@hook_gen}"
+      ::Scene_Map.send(:alias_method, original, :update)
+      ::Scene_Map.send(:define_method, :update) do |*args|
+        AceCoreCompat::Tools.hook_seen!
+        next if AceCoreCompat::Tools.run_pending(self)
+        send(original, *args)
       end
       @hooked = true
+    end
+
+    def hook_seen!
+      @hook_seen = Time.now
+    end
+
+    def hooked?
+      @hooked ? true : false
     end
 
     def pending
@@ -814,7 +842,7 @@ module AceCoreCompat
     end
 
     # Runs a pending request at the start of Scene_Map#update. Returns true when the scene changed (load).
-    def run_pending
+    def run_pending(scene = nil)
       return false unless @pending
       id, action = @pending
       if busy?
@@ -835,7 +863,7 @@ module AceCoreCompat
           reply(id, "error", "No quick save for this game yet.")
           return false
         end
-        load!
+        load!(scene)
         reply(id, "ok", "Quick save loaded")
         true
       end
@@ -925,18 +953,34 @@ module AceCoreCompat
       payload
     end
 
-    def load!
+    def load!(scene = nil)
       payload = read_slot
       case flavor
       when :essentials
         data = Marshal.load(payload)
+        # Reload inside the running map scene (as Essentials does after a map transfer): its sprites are disposed
+        # while it is still $scene (Spriteset_Map#dispose uses $scene.map_renderer), then rebuilt for the loaded state.
+        scene ||= $scene
+        rebuild = scene.respond_to?(:disposeSpritesets) && scene.respond_to?(:createSpritesets)
+        if rebuild
+          scene.disposeSpritesets
+          global = scene.instance_variable_get(:@spritesetGlobal)
+          global.dispose if global.respond_to?(:dispose)
+          scene.instance_variable_set(:@spritesetGlobal, nil)
+        end
         ::SaveData.load_all_values(data)
+        # Followers are cached in $game_temp and rebuilt from the loaded $PokemonGlobal on next use.
+        $game_temp.instance_variable_set(:@followers, nil) if $game_temp.instance_variable_defined?(:@followers)
         $game_temp.last_uptime_refreshed_play_time = System.uptime if $game_temp.respond_to?(:last_uptime_refreshed_play_time=)
         ::Game.load_map
         pbAutoplayOnSave if respond_to?(:pbAutoplayOnSave, true)
         $game_map.update
         $PokemonMap.updateMap if $PokemonMap.respond_to?(:updateMap)
-        $scene = ::Scene_Map.new
+        if rebuild
+          scene.createSpritesets
+        else
+          $scene = ::Scene_Map.new
+        end
       when :ace
         _header, contents = Marshal.load(payload)
         ::DataManager.extract_save_contents(contents)
