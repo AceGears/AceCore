@@ -100,6 +100,8 @@ ksp {
 dependencies {
     // Godot 4 Android engine (MIT), runs Godot 4.0–4.7 game packs. Keep GodotPack.ENGINE_MINOR in step.
     implementation("org.godotengine:godot:4.7.0.stable")
+    // GodotActivity extends FragmentActivity; the Godot library only declares it as a runtime dependency.
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
