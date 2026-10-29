@@ -94,4 +94,72 @@ object ButtonMap {
         PadButton.L1 to "SHIFT", PadButton.R1 to "CTRL", PadButton.START to "ENTER", PadButton.SELECT to "ESCAPE",
     )
     val FLASH_DEFAULT_ENCODED: String = encode(FLASH_DEFAULT)
+
+    /**
+     * RPG Maker XP/VX/VX Ace (mkxp-z, incl. Pokémon Essentials). Keys follow mkxp-z's default bindings so every pad
+     * button reaches a distinct RGSS button: Enter → C (confirm), X → B (cancel/menu), Shift → A, D → Z, Q → L,
+     * W → R, A → X, S → Y. (The MV/MZ layout sent Z for the A button, which is "A/Action" in RPG Maker XP, not
+     * confirm, and PageUp/PageDown, which mkxp-z doesn't bind.)
+     */
+    val RGSS_DEFAULT: Map<PadButton, String> = DEFAULT + mapOf(
+        PadButton.A to "ENTER", PadButton.B to "X", PadButton.X to "SHIFT", PadButton.Y to "D",
+        PadButton.L1 to "Q", PadButton.R1 to "W", PadButton.L2 to "A", PadButton.R2 to "S",
+        PadButton.START to "ESCAPE", PadButton.SELECT to "Z",
+    )
+    val RGSS_DEFAULT_ENCODED: String = encode(RGSS_DEFAULT)
+
+    fun defaultFor(rgss: Boolean) = if (rgss) RGSS_DEFAULT else DEFAULT
+
+    /** Like [decode], filling unmapped buttons from [base]. */
+    fun decode(s: String?, base: Map<PadButton, String>): Map<PadButton, String> {
+        val out = base.toMutableMap()
+        s?.split(';')?.forEach { pair ->
+            val btn = PadButton.entries.firstOrNull { it.name == pair.substringBefore('=', "") } ?: return@forEach
+            val v = pair.substringAfter('=', "")
+            if (WebKey.byId(v) != null) out[btn] = v
+        }
+        return out
+    }
+}
+
+/**
+ * What a keyboard key does in an RPG Maker XP/VX/VX Ace game under mkxp-z's default bindings ([rgss] = 1 for XP,
+ * 2/3 for VX/VX Ace), named with the game's own button names when it provides them (mkxp.json "bindingNames").
+ */
+object RgssKeys {
+    private val common = mapOf(
+        "UP" to "up", "DOWN" to "down", "LEFT" to "left", "RIGHT" to "right",
+        "ENTER" to "c", "SPACE" to "c", "ESCAPE" to "b", "X" to "b", "SHIFT" to "a",
+        "D" to "z", "Q" to "l", "W" to "r", "A" to "x", "S" to "y",
+    )
+    private val standardNames = mapOf(
+        "up" to "Up", "down" to "Down", "left" to "Left", "right" to "Right",
+        "a" to "A", "b" to "B (cancel / menu)", "c" to "C (confirm)", "x" to "X", "y" to "Y", "z" to "Z", "l" to "L", "r" to "R",
+    )
+
+    /** RGSS button ("a".."z", "l", "r", directions) a key reaches, or null if mkxp-z doesn't bind it. */
+    fun button(keyId: String, rgss: Int): String? = when (keyId) {
+        "Z" -> if (rgss == 1) "a" else "c"
+        "C" -> if (rgss == 1) "c" else null
+        "F12" -> "reset"
+        else -> common[keyId]
+    }
+
+    fun describe(keyId: String, rgss: Int, gameNames: Map<String, String>): String {
+        val b = button(keyId, rgss) ?: return if (keyId == "NONE") "Nothing" else "Keyboard key (only if the game reads it itself)"
+        if (b == "reset") return "Restart game (F12)"
+        val std = standardNames[b] ?: b
+        val custom = gameNames[b]
+        return if (custom != null && b.length == 1) "${b.uppercase()} · $custom" else std
+    }
+
+    /** Button names from a game's mkxp.json ("bindingNames": {"c": "Use", ...}). */
+    fun gameNames(mkxpJson: String?): Map<String, String> {
+        val block = mkxpJson?.let { Regex("\"bindingNames\"\\s*:\\s*\\{([^}]*)\\}").find(it)?.groupValues?.get(1) } ?: return emptyMap()
+        return Regex("\"([a-z])\"\\s*:\\s*\"([^\"]{1,24})\"").findAll(block).associate { it.groupValues[1] to it.groupValues[2] }
+    }
+
+    /** Keys offered in the button-mapping panel, in a sensible order. */
+    val CHOICES = listOf("ENTER", "SPACE", "ESCAPE", "X", "SHIFT", "Z", "C", "D", "A", "S", "Q", "W",
+        "UP", "DOWN", "LEFT", "RIGHT", "F5", "F8", "F12", "V", "NONE")
 }

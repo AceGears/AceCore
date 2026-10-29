@@ -87,6 +87,7 @@ enum class ConfigKey(
     /** Built-in default, which can differ per engine (e.g. Flash games expect Space/arrows rather than Z/X). */
     fun defaultFor(engine: Engine?): String = when {
         this == BUTTON_MAP && engine == Engine.FLASH -> ButtonMap.FLASH_DEFAULT_ENCODED
+        this == BUTTON_MAP && engine?.family == EngineFamily.RGSS -> ButtonMap.RGSS_DEFAULT_ENCODED
         else -> default
     }
 

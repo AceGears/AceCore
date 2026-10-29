@@ -71,28 +71,31 @@ fun VirtualKeyboard(accent: Color, haptics: Boolean, onKey: (WebKey, Boolean) ->
     val haptic = LocalHapticFeedback.current
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        // Compact: about half the height of a full keyboard and at most 600dp wide, so the game stays visible.
         Column(
-            Modifier.fillMaxWidth().background(PanelBg, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            Modifier.widthIn(max = 600.dp).fillMaxWidth()
+                .background(PanelBg, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                .padding(horizontal = 5.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Keyboard", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(start = 8.dp))
+            Row(Modifier.fillMaxWidth().height(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Keyboard", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f).padding(start = 6.dp))
                 Icon(Icons.Rounded.Close, "Close keyboard", tint = Color.White,
-                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).clickable {
+                    modifier = Modifier.size(24.dp).clip(RoundedCornerShape(12.dp)).clickable {
                         held.forEach { id -> WebKey.byId(id)?.let { onKey(it, false) } }
                         held = emptySet(); onClose()
-                    }.padding(6.dp))
+                    }.padding(3.dp))
             }
             rows.forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     row.forEach { id ->
                         val key = WebKey.byId(id) ?: return@forEach
                         val isMod = id in modifiers
                         val active = id in held
                         val weight = when (id) { "SPACE" -> 3f; "ENTER", "BACKSPACE", "SHIFT", "TAB" -> 1.6f; else -> 1f }
                         Box(
-                            Modifier.weight(weight).height(40.dp).clip(RoundedCornerShape(8.dp))
+                            Modifier.weight(weight).height(28.dp).clip(RoundedCornerShape(6.dp))
                                 .background(if (active) accent else Color.White.copy(alpha = 0.10f))
                                 .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                                 .pointerInput(id) {
@@ -112,7 +115,7 @@ fun VirtualKeyboard(accent: Color, haptics: Boolean, onKey: (WebKey, Boolean) ->
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(key.label, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Clip)
+                            Text(key.label, color = Color.White, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip)
                         }
                     }
                 }

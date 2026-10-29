@@ -33,11 +33,15 @@ class DisplayPrefsTest {
         assertTrue(DisplayPrefs.write(dir, DisplayPrefs("fill", 75)))
         assertEquals(mapOf("screenFit" to "fill", "screenSize" to "75"), DisplayPrefs.takePending(dir))
         assertNull("consumed", DisplayPrefs.takePending(dir))
+        DisplayPrefs.write(dir, DisplayPrefs("integer", 60))
+        DisplayPrefs.writePending(dir, mapOf("buttonMap" to "A=ENTER;B=X", "gamepadMode" to "never", "evil" to "x"))
+        assertEquals(mapOf("screenFit" to "integer", "screenSize" to "60", "buttonMap" to "A=ENTER;B=X", "gamepadMode" to "never"),
+            DisplayPrefs.takePending(dir))
         dir.deleteRecursively()
     }
 
     @Test fun compatHeaderNamesDisplayFile() {
-        val h = RgssRuntime.compatHeader(3120, 1440, java.io.File("/data/x/acecore/display.json"))
-        assertTrue(h, h.contains("DISPLAY_W = 3120") && h.contains("DISPLAY_FILE = \"/data/x/acecore/display.json\""))
+        val h = RgssRuntime.compatHeader(3120, 1440, java.io.File("/data/x/acecore/settings.json"))
+        assertTrue(h, h.contains("DISPLAY_W = 3120") && h.contains("DISPLAY_FILE = \"/data/x/acecore/settings.json\""))
     }
 }

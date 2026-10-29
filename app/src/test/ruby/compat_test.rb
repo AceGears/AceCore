@@ -36,6 +36,15 @@ check "engine update still runs", Graphics.updates, 30
 sleep 1.1; File.write(DISPLAY_TMP, '{"screenFit":"fill","screenSize":"100"}')
 30.times { Graphics.update }
 check "live fit: stretch", [Graphics.fixed_aspect_ratio, Graphics.integer_scaling, Graphics.last_mile_scaling], [false, false, true]
+module Input
+  UP = 8; DOWN = 2; LEFT = 4; RIGHT = 6; A = 11; B = 12; C = 13; X = 14; Y = 15; Z = 16; L = 17; R = 18
+  @down = [UP, C]
+  def self.press?(c) = @down.include?(c)
+  def self.dir4 = 8
+end
+File.write(File.join(File.dirname(DISPLAY_TMP), 'input_test'), '')
+6.times { Graphics.update }
+check "controls test reports engine state", File.read(File.join(File.dirname(DISPLAY_TMP), 'input_state')), "UP C\ndir4=8\n"
 # existing engine methods are not replaced
 module Graphics; def self.display_width; 999; end; end
 load COMPAT; check "keeps native", Graphics.display_width, 999

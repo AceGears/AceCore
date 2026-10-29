@@ -419,11 +419,39 @@ module AceCoreCompat
   end
 end
 
+#===============================================================================
+# Controls test (☰ › Controls › Test controls)
+#
+# While AceArcade's test panel is open it creates "input_test" next to DISPLAY_FILE; this then writes the RGSS buttons
+# the engine currently reports as pressed to "input_state", so every on-screen and controller button can be checked
+# end to end (touch → key → engine binding → what the game reads).
+#===============================================================================
+module AceCoreCompat
+  module InputTest
+    BUTTONS = { 'UP' => :UP, 'DOWN' => :DOWN, 'LEFT' => :LEFT, 'RIGHT' => :RIGHT, 'A' => :A, 'B' => :B, 'C' => :C,
+                'X' => :X, 'Y' => :Y, 'Z' => :Z, 'L' => :L, 'R' => :R }.freeze
+    @frame = 0
+
+    def self.tick
+      @frame += 1
+      return unless (@frame % 3).zero?
+      dir = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE && File.dirname(AceCoreCompat::DISPLAY_FILE)
+      return unless dir && File.exist?(File.join(dir, 'input_test'))
+      pressed = BUTTONS.select { |_, c| Input.const_defined?(c) && Input.press?(Input.const_get(c)) }.keys
+      dir4 = (Input.dir4 rescue 0)
+      File.write(File.join(dir, 'input_state'), "#{pressed.join(' ')}\ndir4=#{dir4}\n")
+    rescue StandardError
+      nil
+    end
+  end
+end
+
 if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(:__acearcade_update)
   class << Graphics
     alias_method :__acearcade_update, :update
     def update(*args)
       AceCoreCompat::Display.tick
+      AceCoreCompat::InputTest.tick
       __acearcade_update(*args)
     end
   end

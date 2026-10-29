@@ -18,6 +18,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import com.acecore.app.core.config.RgssKeys
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.SettingsInputComponent
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -141,7 +148,15 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     private var spec: RgssLaunchSpec? = null
     private var dataDir: File? = null
-    private lateinit var buttonMap: Map<PadButton, String>
+    /** On-screen pad → keyboard key; editable in ☰ › Controls › Button mapping. */
+    private var buttonMap by mutableStateOf(ButtonMap.RGSS_DEFAULT)
+    /** The game's own names for its buttons (mkxp.json "bindingNames"), shown in the mapping and test panels. */
+    private var gameButtonNames: Map<String, String> = emptyMap()
+    private var rgssVersion = 1
+    private var mappingOpen by mutableStateOf(false)
+    private var testOpen by mutableStateOf(false)
+    /** Last on-screen button press (for the controls test), e.g. "A → Enter". */
+    private var lastPad by mutableStateOf<String?>(null)
     private var gamepadMode = "auto"
 
     private var menuOpen by mutableStateOf(false)
@@ -183,11 +198,13 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         if (s != null) {
             GAME_PATH = s.gamePath
             dataDir = File(s.dataPath).apply { mkdirs() }
-            buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id])
+            buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id], ButtonMap.RGSS_DEFAULT)
+            rgssVersion = RgssRuntime.rgssVersion(com.acecore.app.core.model.Engine.fromName(s.engine))
+            gameButtonNames = RgssKeys.gameNames(runCatching { File(s.gamePath, "mkxp.json").takeIf { it.length() < 256_000 }?.readText() }.getOrNull())
             gamepadMode = s.config[ConfigKey.GAMEPAD_MODE.id] ?: "auto"
             display = DisplayPrefs.from(s.config)
         } else {
-            buttonMap = ButtonMap.DEFAULT
+            buttonMap = ButtonMap.RGSS_DEFAULT
         }
         savedStateController.performAttach()
         savedStateController.performRestore(savedInstanceState)
@@ -373,7 +390,22 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     private fun sendPad(button: PadButton, down: Boolean) {
         val key = WebKey.byId(buttonMap[button]) ?: return
+        if (down && testOpen) lastPad = "${button.label} → ${key.label}"
         sendKey(key, down)
+    }
+
+    /** Saves an in-game change so the library stores it as this game's setting. */
+    private fun savePending(values: Map<String, String>) {
+        val dir = dataDir ?: return
+        Thread { DisplayPrefs.writePending(dir, values) }.start()
+    }
+
+    private fun setInputTest(on: Boolean) {
+        val dir = dataDir?.let { RgssRuntime.helperDir(it) } ?: return
+        Thread {
+            val flag = File(dir, "input_test")
+            if (on) runCatching { dir.mkdirs(); flag.writeText("1") } else { flag.delete(); File(dir, "input_state").delete() }
+        }.start()
     }
 
     private fun sendKey(key: WebKey, down: Boolean) {
@@ -404,6 +436,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         when {
             cheatsOpen -> cheatsOpen = false
             displayOpen -> displayOpen = false
+            mappingOpen -> mappingOpen = false
+            testOpen -> { testOpen = false; setInputTest(false) }
             editingLayout -> editingLayout = false
             keyboardOpen -> keyboardOpen = false
             else -> menuOpen = !menuOpen
@@ -536,6 +570,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (menuOpen) RgssMenu(s, accent)
             if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
             if (displayOpen) DisplayPanel(accent)
+            if (mappingOpen) MappingPanel(accent)
+            if (testOpen) ControlsTestPanel(accent, Modifier.align(Alignment.TopCenter))
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
         }
@@ -662,37 +698,206 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     @Composable
     private fun RgssMenu(s: RgssLaunchSpec, accent: Color) {
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f))
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.74f))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { menuOpen = false },
             contentAlignment = Alignment.Center,
         ) {
-            Column(
-                Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(20.dp)
-                    .background(PanelBg, RoundedCornerShape(22.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
-                    .verticalScroll(rememberScrollState()).padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                Modifier.widthIn(max = 760.dp).fillMaxWidth().padding(16.dp)
+                    .background(PanelBg, RoundedCornerShape(24.dp)).border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
             ) {
-                Text(s.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("The game keeps running while this menu is open.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                MenuItem(Icons.Rounded.PlayArrow, "Back to game", accent, highlight = true) { menuOpen = false }
-                MenuItem(Icons.Rounded.Gamepad, if (gamepadVisible) "Hide on-screen controls" else "Show on-screen controls", accent) {
-                    gamepadMode = if (gamepadVisible) "never" else "always"; refreshGamepadVisibility(); menuOpen = false
+                val wide = maxWidth > 560.dp
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(18.dp)) {
+                    // Header: game and engine
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(s.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${com.acecore.app.core.model.Engine.fromName(s.engine).displayName} · paused menu, the game keeps running",
+                                color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Box(
+                            Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)).clickable { menuOpen = false },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Rounded.Close, "Close menu", tint = Color.White, modifier = Modifier.size(20.dp)) }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    val game: @Composable () -> Unit = {
+                        MenuSection("Game") {
+                            MenuItem(Icons.Rounded.PlayArrow, "Resume", accent, highlight = true) { menuOpen = false }
+                            MenuItem(Icons.Rounded.RestartAlt, "Restart game", accent, subtitle = "Back to the title screen (F12). Unsaved progress is lost.") {
+                                menuOpen = false; tapKey(KeyEvent.KEYCODE_F12)
+                            }
+                            if (s.helper) MenuItem(Icons.Rounded.AutoFixHigh, "Cheats", accent,
+                                subtitle = if (s.cheatsEnabled) "Money, items, Pokémon, movement…" else "Off for this game") { cheatsOpen = true; menuOpen = false }
+                            MenuItem(Icons.AutoMirrored.Rounded.ExitToApp, "Exit to library", accent, subtitle = "Unsaved progress is lost.") { exitGame() }
+                        }
+                    }
+                    val view: @Composable () -> Unit = {
+                        MenuSection("Display") {
+                            MenuItem(Icons.Rounded.AspectRatio, "Screen fit & size", accent,
+                                subtitle = "${fitLabel(display.fit)} · ${display.sizePercent}%") { displayOpen = true; menuOpen = false }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        MenuSection("Controls") {
+                            MenuItem(Icons.Rounded.Gamepad, if (gamepadVisible) "Hide on-screen controls" else "Show on-screen controls", accent) {
+                                gamepadMode = if (gamepadVisible) "never" else "always"; refreshGamepadVisibility()
+                                savePending(mapOf(ConfigKey.GAMEPAD_MODE.id to gamepadMode)); menuOpen = false
+                            }
+                            MenuItem(Icons.Rounded.SettingsInputComponent, "Button mapping", accent, subtitle = "Choose what each on-screen button presses") {
+                                mappingOpen = true; menuOpen = false
+                            }
+                            MenuItem(Icons.Rounded.TouchApp, "Test controls", accent, subtitle = "See which buttons the game receives") {
+                                testOpen = true; lastPad = null; setInputTest(true); menuOpen = false
+                                if (!gamepadVisible) { gamepadMode = "always"; refreshGamepadVisibility() }
+                            }
+                            MenuItem(Icons.Rounded.Edit, "Move on-screen controls", accent) { editingLayout = true; menuOpen = false }
+                            MenuItem(Icons.Rounded.Keyboard, "Keyboard", accent, subtitle = "For name entry and keyboard shortcuts") { keyboardOpen = true; menuOpen = false }
+                        }
+                    }
+                    if (wide) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(Modifier.weight(1f)) { game() }
+                            Column(Modifier.weight(1f)) { view() }
+                        }
+                    } else {
+                        game(); Spacer(Modifier.height(12.dp)); view()
+                    }
                 }
-                MenuItem(Icons.Rounded.AspectRatio, "Display", accent,
-                    subtitle = "${fitLabel(display.fit)} · ${display.sizePercent}% size") { displayOpen = true; menuOpen = false }
-                MenuItem(Icons.Rounded.Edit, "Edit controls layout", accent) { editingLayout = true; menuOpen = false }
-                MenuItem(Icons.Rounded.Keyboard, "Virtual keyboard", accent) { keyboardOpen = true; menuOpen = false }
-                if (s.helper) MenuItem(Icons.Rounded.AutoFixHigh, "Cheats", accent,
-                    subtitle = if (s.cheatsEnabled) "Money, items, Pokémon, movement…" else "Off for this game") { cheatsOpen = true; menuOpen = false }
-                MenuItem(Icons.Rounded.RestartAlt, "Restart game (F12)", accent, subtitle = "Returns to the title screen. Unsaved progress is lost.") {
-                    menuOpen = false; tapKey(KeyEvent.KEYCODE_F12)
-                }
-                MenuItem(Icons.AutoMirrored.Rounded.ExitToApp, "Exit to library", accent, subtitle = "Unsaved progress is lost.") { exitGame() }
             }
         }
     }
+
+    @Composable
+    private fun MenuSection(title: String, content: @Composable () -> Unit) {
+        Text(title.uppercase(), color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+    }
+
+    /** ☰ › Controls › Button mapping: what each on-screen button presses, described in the game's own terms. */
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    @Composable
+    private fun MappingPanel(accent: Color) {
+        var editing by remember { mutableStateOf<PadButton?>(null) }
+        fun set(map: Map<PadButton, String>) {
+            buttonMap = map
+            savePending(mapOf(ConfigKey.BUTTON_MAP.id to ButtonMap.encode(map)))
+        }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { mappingOpen = false },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp)
+                    .background(PanelBg, RoundedCornerShape(22.dp)).border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .padding(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Button mapping", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(onClick = { set(ButtonMap.RGSS_DEFAULT); editing = null }) { Text("Defaults", color = accent) }
+                    androidx.compose.material3.TextButton(onClick = { mappingOpen = false }) { Text("Done", color = accent, fontWeight = FontWeight.Bold) }
+                }
+                Text("Saved for this game. Physical controllers use the engine's own controller layout.",
+                    color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val order = listOf(PadButton.A, PadButton.B, PadButton.X, PadButton.Y, PadButton.L1, PadButton.R1, PadButton.L2, PadButton.R2,
+                        PadButton.START, PadButton.SELECT, PadButton.UP, PadButton.DOWN, PadButton.LEFT, PadButton.RIGHT)
+                    order.forEach { b ->
+                        val keyId = buttonMap[b] ?: "NONE"
+                        val open = editing == b
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .background(if (open) accent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f))
+                                .clickable { editing = if (open) null else b }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(b.label.substringBefore(" /"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.width(96.dp))
+                                Text(WebKey.byId(keyId)?.label ?: keyId, color = accent, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.width(72.dp))
+                                Text(RgssKeys.describe(keyId, rgssVersion, gameButtonNames), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            }
+                            if (open) {
+                                Spacer(Modifier.height(6.dp))
+                                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    RgssKeys.CHOICES.forEach { id ->
+                                        val sel = id == keyId
+                                        Column(
+                                            Modifier.clip(RoundedCornerShape(10.dp))
+                                                .background(if (sel) accent.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.07f))
+                                                .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                                                .clickable { set(buttonMap + (b to id)); editing = null }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        ) {
+                                            Text(WebKey.byId(id)?.label ?: id, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text(RgssKeys.describe(id, rgssVersion, gameButtonNames), color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, maxLines = 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * ☰ › Controls › Test controls: a small card at the top while the controls stay usable. Shows the last on-screen
+     * button and the key it sent, and the RGSS buttons the engine itself reports as held (read by acecore_compat.rb).
+     */
+    @Composable
+    private fun ControlsTestPanel(accent: Color, modifier: Modifier) {
+        var engine by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var seen by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var engineReplying by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            val f = dataDir?.let { File(RgssRuntime.helperDir(it), "input_state") }
+            while (true) {
+                val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { f?.readText() }.getOrNull() }
+                if (text != null) {
+                    engineReplying = true
+                    engine = text.lineSequence().first().split(' ').filter { it.isNotBlank() }.toSet()
+                    seen = seen + engine
+                }
+                kotlinx.coroutines.delay(100)
+            }
+        }
+        Column(
+            modifier.padding(top = 10.dp).widthIn(max = 620.dp).fillMaxWidth().padding(horizontal = 16.dp)
+                .background(PanelBg, RoundedCornerShape(18.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Test controls", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { testOpen = false; setInputTest(false) }) { Text("Done", color = accent, fontWeight = FontWeight.Bold) }
+            }
+            Text(lastPad?.let { "Last button: $it" } ?: "Press any on-screen button. The game receives these presses too.",
+                color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                listOf("UP" to "↑", "DOWN" to "↓", "LEFT" to "←", "RIGHT" to "→", "C" to "C", "B" to "B", "A" to "A",
+                    "X" to "X", "Y" to "Y", "Z" to "Z", "L" to "L", "R" to "R").forEach { (id, label) ->
+                    val on = id in engine; val ok = id in seen
+                    Box(
+                        Modifier.weight(1f).height(34.dp).clip(RoundedCornerShape(8.dp))
+                            .background(when { on -> accent; ok -> accent.copy(alpha = 0.22f); else -> Color.White.copy(alpha = 0.06f) })
+                            .border(1.dp, if (ok) accent else Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                }
+            }
+            Text(
+                if (engineReplying) "Lit = held now in the engine · outlined = worked during this test"
+                else "Waiting for the engine… (it reports once the game is running)",
+                color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp,
+            )
+        }
+    }
+
 }
 
 private fun fitLabel(fit: String) = when (fit) {
