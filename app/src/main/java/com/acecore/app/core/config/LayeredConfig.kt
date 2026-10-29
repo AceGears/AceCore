@@ -52,6 +52,30 @@ enum class ConfigKey(
         ConfigType.INT, "100", range = 50..100, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
     ),
     SHOW_FPS("showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display"),
+    FF_SPEED(
+        "ffSpeed", "Fast-forward speed",
+        "How much faster the game runs while fast-forward is on. Frame-based and time-based game logic both speed up; " +
+            "the highest speeds depend on how fast the device can run the game's logic.",
+        ConfigType.CHOICE, "2",
+        listOf("1.25" to "1.25×", "1.5" to "1.5×", "2" to "2×", "3" to "3×", "4" to "4×", "6" to "6×", "8" to "8×"),
+        section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    FF_MODE(
+        "ffMode", "Fast-forward button", "Toggle: tap to switch on and off. Hold: fast-forward only while the button is held.",
+        ConfigType.CHOICE, "toggle", listOf("toggle" to "Toggle (tap on / tap off)", "hold" to "Hold"),
+        section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    FF_AUDIO(
+        "ffAudio", "Sound while fast-forwarding",
+        "Quiet skips sound effects while fast-forwarding (music keeps playing); Normal plays everything.",
+        ConfigType.CHOICE, "quiet", listOf("quiet" to "Quiet (no sound effects)", "normal" to "Normal"),
+        section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    PAD_FF("padFf", "FF button", "Show the fast-forward button on the on-screen controller.", ConfigType.BOOL, "true", section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS }),
+    PAD_QS("padQs", "QS button", "Show the quick save button on the on-screen controller.", ConfigType.BOOL, "true", section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS }),
+    PAD_QL("padQl", "QL button", "Show the quick load button on the on-screen controller.", ConfigType.BOOL, "true", section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS }),
+    TOOLS_SCALE("toolsScale", "FF / QS / QL size", "Size of the gameplay buttons (%).", ConfigType.INT, "100", range = 60..160, section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS }),
+    TOOLS_OPACITY("toolsOpacity", "FF / QS / QL opacity", "Transparency of the gameplay buttons.", ConfigType.INT, "70", range = 15..100, section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS }),
     GAMEPAD_MODE(
         "gamepadMode", "On-screen controls", "When to show the virtual gamepad.", ConfigType.CHOICE, "auto",
         listOf("auto" to "Auto (hide when a controller is connected)", "always" to "Always", "never" to "Never"),

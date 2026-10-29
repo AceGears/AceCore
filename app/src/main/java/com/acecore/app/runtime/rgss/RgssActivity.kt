@@ -47,6 +47,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.MonitorHeart
+import androidx.compose.foundation.horizontalScroll
+import com.acecore.app.runtime.web.overlay.GamepadTools
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Gamepad
@@ -162,6 +167,22 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var lastPad by mutableStateOf<String?>(null)
     private var gamepadMode = "auto"
 
+    // ---- Fast-forward and quick save (acecore_compat.rb › Tools)
+    private var ffOn by mutableStateOf(false)
+    private var ffSpeed by mutableStateOf(2f)
+    private var ffHold by mutableStateOf(false)
+    private var ffQuiet by mutableStateOf(true)
+    private var padFf by mutableStateOf(true)
+    private var padQs by mutableStateOf(true)
+    private var padQl by mutableStateOf(true)
+    private var toolsScale by mutableStateOf(1f)
+    private var toolsOpacity by mutableStateOf(0.7f)
+    private var toolsOpen by mutableStateOf(false)
+    /** Short confirmation shown at the top ("Quick save created"…). */
+    private var notice by mutableStateOf<String?>(null)
+    private var noticeSeq = 0
+    private var toolRequest = 0
+
     private var menuOpen by mutableStateOf(false)
     private var cheatsOpen by mutableStateOf(false)
     private var displayOpen by mutableStateOf(false)
@@ -215,6 +236,14 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             rgssVersion = RgssRuntime.rgssVersion(com.acecore.app.core.model.Engine.fromName(s.engine))
             gameButtonNames = RgssKeys.gameNames(runCatching { File(s.gamePath, "mkxp.json").takeIf { it.length() < 256_000 }?.readText() }.getOrNull())
             gamepadMode = s.config[ConfigKey.GAMEPAD_MODE.id] ?: "auto"
+            ffSpeed = (s.config[ConfigKey.FF_SPEED.id] ?: "2").toFloatOrNull()?.coerceIn(1.25f, 8f) ?: 2f
+            ffHold = s.config[ConfigKey.FF_MODE.id] == "hold"
+            ffQuiet = (s.config[ConfigKey.FF_AUDIO.id] ?: "quiet") == "quiet"
+            padFf = ConfigKey.PAD_FF.bool(s.config[ConfigKey.PAD_FF.id] ?: "true")
+            padQs = ConfigKey.PAD_QS.bool(s.config[ConfigKey.PAD_QS.id] ?: "true")
+            padQl = ConfigKey.PAD_QL.bool(s.config[ConfigKey.PAD_QL.id] ?: "true")
+            toolsScale = ConfigKey.TOOLS_SCALE.int(s.config[ConfigKey.TOOLS_SCALE.id] ?: "100") / 100f
+            toolsOpacity = ConfigKey.TOOLS_OPACITY.int(s.config[ConfigKey.TOOLS_OPACITY.id] ?: "70") / 100f
             display = DisplayPrefs.from(s.config)
         } else {
             buttonMap = ButtonMap.RGSS_DEFAULT
@@ -447,6 +476,70 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         }.start()
     }
 
+    // ------------------------------------------------------------------ fast-forward / quick save
+
+    private fun speedLabel(v: Float) = (if (v % 1f == 0f) v.toInt().toString() else "%.2f".format(v).trimEnd('0').trimEnd('.')) + "×"
+
+    /** Tells the game script the current speed ("speed" file; it checks it every few frames). */
+    private fun writeSpeed() {
+        val dir = dataDir?.let { RgssRuntime.helperDir(it) } ?: return
+        val text = "speed=${if (ffOn) ffSpeed else 1f}\naudio=${if (ffQuiet) "quiet" else "normal"}\n"
+        Thread {
+            runCatching {
+                val tmp = File(dir, "speed.tmp"); tmp.writeText(text); tmp.renameTo(File(dir, "speed"))
+            }
+        }.start()
+    }
+
+    private fun setFastForward(on: Boolean) {
+        if (ffOn == on) return
+        ffOn = on
+        writeSpeed()
+    }
+
+    /** FF button: toggle mode flips on press; hold mode is on while held. */
+    private fun onFastForwardButton(down: Boolean) {
+        if (ffHold) setFastForward(down) else if (down) setFastForward(!ffOn)
+    }
+
+    private fun showNotice(text: String) {
+        val seq = ++noticeSeq
+        notice = text
+        lifecycleScope.launch { kotlinx.coroutines.delay(2600); if (noticeSeq == seq) notice = null }
+    }
+
+    /** Quick save / quick load through the game script ("tools_cmd" → "tools_result"). */
+    private fun quickAction(action: String) {
+        val dir = dataDir?.let { RgssRuntime.helperDir(it) } ?: return
+        val id = (++toolRequest).toString() + "-" + System.currentTimeMillis()
+        showNotice(if (action == "quicksave") "Saving…" else "Loading…")
+        lifecycleScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { File(dir, "tools_cmd.tmp").apply { writeText("$id\t$action") }.renameTo(File(dir, "tools_cmd")) }
+                val res = File(dir, "tools_result")
+                val until = System.currentTimeMillis() + 10_000
+                var parts: List<String>? = null
+                while (System.currentTimeMillis() < until) {
+                    parts = runCatching { res.readText().split('\t', limit = 3) }.getOrNull()?.takeIf { it.firstOrNull() == id }
+                    if (parts != null) break
+                    Thread.sleep(80)
+                }
+                parts
+            }
+            showNotice(when {
+                result == null -> "The game didn't respond. Quick save and load work once the game is on its map."
+                else -> result.getOrElse(2) { "" }.ifBlank { if (result[1] == "ok") "Done" else "Didn't work" }
+            })
+        }
+    }
+
+    private fun saveTools() = savePending(mapOf(
+        ConfigKey.FF_SPEED.id to ffSpeed.toString().removeSuffix(".0"), ConfigKey.FF_MODE.id to if (ffHold) "hold" else "toggle",
+        ConfigKey.FF_AUDIO.id to if (ffQuiet) "quiet" else "normal", ConfigKey.PAD_FF.id to padFf.toString(),
+        ConfigKey.PAD_QS.id to padQs.toString(), ConfigKey.PAD_QL.id to padQl.toString(),
+        ConfigKey.TOOLS_SCALE.id to (toolsScale * 100).toInt().toString(), ConfigKey.TOOLS_OPACITY.id to (toolsOpacity * 100).toInt().toString(),
+    ))
+
     private var lastDpadBounds: android.graphics.Rect? = null
 
     /** Writes the D-pad's on-screen rectangle to the helper folder ("dpad": left top right bottom) for diagnostics/tests. */
@@ -618,6 +711,12 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     onDpadBounds = ::reportDpadBounds,
                     onMenu = { menuOpen = true },
                     fourWay = true,
+                    tools = GamepadTools(
+                        showFastForward = padFf, showQuickSave = padQs, showQuickLoad = padQl,
+                        fastForwardActive = ffOn, speedLabel = speedLabel(ffSpeed), scale = toolsScale, opacity = toolsOpacity,
+                        onFastForward = ::onFastForwardButton,
+                        onQuickSave = { quickAction("quicksave") }, onQuickLoad = { quickAction("quickload") },
+                    ),
                 )
             }
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
@@ -626,6 +725,13 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (displayOpen) DisplayPanel(accent)
             if (mappingOpen) MappingPanel(accent)
             if (testOpen) ControlsTestPanel(accent, Modifier.align(Alignment.TopCenter))
+            if (toolsOpen) ToolsPanel(accent)
+            notice?.let { n ->
+                Text(n, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 58.dp).widthIn(max = 420.dp)
+                        .background(PanelBg, RoundedCornerShape(50)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(50))
+                        .padding(horizontal = 16.dp, vertical = 8.dp))
+            }
             if (stalled && !menuOpen && failure == null) StallBanner(s, accent, Modifier.align(Alignment.TopCenter))
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
@@ -779,8 +885,18 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     }
                     Spacer(Modifier.height(14.dp))
                     val game: @Composable () -> Unit = {
-                        MenuSection("Game") {
+                        MenuSection("Gameplay") {
                             MenuItem(Icons.Rounded.PlayArrow, "Resume", accent, highlight = true) { menuOpen = false }
+                            FastForwardRow(accent)
+                            MenuItem(Icons.Rounded.Save, "Quick save", accent, subtitle = "One slot for this game, kept by AceArcade (your game saves are untouched)") {
+                                menuOpen = false; quickAction("quicksave")
+                            }
+                            MenuItem(Icons.Rounded.Restore, "Quick load", accent, subtitle = "Back to this game's quick save") {
+                                menuOpen = false; quickAction("quickload")
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        MenuSection("System") {
                             MenuItem(Icons.Rounded.RestartAlt, "Restart game", accent, subtitle = "Back to the title screen (F12). Unsaved progress is lost.") {
                                 menuOpen = false; tapKey(KeyEvent.KEYCODE_F12)
                             }
@@ -811,6 +927,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                                 if (!gamepadVisible) { gamepadMode = "always"; refreshGamepadVisibility() }
                             }
                             MenuItem(Icons.Rounded.Edit, "Move on-screen controls", accent) { editingLayout = true; menuOpen = false }
+                            MenuItem(Icons.Rounded.FastForward, "Gameplay buttons (FF / QS / QL)", accent, subtitle = "Show, hide, size and fast-forward options") {
+                                toolsOpen = true; menuOpen = false
+                            }
                             MenuItem(Icons.Rounded.Keyboard, "Keyboard", accent, subtitle = "For name entry and keyboard shortcuts") { keyboardOpen = true; menuOpen = false }
                         }
                     }
@@ -824,6 +943,95 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     }
                 }
             }
+        }
+    }
+
+    /** Fast-forward switch with the speed presets, inside the menu. */
+    @Composable
+    private fun FastForwardRow(accent: Color) {
+        Column(
+            Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(14.dp)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.FastForward, null, tint = accent, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Fast-forward", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(if (ffOn) "On · ${speedLabel(ffSpeed)}" else "Off · ${speedLabel(ffSpeed)} when on", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                }
+                androidx.compose.material3.Switch(checked = ffOn, onCheckedChange = { setFastForward(it) },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = accent))
+            }
+            SpeedChips(accent)
+        }
+    }
+
+    @Composable
+    private fun SpeedChips(accent: Color) {
+        val presets = listOf(1.25f, 1.5f, 2f, 3f, 4f, 6f, 8f)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            presets.forEach { v ->
+                val sel = ffSpeed == v
+                Box(
+                    Modifier.clip(RoundedCornerShape(50)).background(if (sel) accent.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.08f))
+                        .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
+                        .clickable { ffSpeed = v; if (ffOn) writeSpeed(); saveTools() }.padding(horizontal = 12.dp, vertical = 6.dp),
+                ) { Text(speedLabel(v), color = Color.White, fontSize = 13.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
+            }
+        }
+        androidx.compose.material3.Slider(
+            value = ffSpeed, valueRange = 1.25f..8f, steps = 26,
+            onValueChange = { ffSpeed = (Math.round(it * 4) / 4f).coerceIn(1.25f, 8f) },
+            onValueChangeFinished = { if (ffOn) writeSpeed(); saveTools() },
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+        )
+    }
+
+    /** ☰ › Controls › Gameplay buttons: show/hide FF, QS, QL, their size and opacity, fast-forward mode and sound. */
+    @Composable
+    private fun ToolsPanel(accent: Color) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { toolsOpen = false; saveTools() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(16.dp)
+                    .background(PanelBg, RoundedCornerShape(22.dp)).border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .verticalScroll(rememberScrollState()).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Gameplay buttons", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                Text("FF = fast-forward, QS = quick save, QL = quick load. Drag them with ☰ › Move on-screen controls.",
+                    color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                ToggleRow("FF button", padFf, accent) { padFf = it }
+                ToggleRow("QS button", padQs, accent) { padQs = it }
+                ToggleRow("QL button", padQl, accent) { padQl = it }
+                Text("Size ${(toolsScale * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                androidx.compose.material3.Slider(value = toolsScale, valueRange = 0.6f..1.6f, onValueChange = { toolsScale = it },
+                    colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+                Text("Opacity ${(toolsOpacity * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                androidx.compose.material3.Slider(value = toolsOpacity, valueRange = 0.15f..1f, onValueChange = { toolsOpacity = it },
+                    colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+                ToggleRow("Hold to fast-forward (instead of tap on / tap off)", ffHold, accent) { ffHold = it; if (ffOn) setFastForward(false) }
+                ToggleRow("Quiet while fast-forwarding (no sound effects)", ffQuiet, accent) { ffQuiet = it; if (ffOn) writeSpeed() }
+                Text("Fast-forward speed", color = Color.White, fontSize = 13.sp)
+                SpeedChips(accent)
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.TextButton(onClick = { toolsOpen = false; saveTools() }) { Text("Done", color = accent) }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ToggleRow(label: String, value: Boolean, accent: Color, onChange: (Boolean) -> Unit) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onChange(!value) }) {
+            Text(label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(checked = value, onCheckedChange = onChange,
+                colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = accent))
         }
     }
 

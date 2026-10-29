@@ -59,7 +59,11 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
         const val FILE_NAME = "settings.json"
 
         /** Settings the in-game menu may change and save for the game. */
-        val SAVED_IN_GAME = setOf(ConfigKey.SCREEN_FIT.id, ConfigKey.SCREEN_SIZE.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id)
+        val SAVED_IN_GAME = setOf(
+            ConfigKey.SCREEN_FIT.id, ConfigKey.SCREEN_SIZE.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
+            ConfigKey.FF_SPEED.id, ConfigKey.FF_MODE.id, ConfigKey.FF_AUDIO.id, ConfigKey.PAD_FF.id, ConfigKey.PAD_QS.id,
+            ConfigKey.PAD_QL.id, ConfigKey.TOOLS_SCALE.id, ConfigKey.TOOLS_OPACITY.id, ConfigKey.GAMEPAD_OPACITY.id,
+        )
 
         fun file(dataDir: File) = File(RgssRuntime.helperDir(dataDir), FILE_NAME)
 

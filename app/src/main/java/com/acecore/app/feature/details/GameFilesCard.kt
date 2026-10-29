@@ -118,9 +118,21 @@ fun GameFilesCard(g: GameEntity) {
     }
     fun setMode(v: String) { scope.launch { container.games.setOverride(g.id, ConfigKey.GAME_FILES.id, v) } }
 
-    SectionHeader("Game files")
-    AceCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val headline = run {
+        val i = info
+        val direct = mode != "copy"
+        when {
+            direct && i?.directReadable == true -> "Played directly from your folder"
+            direct && i?.directPath == null -> "Direct play isn't possible for this folder"
+            direct && access -> "Game folder not found"
+            direct -> "Direct play: waiting for file access"
+            i?.copyInstalled == true -> "Played from AceArcade's private copy"
+            else -> "Private copy (made on first launch)"
+        }
+    }
+    var rescanning by remember { mutableStateOf(false) }
+    ExpandableSection(title = "Game files", summary = headline) {
+        run {
             val i = info
             val direct = mode != "copy"
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -156,10 +168,21 @@ fun GameFilesCard(g: GameEntity) {
                 }
             }
             if (direct && i?.directReadable == true) i.directPath?.let { KeyValue("Folder", it.absolutePath) }
+            KeyValue("Launch file", g.launchFile ?: g.entry ?: "None")
+            KeyValue("Runtime", com.acecore.app.runtime.RuntimeRegistry.info(engine).id.displayName)
+            KeyValue("File access", if (access) "All files access granted" else "Not granted (folder permission only)")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (direct && i != null && i.directPath != null && !access) FilledTonalButton(onClick = { requestAccess() }) { Text("Allow file access") }
                 if (direct) OutlinedButton(onClick = { setMode("copy") }) { Text("Use a private copy") }
                 else OutlinedButton(onClick = { setMode("direct") }) { Text("Play directly instead") }
+                TextButton(enabled = !rescanning, onClick = {
+                    rescanning = true
+                    scope.launch {
+                        val r = runCatching { container.games.rescan(g) }
+                        rescanning = false; refresh++
+                        Toast.makeText(ctx, if (r.isSuccess) "Game files rescanned" else "Couldn't rescan: ${r.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text(if (rescanning) "Rescanning…" else "Rescan files") }
                 if (!direct && i?.copyInstalled == true && !i.copyOutdated) TextButton(onClick = {
                     scope.launch {
                         withContext(Dispatchers.IO) { GameInstaller(GameStorage.installDir(ctx, g.id)).markOutdated() }

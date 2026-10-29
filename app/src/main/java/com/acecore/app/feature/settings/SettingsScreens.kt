@@ -129,7 +129,7 @@ fun SettingsHomeScreen(onBack: () -> Unit, onSection: (String) -> Unit, onEngine
             if (keyHits.isNotEmpty()) {
                 SettingsGroupTitle("Matching options")
                 keyHits.forEach { k ->
-                    val section = when (k.section) { "Controls" -> "controls"; "Display" -> "display"; "Audio" -> "audio"; else -> "advanced" }
+                    val section = when (k.section) { "Controls", "Gameplay" -> "controls"; "Display" -> "display"; "Audio" -> "audio"; else -> "advanced" }
                     NavRow(null, k.title, k.description) { onSection(section) }
                 }
             }

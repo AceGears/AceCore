@@ -113,6 +113,22 @@ class RgssDirectLaunchTest {
         // Essentials walks one tile per 0.25 s of held time, counted only on frames shorter than 0.25 s. The CI
         // emulator runs ARM code through translation (often < 10 fps), so require at least one step there.
         assertTrue("Character should walk: $info", held[0].toInt() - before[0].toInt() >= 1)
+
+        // ---- Fast-forward: the same hold at 3× must cover clearly more ground (the game clock and frame counter
+        // both run faster; see acecore_compat.rb › Tools).
+        val normalRate = (held[0].toInt() - before[0].toInt()) / (held[7].toDouble() - before.getOrElse(7) { "0" }.toDouble()).coerceAtLeast(0.5)
+        File(helper, "speed").writeText("speed=3\naudio=quiet\n")
+        Thread.sleep(1500)
+        val ffBefore = walk(helper)
+        val t0 = android.os.SystemClock.uptimeMillis()
+        touch(t0, android.view.MotionEvent.ACTION_DOWN, x, y)
+        try { Thread.sleep(2500) } finally { touch(t0, android.view.MotionEvent.ACTION_UP, x, y + 1) }
+        val ffAfter = walk(helper)
+        File(helper, "speed").writeText("speed=1\naudio=quiet\n")
+        val realSeconds = (android.os.SystemClock.uptimeMillis() - t0) / 1000.0
+        val ffRate = (ffAfter[0].toInt() - ffBefore[0].toInt()) / realSeconds
+        report("fast_forward", "normal=%.2f steps/s, 3x=%.2f steps/s (before=%s after=%s)".format(normalRate, ffRate, ffBefore.joinToString(" "), ffAfter.joinToString(" ")))
+        assertTrue("Fast-forward 3× should walk clearly faster: normal=$normalRate/s ff=$ffRate/s", ffRate >= normalRate * 1.8)
         assertTrue("Direction must clear on release: ${released.joinToString(" ")}", released[1] == "0")
         assertTrue("Character must stop after release: $released / $later", later[0] == released[0])
     }

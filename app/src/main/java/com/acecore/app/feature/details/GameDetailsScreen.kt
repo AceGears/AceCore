@@ -3,6 +3,7 @@ package com.acecore.app.feature.details
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,6 +90,7 @@ import com.acecore.app.core.designsystem.AceCard
 import com.acecore.app.core.designsystem.AceTheme
 import com.acecore.app.core.designsystem.SectionHeader
 import com.acecore.app.core.designsystem.aceGlow
+import com.acecore.app.core.designsystem.pressScale
 import com.acecore.app.core.install.GameLocations
 import com.acecore.app.core.model.Engine
 import com.acecore.app.core.model.EngineFamily
@@ -195,12 +197,18 @@ private fun Hero(g: GameEntity, coverWidth: Dp, vertical: Boolean) {
     }
     val text = @Composable { align: Alignment.Horizontal ->
         Column(horizontalAlignment = align) {
-            Text(g.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis,
+            // Explicit colour (the header isn't inside a Surface, so the default content colour would be black) and a
+            // soft shadow so the title stays readable over any blurred cover, in dark and light themes.
+            val onBg = MaterialTheme.colorScheme.onBackground
+            val shadow = androidx.compose.ui.graphics.Shadow(MaterialTheme.colorScheme.background.copy(alpha = 0.85f), blurRadius = 12f)
+            val titleStyle = (if (g.title.length > 28) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall)
+                .copy(color = onBg, fontWeight = FontWeight.ExtraBold, shadow = shadow)
+            Text(g.title, style = titleStyle, maxLines = 4, overflow = TextOverflow.Ellipsis,
                 textAlign = if (align == Alignment.CenterHorizontally) TextAlign.Center else TextAlign.Start)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 engine.displayName + (g.engineVersion?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium.copy(shadow = shadow), color = onBg.copy(alpha = 0.78f),
             )
             Spacer(Modifier.height(8.dp))
             GameStateChip(g)
@@ -225,15 +233,26 @@ private fun PrimaryActions(g: GameEntity, onOpenSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
     val launcher = LocalGameLauncher.current
     val playable = GameRepository.isPlayable(g)
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    var launching by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(launching) { if (launching) { kotlinx.coroutines.delay(1800); launching = false } }
     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Button(
-            onClick = { launcher.launch(g) }, enabled = playable,
-            modifier = Modifier.weight(1f).height(54.dp),
+            onClick = { launching = true; launcher.launch(g) }, enabled = playable && !launching,
+            interactionSource = interaction,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(interaction),
             shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = if (launching) 0.7f else 0.3f)),
         ) {
-            Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp))
-            Text(if (playable) "Play" else "Not playable yet", fontWeight = FontWeight.Bold)
+            if (launching) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+                Spacer(Modifier.width(10.dp))
+                Text("Starting…", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+            } else {
+                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(26.dp)); Spacer(Modifier.width(6.dp))
+                Text(if (playable) "Play" else "Not playable yet", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            }
         }
         OutlinedIconButton(onClick = { scope.launch { repo.setFavorite(g.id, !g.favorite) } }, modifier = Modifier.size(54.dp)) {
             Icon(if (g.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (g.favorite) "Remove from favorites" else "Add to favorites",
@@ -267,15 +286,17 @@ private fun Sections(g: GameEntity, onOpenCheats: () -> Unit, onDialog: (GameDia
 @Composable
 private fun LaunchCard(g: GameEntity, onChange: () -> Unit) {
     val rows = launchDescription(g)
-    SectionHeader("How it starts", action = { TextButton(onClick = onChange) { Text("Change") } })
-    AceCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            rows.forEach { (k, v) -> KeyValue(k, v) }
-            Text(
-                if (g.isManualLaunch) "Chosen by you. AceArcade uses it every time." else "Chosen automatically from the game's files.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    val file = (g.launchFile ?: g.entry ?: "None").substringAfterLast('/')
+    ExpandableSection(
+        title = "Launch configuration",
+        summary = "$file · " + (rows.firstOrNull { it.first == "Runtime" }?.second ?: RuntimeRegistry.info(g.effectiveEngine).id.displayName),
+        action = { TextButton(onClick = onChange) { Text("Change") } },
+    ) {
+        rows.forEach { (k, v) -> KeyValue(k, v) }
+        Text(
+            if (g.isManualLaunch) "Chosen by you. AceArcade uses it every time." else "Chosen automatically from the game's files.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -304,6 +325,40 @@ fun launchDescription(g: GameEntity): List<Pair<String, String>> {
         else -> out += "Runtime" to RuntimeRegistry.info(engine).id.displayName
     }
     return out
+}
+
+/**
+ * A section that shows a one-line summary and opens to the details (collapsed by default), so technical information
+ * is there when needed without dominating the page.
+ */
+@Composable
+fun ExpandableSection(
+    title: String,
+    summary: String,
+    initiallyOpen: Boolean = false,
+    action: (@Composable () -> Unit)? = null,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable(title) { mutableStateOf(initiallyOpen) }
+    SectionHeader(title, action = action)
+    AceCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.animateContentSize()) {
+            Row(
+                Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Icon(
+                    if (open) androidx.compose.material.icons.Icons.Rounded.ExpandLess else androidx.compose.material.icons.Icons.Rounded.ExpandMore,
+                    if (open) "Hide details" else "Show details", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AnimatedVisibility(open) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------- statistics

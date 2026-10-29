@@ -86,7 +86,6 @@ private fun CoverFallback(game: GameEntity, modifier: Modifier) {
                 game.title.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() },
                 style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Black,
             )
-            Text(game.effectiveEngine.shortLabel(), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
         }
     }
 }
@@ -140,13 +139,9 @@ fun GameTile(
                 )
                 .semantics { contentDescription = "${game.title}, ${game.effectiveEngine.displayName}, ${gameState(game).label}" },
         ) {
+            // The cover is shown as it is: no engine name or other AceArcade text on top (the engine is on the game page,
+            // in sorting/filters and in the long-press menu).
             CoverImage(game, Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.62f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f))))
-            Text(
-                game.effectiveEngine.shortLabel(), color = Color.White, style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
-            )
             if (game.favorite) Icon(Icons.Rounded.Favorite, "Favorite", tint = t.glow, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(16.dp))
             if (!playable) Icon(Icons.Rounded.Lock, "Not playable yet", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(16.dp))
             if (selectionMode) {

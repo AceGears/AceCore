@@ -49,7 +49,28 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-enum class PadGroup { DPAD, FACE, LEFT_SHOULDER, RIGHT_SHOULDER, CENTER }
+enum class PadGroup { DPAD, FACE, LEFT_SHOULDER, RIGHT_SHOULDER, CENTER, TOOLS }
+
+/**
+ * Fast-forward / quick save / quick load buttons (FF, QS, QL). Only runtimes that implement these features pass
+ * this, so no button is ever shown without a working action behind it.
+ */
+data class GamepadTools(
+    val showFastForward: Boolean,
+    val showQuickSave: Boolean,
+    val showQuickLoad: Boolean,
+    /** Fast-forward currently on (lights the FF button). */
+    val fastForwardActive: Boolean,
+    /** Speed shown on the FF button, e.g. "2×". */
+    val speedLabel: String,
+    /** Size of these buttons (0.6–1.6) and their own opacity (0.15–1). */
+    val scale: Float = 1f,
+    val opacity: Float = 0.7f,
+    /** FF pressed (true) / released (false); toggle or hold is decided by the caller. */
+    val onFastForward: (Boolean) -> Unit,
+    val onQuickSave: () -> Unit,
+    val onQuickLoad: () -> Unit,
+)
 
 /** Stores per-orientation group offsets. Used only inside the game process (plain SharedPreferences). */
 class GamepadLayoutStore(context: Context) {
@@ -87,6 +108,7 @@ fun VirtualGamepad(
     fourWay: Boolean = false,
     /** Reports where the D-pad is on screen (window pixels), for diagnostics and the emulator input test. */
     onDpadBounds: ((android.graphics.Rect) -> Unit)? = null,
+    tools: GamepadTools? = null,
 ) {
     val orientation = if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) "port" else "land"
     val offsets = remember(orientation) { mutableStateMapOf<PadGroup, Offset>().apply { putAll(store.load(orientation)) } }
@@ -98,7 +120,7 @@ fun VirtualGamepad(
 
     Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
         @Composable
-        fun BoxScope.Group(group: PadGroup, align: Alignment, content: @Composable () -> Unit) {
+        fun BoxScope.Group(group: PadGroup, align: Alignment, alpha: Float = opacity, content: @Composable () -> Unit) {
             val o = offsets[group] ?: Offset.Zero
             Box(
                 Modifier.align(align)
@@ -114,7 +136,7 @@ fun VirtualGamepad(
                             }
                         else Modifier,
                     )
-                    .alpha(if (editing) 1f else opacity),
+                    .alpha(if (editing) 1f else alpha),
             ) { content() }
         }
 
@@ -136,6 +158,19 @@ fun VirtualGamepad(
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 PadKey("SELECT", PadButton.SELECT, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
                 PadKey("START", PadButton.START, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
+            }
+        }
+        if (tools != null && (tools.showFastForward || tools.showQuickSave || tools.showQuickLoad)) {
+            // Next to the left shoulder buttons by default: clear of the D-pad, the face buttons, the menu button and
+            // the bottom of the screen where RPG dialogue appears. Draggable in "Edit layout" like the other groups.
+            Group(PadGroup.TOOLS, Alignment.TopStart, alpha = tools.opacity) {
+                Row(Modifier.padding(start = (84 * scale).dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val w = (50 * tools.scale).dp; val h = (34 * tools.scale).dp
+                    if (tools.showFastForward) ToolKey(if (tools.fastForwardActive) "FF ${tools.speedLabel}" else "FF", w * (if (tools.fastForwardActive) 1.5f else 1f), h,
+                        accent, tools.fastForwardActive, !editing, haptics, onPress = { tools.onFastForward(true) }, onRelease = { tools.onFastForward(false) })
+                    if (tools.showQuickSave) ToolKey("QS", w, h, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onQuickSave)
+                    if (tools.showQuickLoad) ToolKey("QL", w, h, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onQuickLoad)
+                }
             }
         }
         // Menu button: always visible (also in edit mode) so the player can always reach the pause menu.
@@ -177,6 +212,34 @@ private fun PadKey(
             } else Modifier),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1) }
+}
+
+/** A small rounded tool button; [active] keeps it lit (fast-forward on). [onRelease] runs only if released on it. */
+@Composable
+private fun ToolKey(
+    label: String, w: Dp, h: Dp, accent: Color, active: Boolean, enabled: Boolean, haptics: Boolean,
+    onPress: () -> Unit, onRelease: () -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val lit = pressed || active
+    Box(
+        Modifier.size(w, h).clip(RoundedCornerShape(10.dp))
+            .background(if (lit) accent.copy(alpha = if (pressed) 0.85f else 0.6f) else Color.Black.copy(alpha = 0.45f))
+            .border(1.5.dp, if (lit) accent else Color.White.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+            .then(if (enabled) Modifier.pointerInput(label.take(2)) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    pressed = true
+                    if (haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPress()
+                    val up = waitForUpOrCancellation()
+                    pressed = false
+                    if (up != null) onRelease() else if (label.startsWith("FF")) onRelease()
+                }
+            } else Modifier),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1) }
 }
 
 @Composable

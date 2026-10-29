@@ -153,23 +153,48 @@ module AceCoreCompat
     def reset!
       @seconds = nil
     end
+
+    # ---- Fast-forward clock. The game sees a clock that runs [speed] times faster than real time, continuous
+    # across speed changes (never jumps backwards). Essentials v21 and other time-based scripts follow it.
+    def speed
+      @speed || 1.0
+    end
+
+    def speed=(value)
+      @speed = value.to_f.clamp(1.0, 8.0)
+    end
+
+    # [real_us]: the engine's own microsecond clock. Returns the game clock in microseconds.
+    def virtual_us(real_us)
+      @last_real ||= real_us
+      @virtual ||= real_us
+      @virtual += ((real_us - @last_real) * speed).round if real_us > @last_real
+      @last_real = real_us
+      @virtual
+    end
+
+    # Durations (Graphics.delta, System.delta) scaled to the game clock.
+    def scaled(value)
+      return value if speed == 1.0 || !value.is_a?(Numeric)
+      value.is_a?(Integer) ? (value * speed).round : value * speed
+    end
   end
 end
 
 if defined?(System) && System.respond_to?(:uptime) && System.uptime.is_a?(Integer)
   class << System
     alias_method :__acearcade_uptime_us, :uptime
-    def uptime; __acearcade_uptime_us / AceCoreCompat::Timing::US_PER_S; end
+    def uptime; AceCoreCompat::Timing.virtual_us(__acearcade_uptime_us) / AceCoreCompat::Timing::US_PER_S; end
     if method_defined?(:delta)
       alias_method :__acearcade_delta_us, :delta
-      def delta; AceCoreCompat::Timing.convert(__acearcade_delta_us); end
+      def delta; AceCoreCompat::Timing.convert(AceCoreCompat::Timing.virtual_us(__acearcade_delta_us)); end
     end
   end
 end
 if defined?(Graphics) && Graphics.respond_to?(:delta) && !Graphics.respond_to?(:__acearcade_delta_us)
   class << Graphics
     alias_method :__acearcade_delta_us, :delta
-    def delta; AceCoreCompat::Timing.convert(__acearcade_delta_us); end
+    def delta; AceCoreCompat::Timing.convert(AceCoreCompat::Timing.scaled(__acearcade_delta_us)); end
   end
 end
 if defined?(Input) && Input.respond_to?(:time?) && !Input.respond_to?(:__acearcade_time_us)
@@ -657,10 +682,314 @@ at_exit do
   end
 end
 
+#===============================================================================
+# Gameplay tools (☰ › Gameplay, and the FF / QS / QL buttons)
+#
+# Fast-forward
+#   AceArcade writes "speed" (e.g. "speed=3\naudio=quiet") into the helper folder. While the speed is above 1:
+#   * frame-based game logic (RPG Maker's frame counts, waits, animations) runs [speed] times per drawn frame:
+#     Graphics.update only draws one of every [speed] calls and counts the others (Graphics.frame_count);
+#   * time-based logic (Essentials v21: System.uptime, Graphics.delta) follows a game clock running [speed] times
+#     faster (AceCoreCompat::Timing).
+#   Audio "quiet" skips sound effects (Audio.se_play / me_play) while fast-forwarding; music keeps playing.
+#
+# Quick save / quick load (one slot per game, kept in AceArcade's own folder, never the game's save files)
+#   Uses the game's own save routines, so it is a save made at a safe moment, not a snapshot of the whole running
+#   program: it runs on the map when no event, message or movement is in progress.
+#     Essentials v19+  SaveData.compile_save_hash / SaveData.load_all_values + Game.load_map
+#     VX Ace           DataManager.make_save_contents / extract_save_contents
+#     VX               Scene_File#write_save_data / read_save_data
+#     XP               Scene_Save#write_save_data / Scene_Load#read_save_data
+#   The slot is one file: a header (format, engine, game fingerprint, time, CRC32) and the saved data. It is written
+#   to a temporary file and renamed over the previous slot, so a failed save keeps the previous quick save.
+#   Requests come through "tools_cmd" ("<id>\t<quicksave|quickload>"); results go to "tools_result"
+#   ("<id>\t<ok|error>\t<message>").
+#===============================================================================
+module AceCoreCompat
+  module Tools
+    FORMAT = 1
+    MAGIC = "AceArcadeQuickSave"
+
+    module_function
+
+    def dir
+      return @dir if defined?(@dir)
+      @dir = defined?(AceCoreCompat::DISPLAY_FILE) ? File.dirname(AceCoreCompat::DISPLAY_FILE) : nil
+    end
+
+    def slot_path
+      dir && File.join(dir, "quicksave.aas")
+    end
+
+    # ---- polling (from Graphics.update; one stat per file every few calls)
+    def poll
+      return unless dir
+      @polls = (@polls || 0) + 1
+      return unless @polls % 6 == 0
+      check_speed
+      check_command
+      install_scene_hook
+    rescue StandardError
+      nil
+    end
+
+    def check_speed
+      path = File.join(dir, "speed")
+      mtime = File.exist?(path) ? File.mtime(path) : nil
+      return if mtime == @speed_mtime
+      @speed_mtime = mtime
+      values = {}
+      File.read(path).each_line { |l| k, v = l.strip.split('=', 2); values[k] = v if k && v } if mtime
+      AceCoreCompat::Timing.speed = (values['speed'] || 1).to_f
+      @quiet = values['audio'] == 'quiet'
+      @acc = 0.0
+    end
+
+    def fast?
+      AceCoreCompat::Timing.speed > 1.0
+    end
+
+    def quiet?
+      @quiet && fast? ? true : false
+    end
+
+    # true: this Graphics.update call only advances the frame counter (fast-forward); false: draw it.
+    def skip_frame?
+      return false unless fast?
+      @acc = (@acc || 0.0) + 1.0
+      if @acc >= AceCoreCompat::Timing.speed
+        @acc -= AceCoreCompat::Timing.speed
+        false
+      else
+        true
+      end
+    end
+
+    # ---- quick save / load requests
+    def check_command
+      path = File.join(dir, "tools_cmd")
+      return unless File.exist?(path)
+      text = File.read(path)
+      File.delete(path) rescue nil
+      id, action = text.strip.split("\t", 2)
+      return unless id && %w[quicksave quickload].include?(action)
+      unless map_scene?
+        return reply(id, "error", "Quick save and quick load work on the map. Close menus or finish the battle first.")
+      end
+      @pending = [id, action]
+      @pending_since = nil
+    end
+
+    def reply(id, status, message)
+      tmp = File.join(dir, "tools_result.tmp")
+      File.open(tmp, "wb") { |f| f.write("#{id}\t#{status}\t#{message}") }
+      File.rename(tmp, File.join(dir, "tools_result"))
+    rescue StandardError
+      nil
+    end
+
+    def map_scene?
+      return false unless defined?(::Scene_Map)
+      if defined?(::SceneManager) && ::SceneManager.respond_to?(:scene)
+        ::SceneManager.scene.is_a?(::Scene_Map)
+      else
+        $scene.is_a?(::Scene_Map)
+      end
+    end
+
+    def install_scene_hook
+      return if @hooked || !defined?(::Scene_Map) || !::Scene_Map.method_defined?(:update)
+      ::Scene_Map.class_eval do
+        alias_method :__acearcade_map_update, :update
+        def update(*args)
+          return if AceCoreCompat::Tools.run_pending
+          __acearcade_map_update(*args)
+        end
+      end
+      @hooked = true
+    end
+
+    def pending
+      @pending
+    end
+
+    # Runs a pending request at the start of Scene_Map#update. Returns true when the scene changed (load).
+    def run_pending
+      return false unless @pending
+      id, action = @pending
+      if busy?
+        @pending_since ||= Time.now
+        return false if Time.now - @pending_since < 3     # give a step or message a moment to finish
+        @pending = nil
+        reply(id, "error", "The game is busy (an event, message or movement is running). Try again in a moment.")
+        return false
+      end
+      @pending = nil
+      if action == "quicksave"
+        replaced = File.exist?(slot_path)
+        save!
+        reply(id, "ok", replaced ? "Quick save replaced" : "Quick save created")
+        false
+      else
+        unless File.exist?(slot_path)
+          reply(id, "error", "No quick save for this game yet.")
+          return false
+        end
+        load!
+        reply(id, "ok", "Quick save loaded")
+        true
+      end
+    rescue StandardError => e
+      reply(id, "error", "#{action == 'quicksave' ? 'Quick save' : 'Quick load'} failed: #{e.message.to_s[0, 160]}")
+      false
+    end
+
+    def flavor
+      if defined?(::SaveData) && ::SaveData.respond_to?(:compile_save_hash) && defined?(::Game) && ::Game.respond_to?(:load_map)
+        :essentials
+      elsif defined?(::DataManager) && ::DataManager.respond_to?(:make_save_contents)
+        :ace
+      elsif defined?(::Scene_File) && ::Scene_File.method_defined?(:write_save_data)
+        :vx
+      elsif defined?(::Scene_Save) && ::Scene_Save.method_defined?(:write_save_data)
+        :xp
+      end
+    end
+
+    def busy?
+      return true if $game_player.respond_to?(:moving?) && $game_player.moving?
+      return true if $game_temp.respond_to?(:player_transferring) && $game_temp.player_transferring
+      case flavor
+      when :essentials
+        (respond_to?(:pbMapInterpreterRunning?, true) && pbMapInterpreterRunning?) || $game_temp.message_window_showing ? true : false
+      when :ace
+        $game_map.interpreter.running? || $game_message.busy?
+      when :vx
+        $game_map.interpreter.running? || $game_message.visible ? true : false
+      when :xp
+        $game_system.map_interpreter.running? || $game_temp.message_window_showing ? true : false
+      else
+        true
+      end
+    end
+
+    # Identifies the game build (its scripts file) so a quick save is never loaded into a different game version.
+    def fingerprint
+      file = %w[Data/Scripts.rxdata Data/Scripts.rvdata Data/Scripts.rvdata2].find { |f| File.exist?(f) }
+      file ? "#{File.basename(file)}:#{File.size(file)}" : "unknown"
+    end
+
+    def save!
+      kind = flavor or raise "this game's save system isn't recognised"
+      payload = case kind
+                when :essentials then Marshal.dump(::SaveData.compile_save_hash)
+                when :ace then Marshal.dump([::DataManager.make_save_header, ::DataManager.make_save_contents])
+                else
+                  body = File.join(dir, "quicksave.body.tmp")
+                  begin
+                    File.open(body, "wb") do |f|
+                      kind == :vx ? ::Scene_File.allocate.write_save_data(f) : ::Scene_Save.allocate.write_save_data(f)
+                    end
+                    File.binread(body)
+                  ensure
+                    File.delete(body) if File.exist?(body)
+                  end
+                end
+      header = { "format" => FORMAT, "engine" => kind, "game" => fingerprint, "time" => Time.now.to_i,
+                 "crc" => Zlib.crc32(payload), "size" => payload.bytesize }
+      tmp = slot_path + ".tmp"
+      begin
+        File.open(tmp, "wb") do |f|
+          f.write(MAGIC + "\n")
+          header.each { |k, v| f.write("#{k}=#{v}\n") }
+          f.write("\n")
+          f.write(payload)
+        end
+        File.rename(tmp, slot_path)   # atomic: the previous quick save stays until this succeeds
+      ensure
+        File.delete(tmp) if File.exist?(tmp)
+      end
+    end
+
+    def read_slot
+      data = File.binread(slot_path)
+      head, payload = data.split("\n\n", 2)
+      lines = head.to_s.split("\n")
+      raise "the quick save file is damaged" unless lines.shift == MAGIC && payload
+      header = {}
+      lines.each { |l| k, v = l.split('=', 2); header[k] = v }
+      raise "the quick save is from a newer AceArcade" if header["format"].to_i > FORMAT
+      raise "the quick save is damaged (checksum)" unless header["crc"].to_i == Zlib.crc32(payload) && header["size"].to_i == payload.bytesize
+      raise "the quick save was made with a different version of this game" unless header["game"] == fingerprint
+      raise "the quick save belongs to a different kind of game" unless header["engine"] == flavor.to_s
+      payload
+    end
+
+    def load!
+      payload = read_slot
+      case flavor
+      when :essentials
+        data = Marshal.load(payload)
+        ::SaveData.load_all_values(data)
+        $game_temp.last_uptime_refreshed_play_time = System.uptime if $game_temp.respond_to?(:last_uptime_refreshed_play_time=)
+        ::Game.load_map
+        pbAutoplayOnSave if respond_to?(:pbAutoplayOnSave, true)
+        $game_map.update
+        $PokemonMap.updateMap if $PokemonMap.respond_to?(:updateMap)
+        $scene = ::Scene_Map.new
+      when :ace
+        _header, contents = Marshal.load(payload)
+        ::DataManager.extract_save_contents(contents)
+        ::DataManager.reload_map_if_updated if ::DataManager.respond_to?(:reload_map_if_updated)
+        $game_system.on_after_load if $game_system.respond_to?(:on_after_load)
+        ::SceneManager.goto(::Scene_Map)
+      else
+        body = File.join(dir, "quicksave.body.tmp")
+        File.binwrite(body, payload)
+        begin
+          File.open(body, "rb") do |f|
+            if flavor == :vx
+              loader = ::Scene_File.allocate
+              loader.read_save_data(f)
+              $scene = ::Scene_Map.new
+              loader.instance_variable_get(:@last_bgm)&.play
+              loader.instance_variable_get(:@last_bgs)&.play
+            else
+              ::Scene_Load.allocate.read_save_data(f)
+              $game_system.bgm_play($game_system.playing_bgm)
+              $game_system.bgs_play($game_system.playing_bgs)
+              $game_map.update
+              $scene = ::Scene_Map.new
+            end
+          end
+        ensure
+          File.delete(body) if File.exist?(body)
+        end
+      end
+    end
+  end
+end
+
+if defined?(Audio)
+  class << Audio
+    %i[se_play me_play].each do |m|
+      next unless method_defined?(m) && !method_defined?(:"__acearcade_#{m}")
+      alias_method :"__acearcade_#{m}", m
+      define_method(m) { |*args| AceCoreCompat::Tools.quiet? ? nil : send(:"__acearcade_#{m}", *args) }
+    end
+  end
+end
+
 if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(:__acearcade_update)
   class << Graphics
     alias_method :__acearcade_update, :update
     def update(*args)
+      AceCoreCompat::Tools.poll
+      if AceCoreCompat::Tools.skip_frame?
+        # Fast-forward: advance the game's frame without drawing it.
+        self.frame_count += 1 if respond_to?(:frame_count=)
+        return nil
+      end
       AceCoreCompat::Display.tick
       AceCoreCompat::InputTest.tick
       AceCoreCompat::Diag.tick
