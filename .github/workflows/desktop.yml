@@ -70,6 +70,10 @@ jobs:
           unzip -q ruffle.zip -d $R/ruffle
           echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A"
           find $R -maxdepth 3 -iname '*.exe' | head
+      - name: Engine launch tests (EasyRPG, Ruffle)
+        continue-on-error: true
+        shell: bash
+        run: bash ci/desktop/engine-launch-tests.sh windows "$PWD/desktop/resources/windows/runtimes" "$RUNNER_TEMP/enginetest"
       - name: Build portable app
         shell: bash
         run: |
@@ -164,6 +168,9 @@ jobs:
           ditto -x -k godot.zip $R/godot
           echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION, mkxp-z ${MKXPZ_COMMIT:0:7}"
           ls -la $R/*
+      - name: Engine launch tests (EasyRPG, Godot, Ruffle)
+        continue-on-error: true
+        run: bash ci/desktop/engine-launch-tests.sh macos "$PWD/desktop/resources/macos/runtimes" "$RUNNER_TEMP/enginetest"
       - name: Build, sign, notarize and zip
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
