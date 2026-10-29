@@ -78,6 +78,16 @@ class DetectionEngineTest {
         assertTrue(r.tags.any { it.startsWith("base:") })
     }
 
+    @Test fun renamedEssentialsGameUsesItsOwnIni() {
+        val r = engine.detect(
+            snap("Flux.ini=[Game]\r\nLibrary=RGSS104E.dll\r\nScripts=Data\\Scripts.rxdata\r\nTitle=Pokemon Flux\r\n", "Flux.exe",
+                "Flux Patcher.exe", "Data/Scripts.rxdata", "PBS/pokemon.txt", "Graphics/Pokemon/Front/PIKACHU.png", "Audio/SE/Cries/025Cry.ogg"),
+            "flux",
+        )
+        assertEquals(Engine.POKEMON_ESSENTIALS, r.engine)
+        assertEquals("Flux.ini", r.entry)
+    }
+
     @Test fun vxAceViaEncryptedArchive() {
         val archive = "RGSSAD".toByteArray() + byteArrayOf(0, 3) + ByteArray(8)
         val r = engine.detect(snap("Game.ini=Library=System\\RGSS301.dll", binary = mapOf("Game.rgss3a" to archive)), "ace")

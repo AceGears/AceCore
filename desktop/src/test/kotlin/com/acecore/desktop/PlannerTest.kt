@@ -43,6 +43,13 @@ class PlannerTest {
         assertEquals(d.canonicalFile, p.workDir.canonicalFile)
     }
 
+    @Test fun renamedRgssGameOnMacPassesItsIniName() {
+        val d = folder("Flux.exe", "Flux.ini", "Data/Scripts.rxdata")
+        val p = Planner(runtimes("mkxpz" to "mkxp-z.aarch64", platform = Platform.MAC), Platform.MAC)
+            .plan(game(d, Engine.POKEMON_ESSENTIALS, "Flux.ini", "Flux.exe")) as LaunchPlan.Process
+        assertEquals("Flux", p.env["ACEARCADE_EXEC_NAME"])
+    }
+
     @Test fun rm2kUsesBundledEasyRpgWithProjectPath() {
         val d = folder("RPG_RT.ldb", "RPG_RT.lmt")
         val p = Planner(runtimes("easyrpg" to "Player.exe"), Platform.WINDOWS).plan(game(d, Engine.RPG_MAKER_2K, "RPG_RT.ldb"))

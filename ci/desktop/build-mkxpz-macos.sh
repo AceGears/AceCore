@@ -4,6 +4,8 @@
 # AceArcade-specific build changes (nothing else is modified):
 #   -Dworkdir_current=true  the engine runs the game in its working directory (AceArcade starts it in the game's folder),
 #                           exactly like the game's own Game.exe on Windows, which reads Game.ini/mkxp.json next to it.
+#   ACEARCADE_EXEC_NAME     environment variable read as mkxp-z's "execName" before the ini is read, so renamed games
+#                           (Flux.exe + Flux.ini) start without renaming the game's files (same patch as on Android).
 #   Downloads check removed upstream refuses to start when its working directory is under ~/Downloads (a guard for
 #                           games bundled inside the engine's .app). With AceArcade the working directory is the
 #                           user's game folder, which is often in Downloads.
@@ -21,6 +23,12 @@ p = "src/main.cpp"; s = open(p).read()
 old = "if (mkxp_fs::getCurrentDirectory().find(downloadsPath) == 0) {"
 assert s.count(old) == 1, "Downloads check not found - review the patch for this mkxp-z version"
 open(p, "w").write(s.replace(old, "if (false) { /* AceArcade: game folders may live in Downloads */ (void)downloadsPath;"))
+p = "src/config.cpp"; s = open(p).read()
+old = "    SET_STRINGOPT(execName, execName);\n"
+assert s.count(old) == 1, "execName option not found - review the patch for this mkxp-z version"
+open(p, "w").write(s.replace(old, old + """    // AceArcade: renamed games (Flux.exe + Flux.ini) - the launcher names the settings file before it is read.
+    if (const char *aceExec = getenv("ACEARCADE_EXEC_NAME")) { if (aceExec[0]) execName = aceExec; }
+"""))
 PY
 meson subprojects download >/dev/null
 meson setup --prefix "$OUT" --cross-file macos/meson-arm64.txt --buildtype release -Dstrip=true -Dworkdir_current=true build

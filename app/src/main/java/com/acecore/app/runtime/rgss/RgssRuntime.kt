@@ -31,6 +31,8 @@ data class RgssLaunchSpec(
     val cheatsEnabled: Boolean = false,
     /** Wall-clock time of the Play tap, for launch-time measurement. */
     val launchRequestedAt: Long = 0,
+    /** Name of the game's settings file without ".ini" (mkxp-z "execName"): "Game", or e.g. "Flux" for Flux.ini. */
+    val execName: String = "Game",
 ) {
     fun toJson(): String = json.encodeToString(serializer(), this)
 

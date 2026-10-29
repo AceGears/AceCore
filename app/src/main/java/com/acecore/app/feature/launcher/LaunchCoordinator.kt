@@ -184,8 +184,9 @@ class LaunchCoordinator(
                 game.id, "Game folder not found",
                 "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
             )
-            if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, "Game.ini") } == null) {
-                return missingLaunchFile(game, "${GameLocations.rgssSubdir(game.entry).let { if (it.isEmpty()) "" else "$it/" }}Game.ini")
+            val iniName = GameLocations.rgssIniName(game.entry)
+            if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, iniName) } == null) {
+                return missingLaunchFile(game, "${GameLocations.rgssSubdir(game.entry).let { if (it.isEmpty()) "" else "$it/" }}$iniName")
             }
             // Android 8–10 can't write to SD cards even with the storage permission; RPG Maker games save next to
             // Game.ini, so such games use the private copy instead of failing when they save.
@@ -200,8 +201,8 @@ class LaunchCoordinator(
         val copyDir = GameLocations.copyGameDir(context, game.id, game.entry)
         val upToDate = withContext(Dispatchers.IO) { installer.isInstalled() && !installer.needsResync() }
         if (upToDate && !options.forceResync) {
-            if (withContext(Dispatchers.IO) { DirectStorage.findChild(copyDir, "Game.ini") } == null) {
-                return missingLaunchFile(game, "Game.ini")
+            if (withContext(Dispatchers.IO) { DirectStorage.findChild(copyDir, GameLocations.rgssIniName(game.entry)) } == null) {
+                return missingLaunchFile(game, GameLocations.rgssIniName(game.entry))
             }
             return LaunchPreparation.Ready(rgssIntent(game, copyDir, config, accent, direct = false, requestedAt), game.id, game.title)
         }
@@ -327,6 +328,7 @@ class LaunchCoordinator(
                 gameId = game.id, title = game.title, engine = game.effectiveEngine.name,
                 gamePath = gameDir.absolutePath, dataPath = dataDir.absolutePath, config = config, accentArgb = accent,
                 direct = direct, helper = helper, cheatsEnabled = cheatsOn, launchRequestedAt = requestedAt,
+                execName = GameLocations.rgssExecName(game.entry),
             )
             Intent(context, RgssActivity::class.java).putExtra(RgssLaunchSpec.EXTRA, spec.toJson())
         }

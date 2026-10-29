@@ -231,6 +231,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         spec = s
         if (s != null) {
             GAME_PATH = s.gamePath
+            // Read by AceArcade's mkxp-z patch (src/config.cpp) before the ini: renamed games (Flux.ini) start as-is.
+            runCatching { android.system.Os.setenv("ACEARCADE_EXEC_NAME", s.execName.ifBlank { "Game" }, true) }
             dataDir = File(s.dataPath).apply { mkdirs() }
             com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(s.dataPath)), "Game process started")
             buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id], ButtonMap.RGSS_DEFAULT)

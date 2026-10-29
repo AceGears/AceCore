@@ -19,6 +19,16 @@ object GameLocations {
         }
     }
 
+    /**
+     * The game's RGSS settings file. Normally Game.ini; renamed games keep it next to their renamed launcher
+     * (Flux.exe + Flux.ini), and the entry then names it.
+     */
+    fun rgssIniName(entry: String?): String =
+        entry?.replace('\\', '/')?.substringAfterLast('/')?.takeIf { it.endsWith(".ini", ignoreCase = true) } ?: "Game.ini"
+
+    /** mkxp-z's "execName" for [entry]: the settings file's name without .ini ("Game" unless renamed). */
+    fun rgssExecName(entry: String?): String = rgssIniName(entry).substringBeforeLast('.')
+
     /** The user's own folder for [game], through its real path (null when the provider has no real path). */
     fun directRoot(context: Context, game: GameEntity): File? = DirectStorage.realPath(context, game.treeUri, game.rootDocId)
 

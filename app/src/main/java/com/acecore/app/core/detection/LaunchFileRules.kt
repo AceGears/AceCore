@@ -62,6 +62,9 @@ object LaunchFileRules {
                 name.equals("Game.ini", ignoreCase = true) && looksRgss(siblings) -> rgss(prefix + name, runtimeAvailable,
                     "Game.ini is the game's configuration file, not a program. Choosing it tells AceArcade which folder holds the game; " +
                         "the RGSS runtime reads it and starts the game's scripts.")
+                looksRgss(siblings) && has(name.substringBeforeLast('.') + ".exe") -> rgss(prefix + name, runtimeAvailable,
+                    "$name is the game's configuration file (its Windows launcher is ${actual(name.substringBeforeLast('.') + ".exe")}). " +
+                        "AceArcade's RGSS runtime reads it and starts the game's scripts; no files are renamed.")
                 name.equals("Game.ini", ignoreCase = true) -> LaunchEvaluation.Unsupported(
                     "There is no Data folder next to this Game.ini, so it doesn't belong to an RPG Maker XP/VX/VX Ace game.",
                 )
@@ -74,10 +77,9 @@ object LaunchFileRules {
                     looksRgss(siblings) && has("Game.ini") -> rgss(prefix + actual("Game.ini"), runtimeAvailable,
                         "$name is the Windows launcher, which can't run on Android. AceArcade's RGSS runtime starts the game " +
                             "from ${actual("Game.ini")} and the Data folder instead.")
-                    looksRgss(siblings) && has("$base.ini") -> LaunchEvaluation.Unsupported(
-                        "This RPG Maker game keeps its settings in ${actual("$base.ini")}, but the RGSS runtime only reads Game.ini. " +
-                            "Rename a copy of it to Game.ini, then choose it again.",
-                    )
+                    looksRgss(siblings) && has("$base.ini") -> rgss(prefix + actual("$base.ini"), runtimeAvailable,
+                        "$name is the Windows launcher, which can't run on Android. This game keeps its settings in " +
+                            "${actual("$base.ini")}; AceArcade's RGSS runtime starts the game from it and the Data folder.")
                     has("www") || has("index.html") || has("package.json") -> {
                         val entry = if (has("www")) "${prefix}${actual("www")}/index.html" else prefix + actual("index.html")
                         if (runtimeAvailable(EngineFamily.WEB)) LaunchEvaluation.Supported(
@@ -111,7 +113,7 @@ object LaunchFileRules {
 
     /** True when the folder looks like an RPG Maker XP/VX/VX Ace game (a Data folder or an encrypted archive). */
     fun looksRgss(siblings: List<String>): Boolean = siblings.any {
-        it.equals("Data", ignoreCase = true) || it.lowercase().let { n -> n == "game.rgssad" || n == "game.rgss2a" || n == "game.rgss3a" }
+        it.equals("Data", ignoreCase = true) || it.lowercase().let { n -> n.endsWith(".rgssad") || n.endsWith(".rgss2a") || n.endsWith(".rgss3a") }
     }
 
     private fun rgss(entry: String, runtimeAvailable: (EngineFamily) -> Boolean, explanation: String): LaunchEvaluation =

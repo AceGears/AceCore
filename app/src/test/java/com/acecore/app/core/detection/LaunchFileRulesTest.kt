@@ -38,9 +38,22 @@ class LaunchFileRulesTest {
         assertEquals("Release", GameLocations.rgssSubdir(r.entry))
     }
 
-    @Test fun renamedExeWithoutGameIniIsExplained() {
-        val r = eval("Pokemon.exe", listOf("Pokemon.exe", "Pokemon.ini", "Data")) as LaunchEvaluation.Unsupported
-        assertTrue(r.reason.contains("only reads Game.ini"))
+    @Test fun renamedExeStartsFromItsOwnIni() {
+        val r = eval("Flux.exe", listOf("Flux.exe", "Flux.ini", "Flux Patcher.exe", "Data", "Audio", "Graphics")) as LaunchEvaluation.Supported
+        assertEquals("Flux.ini", r.entry)
+        assertEquals("Flux", com.acecore.app.core.install.GameLocations.rgssExecName(r.entry))
+    }
+
+    @Test fun renamedIniIsAcceptedNextToItsLauncher() {
+        val r = eval("Flux.ini", listOf("Flux.exe", "Flux.ini", "Data")) as LaunchEvaluation.Supported
+        assertEquals("Flux.ini", r.entry)
+        assertTrue(eval("Settings.ini", listOf("Flux.exe", "Settings.ini", "Data")) is LaunchEvaluation.Unsupported)
+    }
+
+    @Test fun execNameDefaultsToGame() {
+        assertEquals("Game", com.acecore.app.core.install.GameLocations.rgssExecName("Game.ini"))
+        assertEquals("Game", com.acecore.app.core.install.GameLocations.rgssExecName("Data/Scripts.rxdata"))
+        assertEquals("Flux", com.acecore.app.core.install.GameLocations.rgssExecName("Release/Flux.ini"))
     }
 
     @Test fun nwjsExeOpensWebFiles() {

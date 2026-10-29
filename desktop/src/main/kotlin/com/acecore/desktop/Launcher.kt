@@ -14,7 +14,7 @@ import java.nio.file.Files
 /** How AceArcade will start a game on this computer. */
 sealed class LaunchPlan(val summary: String) {
     /** Run a program (the game's own executable or a bundled engine). */
-    class Process(summary: String, val command: List<String>, val workDir: File) : LaunchPlan(summary)
+    class Process(summary: String, val command: List<String>, val workDir: File, val env: Map<String, String> = emptyMap()) : LaunchPlan(summary)
     /** Serve the folder over http://127.0.0.1 and open it in the default browser (HTML5 / RPG Maker MV/MZ…). */
     class Browser(summary: String, val root: File, val entry: String) : LaunchPlan(summary)
     /** Can't run here; [summary] says why, honestly. */
@@ -84,7 +84,12 @@ class Planner(private val runtimes: Runtimes, private val platform: Platform = P
         return when (g.engine.family) {
             EngineFamily.RGSS -> native("RPG Maker XP/VX/VX Ace")
                 // mkxp-z reads Game.ini (and the game's own mkxp.json, if any) from its working directory.
-                ?: runtimes.mkxpz()?.let { LaunchPlan.Process("RPG Maker XP/VX/VX Ace: mkxp-z (bundled)", listOf(it.absolutePath), gameDir(g)) }
+                ?: runtimes.mkxpz()?.let {
+                    // Renamed games (Flux.exe + Flux.ini): AceArcade's mkxp-z build reads the settings file named here.
+                    val ini = g.entry?.substringAfterLast('/')?.takeIf { e -> e.endsWith(".ini", true) } ?: "Game.ini"
+                    LaunchPlan.Process("RPG Maker XP/VX/VX Ace: mkxp-z (bundled)", listOf(it.absolutePath), gameDir(g),
+                        mapOf("ACEARCADE_EXEC_NAME" to ini.substringBeforeLast('.')))
+                }
                 ?: LaunchPlan.Unsupported(
                     if (platform == Platform.WINDOWS) "No Game.exe was found in this folder, so the game can't be started."
                     else "RPG Maker XP/VX/VX Ace games need mkxp-z on ${platform.label}, which isn't bundled in this version of AceArcade yet.",
@@ -144,7 +149,7 @@ class Launcher(private val store: LibraryStore, private val planner: Planner) {
             is LaunchPlan.Process -> {
                 val started = System.currentTimeMillis()
                 val process = runCatching {
-                    ProcessBuilder(plan.command).directory(plan.workDir).redirectErrorStream(true)
+                    ProcessBuilder(plan.command).directory(plan.workDir).redirectErrorStream(true).apply { environment().putAll(plan.env) }
                         .redirectOutput(Paths.dataDir().resolve("last-game.log")).start()
                 }.getOrElse { e -> onExit(0, "Couldn't start: ${e.message}"); return plan }
                 store.update(game.id) { it.copy(lastPlayedAt = started, launches = it.launches + 1, lastError = null) }

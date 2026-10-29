@@ -236,21 +236,36 @@ class DetectionEngine(
         if (snap.isFile(proj)) add(40, proj)
         if (snap.isFile("data/scripts.$ext")) add(50, "Data/Scripts.$ext")
         else if (snap.filesWhere { it.startsWith("data/") && it.endsWith(".$ext") }.isNotEmpty()) add(35, "Data/*.$ext")
-        if (snap.isFile(archive)) {
+        val iniKey = rgssIni(snap)
+        val archiveKey = archive.takeIf { snap.isFile(it) }
+            ?: iniKey?.let { it.removeSuffix(".ini") + archive.substring(archive.lastIndexOf('.')) }?.takeIf { snap.isFile(it) }
+        if (archiveKey != null) {
+            val archive = archiveKey
             val v = snap.readBytes(archive, 8)?.let { BinaryHeaders.rgssadVersion(it) }
             add(if (v == archiveVersion) 55 else 45, "${archive} (encrypted archive${if (v != null) " v$v" else ""})")
         }
         if (snap.filesWhere { it.startsWith(dllPrefix) && it.endsWith(".dll") && !it.contains('/') }.isNotEmpty() ||
             snap.filesWhere { it.startsWith("system/$dllPrefix") && it.endsWith(".dll") }.isNotEmpty()
         ) add(20, "$rgssLabel library DLL")
-        val ini = snap.readText("game.ini", 4096)
-        if (ini != null && ini.contains(rgssLabel, ignoreCase = true)) add(20, "Game.ini Library=$rgssLabel")
+        val ini = iniKey?.let { snap.readText(it, 4096) }
+        if (ini != null && ini.contains(rgssLabel, ignoreCase = true)) add(20, "${snap.entry(iniKey)?.path ?: "Game.ini"} Library=$rgssLabel")
         if (score > 0) {
             version = rgssLabel
             // Keep the real file-name case (shown to the user; also matters on case-sensitive storage).
-            entry = snap.entry("game.ini")?.takeIf { !it.isDirectory }?.path
+            entry = iniKey?.let { snap.entry(it) }?.takeIf { !it.isDirectory }?.path
                 ?: snap.entry("data/scripts.$ext")?.path ?: "Data/Scripts.$ext"
         }
+    }
+
+    /**
+     * The RGSS settings file (lower-case key): game.ini, or for renamed games the root-level ini that sits next to a
+     * launcher of the same name and has a [Game] section (Flux.exe + Flux.ini).
+     */
+    private fun rgssIni(snap: GameSnapshot): String? {
+        if (snap.isFile("game.ini")) return "game.ini"
+        return snap.filesWhere { it.endsWith(".ini") && !it.contains('/') }.map { it.path.lowercase() }
+            .filter { snap.isFile(it.removeSuffix(".ini") + ".exe") }
+            .firstOrNull { k -> snap.readText(k, 4096)?.let { it.contains("[Game]", true) && it.contains("Scripts=", true) } == true }
     }
 
     private data class RgssSpec(
@@ -480,7 +495,7 @@ class DetectionEngine(
                     ?.let { (json.parseToJsonElement(it) as? JsonObject)?.get("gameTitle")?.jsonPrimitive?.content }
                     ?.takeIf { it.isNotBlank() }?.let { return it }
                 Engine.RPG_MAKER_XP, Engine.RPG_MAKER_VX, Engine.RPG_MAKER_VX_ACE, Engine.POKEMON_ESSENTIALS ->
-                    snap.readText("game.ini", 4096)?.lineSequence()
+                    rgssIni(snap)?.let { snap.readText(it, 4096) }?.lineSequence()
                         ?.firstOrNull { it.trim().startsWith("Title=", ignoreCase = true) }
                         ?.substringAfter('=')?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
                 Engine.RPG_MAKER_2K -> snap.readText("rpg_rt.ini", 4096)?.lineSequence()
