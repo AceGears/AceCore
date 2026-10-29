@@ -28,20 +28,20 @@ sealed class LaunchPlan(val summary: String) {
  *   godot    Godot 4 (MIT)             Godot 4 packs on macOS       macOS
  * A missing engine is reported, never faked.
  */
-class Runtimes(private val root: File? = defaultRoot()) {
-    fun easyRpg(): File? = find("easyrpg", when (Platform.current) {
+class Runtimes(private val root: File? = defaultRoot(), private val platform: Platform = Platform.current) {
+    fun easyRpg(): File? = find("easyrpg", when (platform) {
         Platform.WINDOWS -> listOf("Player.exe", "EasyRPG Player.exe", "easyrpg-player.exe")
         Platform.MAC -> listOf("EasyRPG Player.app/Contents/MacOS/EasyRPG Player", "EasyRPG Player.app/Contents/MacOS/easyrpg-player")
         Platform.LINUX -> listOf("easyrpg-player")
     })
 
-    fun ruffle(): File? = find("ruffle", when (Platform.current) {
+    fun ruffle(): File? = find("ruffle", when (platform) {
         Platform.WINDOWS -> listOf("ruffle.exe")
         Platform.MAC -> listOf("Ruffle.app/Contents/MacOS/ruffle", "ruffle")
         Platform.LINUX -> listOf("ruffle")
     })
 
-    fun godot(): File? = find("godot", when (Platform.current) {
+    fun godot(): File? = find("godot", when (platform) {
         Platform.WINDOWS -> listOf("godot.exe")
         Platform.MAC -> listOf("Godot.app/Contents/MacOS/Godot")
         Platform.LINUX -> listOf("godot")

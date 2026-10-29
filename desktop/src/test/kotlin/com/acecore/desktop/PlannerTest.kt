@@ -12,10 +12,10 @@ class PlannerTest {
         files.forEach { File(this, it).apply { parentFile.mkdirs(); writeText("x") } }
     }
 
-    private fun runtimes(vararg names: Pair<String, String>): Runtimes {
+    private fun runtimes(vararg names: Pair<String, String>, platform: Platform = Platform.WINDOWS): Runtimes {
         val root = Files.createTempDirectory("res").toFile()
         names.forEach { (rt, exe) -> File(root, "runtimes/$rt/$exe").apply { parentFile.mkdirs(); writeText("x") } }
-        return Runtimes(root)
+        return Runtimes(root, platform)
     }
 
     private fun game(dir: File, engine: Engine, entry: String? = null, exe: String? = null) =
