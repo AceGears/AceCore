@@ -13,5 +13,5 @@ The desktop edition of AceArcade: the same game library, detection rules (shared
 | Flash (.swf) | Ruffle (bundled) | Ruffle (bundled) |
 | Unity, Unreal, GameMaker, WOLF RPG | the game's own program | not possible (Windows programs) |
 
-Build: `./gradlew :desktop:run` (from source) · installers: `.github/workflows/desktop.yml` (MSI/EXE on Windows, DMG on macOS).
+Build: `./gradlew :desktop:run` (from source) · portable zips: `.github/workflows/desktop.yml` (`:desktop:createDistributable`, zipped; unzip and run `AceArcade.exe` on Windows or `AceArcade.app` on macOS — no installer).
 The library is stored in `%APPDATA%\AceArcade` (Windows) or `~/Library/Application Support/AceArcade` (macOS).

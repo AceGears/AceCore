@@ -38,7 +38,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-val appVersion = "1.0.0"   // desktop installers need MAJOR.MINOR.PATCH with MAJOR > 0
+val appVersion = "1.0.1"   // desktop installers need MAJOR.MINOR.PATCH with MAJOR > 0
 
 compose.desktop {
     application {
