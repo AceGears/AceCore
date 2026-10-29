@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Starts an Android emulator on the CI runner (KVM), with its log kept for diagnosis, then runs device-tests.sh.
 set -u
+# Hosted runners leave little free disk; the emulator needs several GB for its data partition.
+sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/lib/node_modules 2>/dev/null || true
+echo "::notice title=disk::$(df -h "$HOME" | tail -1)"
 API=${EMU_API:-30}
 IMG="system-images;android-$API;google_apis;x86_64"
 SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
@@ -12,7 +15,7 @@ timeout 900 "$SDKM" --install "platform-tools" "emulator" "$IMG" > sdk-install.l
 export ANDROID_AVD_HOME="$HOME/.android/avd"
 mkdir -p "$ANDROID_AVD_HOME"
 echo no | "$AVDM" create avd -n ci -k "$IMG" -d pixel_5 --force
-printf 'hw.ramSize=3072\ndisk.dataPartition.size=4096M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> "$ANDROID_AVD_HOME/ci.avd/config.ini"
+printf 'hw.ramSize=3072\ndisk.dataPartition.size=2048M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> "$ANDROID_AVD_HOME/ci.avd/config.ini"
 export PATH="$SDK/emulator:$SDK/platform-tools:$PATH"
 emulator -accel-check | tee emu-accel.txt
 nohup emulator -avd ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none -camera-front none > emulator.log 2>&1 &
