@@ -118,6 +118,11 @@ jobs:
         run: |
           chmod +x get_deps.sh && ./get_deps.sh
           cd mkxp-z && chmod +x make_xxd.sh && ./make_xxd.sh
+      - name: Apply AceCore patches to mkxp-z (see ci/patches; each file explains its change)
+        run: |
+          test -f port/app/jni/mkxp-z/src/util/encoding.h
+          cp -rv ci/patches/mkxp-z/. port/app/jni/mkxp-z/
+          grep -q "AceCore patch" port/app/jni/mkxp-z/src/util/encoding.h
       - name: Compile native dependencies (arm64-v8a, 16 KB pages)
         working-directory: port/app/jni
         run: |
