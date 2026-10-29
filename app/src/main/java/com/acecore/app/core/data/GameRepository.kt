@@ -382,6 +382,15 @@ class GameRepository(
         dao.update(game.copy(customCoverPath = out.absolutePath))
     }
 
+    /** Saves a framed cover (already at the library's cover shape). */
+    suspend fun setCustomCover(game: GameEntity, image: android.graphics.Bitmap) = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, "covers").apply { mkdirs() }
+        val out = File(dir, "game_${game.id}_${System.currentTimeMillis()}.jpg")
+        out.outputStream().use { if (!image.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it)) error("Could not save the cover") }
+        game.customCoverPath?.let { File(it).delete() }
+        dao.update(game.copy(customCoverPath = out.absolutePath))
+    }
+
     suspend fun clearCustomCover(game: GameEntity) = withContext(Dispatchers.IO) {
         game.customCoverPath?.let { File(it).delete() }
         dao.update(game.copy(customCoverPath = null))

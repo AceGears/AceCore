@@ -182,7 +182,10 @@ class GameActivity : ComponentActivity() {
         phase = Phase.LOADING
         loadingText = "Indexing game files…"
         lifecycleScope.launch {
-            val tree = SafTree(contentResolver, Uri.parse(spec.treeUri))
+            // "file://…" = a plain folder (built-in test games, folders opened by path); otherwise Android document access.
+            val tree: com.acecore.app.core.filesystem.GameTree =
+                if (spec.treeUri.startsWith("file://")) com.acecore.app.core.filesystem.FileTree(File(Uri.parse(spec.treeUri).path ?: "/"))
+                else SafTree(contentResolver, Uri.parse(spec.treeUri))
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val cacheFile = File(cacheDir, "pathindex/game_${spec.gameId}.idx")
@@ -244,6 +247,12 @@ class GameActivity : ComponentActivity() {
                 val url = request.url
                 if (url.host == spec.host) {
                     if (url.path == "/__acecore/exit") { exitGame(); return true }
+                    if (url.path == "/__acecore/selftest/ok") {
+                        intent.getStringExtra(EXTRA_SELFTEST_DIR)?.let { d ->
+                            runCatching { File(d, "selftest_ok").writeText(url.getQueryParameter("frames") ?: "1") }
+                        }
+                        exitGame(); return true
+                    }
                     return false
                 }
                 return true // never navigate away from the game
@@ -499,6 +508,8 @@ class GameActivity : ComponentActivity() {
     companion object {
         private const val TAG = "AceCoreGame"
         const val EXTRA_SESSION_MS = "com.acecore.app.extra.SESSION_MS"
+        /** Engine self-test: folder where a passing test page's result is recorded (see runtime.SelfTest). */
+        const val EXTRA_SELFTEST_DIR = "com.acecore.app.extra.SELFTEST_DIR"
 
         fun sessionFile(context: android.content.Context, gameId: Long) = com.acecore.app.runtime.SessionRecord.file(context, gameId)
 

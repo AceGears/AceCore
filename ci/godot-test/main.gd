@@ -3,6 +3,8 @@ extends Node2D
 # "steps pressed frames" to <out>/godot_walk when started with "-- --out=<dir>".
 
 var out := ""
+var selftest := ""   # "-- --selftest=<dir>": AceArcade's engine test; writes <dir>/selftest_ok and quits once it passes
+var passed := false
 var steps := 0
 var held := 0.0
 var frames := 0
@@ -11,6 +13,9 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
 			out = a.substr(6)
+		elif a.begins_with("--selftest="):
+			selftest = a.substr(11)
+	$Title.text = "AceArcade engine test · Godot\nHold DOWN on the D-pad"
 	_write("godot_started", Engine.get_version_info().string)
 
 func _process(delta: float) -> void:
@@ -24,6 +29,15 @@ func _process(delta: float) -> void:
 			$Hero.position.y += 8
 	else:
 		held = 0.0
+	if selftest != "" and steps >= 6 and not passed:
+		passed = true
+		$Title.text = "Passed: the engine runs and the D-pad moves the character."
+		var f := FileAccess.open(selftest.path_join("selftest_ok"), FileAccess.WRITE)
+		if f:
+			f.store_string(str(frames))
+			f.close()
+		await get_tree().create_timer(1.5).timeout
+		get_tree().quit()
 	if frames % 5 == 0:
 		_write("godot_walk", "%d %d %d" % [steps, 1 if down else 0, frames])
 

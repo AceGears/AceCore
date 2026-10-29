@@ -14,8 +14,9 @@ color = Color(0.09, 0.04, 0.2, 1)
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 620.0
-offset_bottom = 60.0
+offset_bottom = 90.0
 text = "AceArcade Godot test"
+horizontal_alignment = 1
 
 [node name="Hero" type="ColorRect" parent="."]
 offset_left = 304.0

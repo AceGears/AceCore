@@ -308,6 +308,17 @@ jobs:
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
+      - name: Export the Godot engine-test game into the app (official Godot 4.7 editor, headless)
+        continue-on-error: true
+        run: |
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.7-stable/Godot_v4.7-stable_linux.x86_64.zip
+          unzip -q godot.zip -d godot-bin
+          G=$(find godot-bin -maxdepth 2 -type f -name 'Godot_v4.7-stable_linux*' | head -1); chmod +x "$G"
+          "$G" --headless --path ci/godot-test --import > /dev/null 2>&1 || true
+          mkdir -p app/src/main/assets/selftest/godot
+          "$G" --headless --path ci/godot-test --export-pack "Windows Desktop" "$PWD/app/src/main/assets/selftest/godot/SelfTest.pck" > /dev/null 2>&1 || true
+          if head -c 4 app/src/main/assets/selftest/godot/SelfTest.pck 2>/dev/null | grep -q GDPC; then echo "::notice title=Godot engine test::included"
+          else rm -rf app/src/main/assets/selftest/godot; echo "::warning title=Godot engine test::not included (export failed)"; fi
       - name: Assemble debug APK (with RGSS runtime)
         run: |
           chmod +x gradlew && ./gradlew --no-daemon assembleDebug -Pacecore.abi=arm64-v8a

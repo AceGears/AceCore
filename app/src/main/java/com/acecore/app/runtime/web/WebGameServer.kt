@@ -9,7 +9,7 @@ import com.acecore.app.core.config.ConfigKey
 import com.acecore.app.core.filesystem.IndexedFile
 import com.acecore.app.core.filesystem.MimeTypes
 import com.acecore.app.core.filesystem.PathIndex
-import com.acecore.app.core.filesystem.SafTree
+import com.acecore.app.core.filesystem.GameTree
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -26,7 +26,7 @@ import java.io.InputStream
 class WebGameServer(
     private val context: Context,
     private val spec: GameLaunchSpec,
-    private val tree: SafTree,
+    private val tree: GameTree,
     private val index: PathIndex,
 ) {
     private val allowNetwork = ConfigKey.ALLOW_NETWORK.bool(spec.config[ConfigKey.ALLOW_NETWORK.id] ?: "false")
@@ -191,7 +191,7 @@ class WebGameServer(
 
         /** Loads the cached index or walks the folder to build one. */
         fun loadOrBuildIndex(
-            tree: SafTree, spec: GameLaunchSpec, cacheFile: File, progress: (Int) -> Unit,
+            tree: GameTree, spec: GameLaunchSpec, cacheFile: File, progress: (Int) -> Unit,
         ): PathIndex {
             if (!spec.forceReindex) {
                 PathIndex.load(cacheFile)?.let { cached ->

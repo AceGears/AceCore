@@ -109,6 +109,8 @@ data class AppSettings(
     val engineConfig: Map<Engine, Map<String, String>> = emptyMap(),
     /** Runtime id name -> last time a game actually ran with it on this device. */
     val runtimeVerifiedAt: Map<String, Long> = emptyMap(),
+    /** When the built-in engine test last passed on this device (Settings › Game engines › Test this engine). */
+    val runtimeSelfTestAt: Map<String, Long> = emptyMap(),
 )
 
 class SettingsRepository(private val context: Context) {
@@ -214,6 +216,10 @@ class SettingsRepository(private val context: Context) {
                 .filter { it.key.name.startsWith("runtime.") && it.key.name.endsWith(".verifiedAt") }
                 .mapNotNull { e -> (e.value as? Long)?.let { e.key.name.removePrefix("runtime.").removeSuffix(".verifiedAt") to it } }
                 .toMap(),
+            runtimeSelfTestAt = p.asMap().entries
+                .filter { it.key.name.startsWith("runtime.") && it.key.name.endsWith(".selftestAt") }
+                .mapNotNull { e -> (e.value as? Long)?.let { e.key.name.removePrefix("runtime.").removeSuffix(".selftestAt") to it } }
+                .toMap(),
         )
     }
 
@@ -248,6 +254,10 @@ class SettingsRepository(private val context: Context) {
             p[K.selectedCategory] = l.selectedCategory; p[K.showHiddenCategories] = l.showHiddenCategories
             p[K.categoryBar] = l.categoryBar.name; p[K.showCategoryCounts] = l.showCategoryCounts
         }
+    }
+
+    suspend fun markRuntimeSelfTest(id: com.acecore.app.runtime.RuntimeId) {
+        context.dataStore.edit { it[androidx.datastore.preferences.core.longPreferencesKey("runtime.${id.name}.selftestAt")] = System.currentTimeMillis() }
     }
 
     suspend fun markRuntimeVerified(id: com.acecore.app.runtime.RuntimeId) {

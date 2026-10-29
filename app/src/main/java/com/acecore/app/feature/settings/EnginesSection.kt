@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +59,7 @@ private val GROUPS = listOf(
 
 /** Status levels shown per engine, from strongest to weakest evidence. */
 private enum class EngineStatus(val label: String, val color: Long) {
+    TESTED("Verified on this device · engine test passed", 0xFF1ED69B),
     VERIFIED("Partially compatible · games have run here", 0xFF1ED69B),
     INSTALLED("Installed · untested", 0xFF2E86FF),
     MISSING("Unavailable · runtime not included", 0xFFE8B931),
@@ -81,9 +83,27 @@ fun EnginesSection(s: AppSettings, onEngine: (Engine) -> Unit) {
     val webViewVersion = remember {
         runCatching { if (Build.VERSION.SDK_INT >= 26) android.webkit.WebView.getCurrentWebViewPackage()?.versionName else null }.getOrNull()
     }
+    // Record engine tests that passed while the test game was open (the test game writes a marker when it passes).
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) scope.launch {
+                RuntimeId.entries.forEach { id ->
+                    if (kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.acecore.app.runtime.SelfTest.consumePass(ctx, id) }) {
+                        ctx.container.settings.markRuntimeSelfTest(id)
+                        android.widget.Toast.makeText(ctx, "${id.displayName}: engine test passed", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
+    }
     Text(
-        "Every engine AceArcade recognises. “Installed” means its runtime is inside this build; “Verified” appears only after a game " +
-            "actually started with it on this device. Tap an engine for details and its default settings.",
+        "Every engine AceArcade recognises. “Installed” means its runtime is inside this build. “Verified on this device” means " +
+            "its engine test passed here: a built-in test game started, drew frames and the D-pad moved its character. " +
+            "Tap an engine for details, its engine test and its default settings.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     GROUPS.forEach { group ->
@@ -105,9 +125,11 @@ private fun EngineRow(e: Engine, s: AppSettings, games: Int, webViewVersion: Str
     val info = RuntimeRegistry.info(e)
     val runtimeId = RuntimeRegistry.runtimeFor(e)
     val verifiedAt = s.runtimeVerifiedAt[runtimeId.name]
+    val testedAt = s.runtimeSelfTestAt[runtimeId.name]
     val status = when {
         e.family == EngineFamily.UNSUPPORTED_NATIVE -> EngineStatus.WINDOWS_ONLY
         !info.bundled -> EngineStatus.MISSING
+        testedAt != null -> EngineStatus.TESTED
         verifiedAt != null -> EngineStatus.VERIFIED
         else -> EngineStatus.INSTALLED
     }
@@ -149,7 +171,25 @@ private fun EngineRow(e: Engine, s: AppSettings, games: Int, webViewVersion: Str
                     else -> info.version
                 }
                 version?.let { Detail("Version", it) }
-                verifiedAt?.let { Detail("Last ran on this device", DateUtils.getRelativeTimeSpanString(it).toString()) }
+                verifiedAt?.let { Detail("Last ran a game on this device", DateUtils.getRelativeTimeSpanString(it).toString()) }
+                testedAt?.let { Detail("Engine test passed", DateUtils.getRelativeTimeSpanString(it).toString()) }
+                val ctx = LocalContext.current
+                val canTest = remember(runtimeId) { com.acecore.app.runtime.SelfTest.available(ctx, runtimeId) }
+                if (canTest) {
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+                    androidx.compose.material3.OutlinedButton(onClick = {
+                        scope.launch {
+                            val intent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.acecore.app.runtime.SelfTest.intent(ctx, runtimeId, 0xFFF03AD6L)
+                            }
+                            if (intent != null) ctx.startActivity(intent)
+                        }
+                    }) { Text("Test this engine") }
+                    Text(
+                        "Opens a small built-in test game. Hold Down on the on-screen D-pad until it says \"Passed\".",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 info.formats?.let { Detail("Runs", it) }
                 info.limitations?.let { Detail("Known limitations", it) }
                 info.blocker?.let { Detail("What's needed", it) }

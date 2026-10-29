@@ -11,16 +11,64 @@ import java.io.InputStream
 data class SafNode(val docId: String, val name: String, val path: String, val isDirectory: Boolean, val size: Long, val lastModified: Long)
 
 /**
+ * A game folder the runtimes can read: Android document access ([SafTree]) or plain files ([FileTree], used for
+ * folders AceArcade can open by path and for its built-in test games). A "docId" is whatever the tree uses to
+ * identify an entry.
+ */
+interface GameTree {
+    val rootDocId: String
+    fun children(parentDocId: String, parentPath: String): List<SafNode>
+    fun open(docId: String): InputStream?
+
+    fun read(docId: String, maxBytes: Int): ByteArray? = open(docId)?.use { input ->
+        val buf = ByteArray(maxBytes)
+        var total = 0
+        while (total < maxBytes) {
+            val n = input.read(buf, total, maxBytes - total)
+            if (n <= 0) break
+            total += n
+        }
+        buf.copyOf(total)
+    }
+
+    /** Finds a file or folder by '/'-separated relative path (case-insensitive), one listing per path segment. */
+    fun findPath(rootDocId: String, path: String): SafNode? {
+        var parentId = rootDocId
+        var parentPath = ""
+        var node: SafNode? = null
+        for (seg in path.replace('\\', '/').split('/').filter { it.isNotEmpty() }) {
+            node = children(parentId, parentPath).firstOrNull { it.name.equals(seg, ignoreCase = true) } ?: return null
+            parentId = node.docId
+            parentPath = node.path
+        }
+        return node
+    }
+}
+
+/** A plain directory as a [GameTree]; docIds are absolute paths. */
+class FileTree(val root: java.io.File) : GameTree {
+    override val rootDocId: String get() = root.absolutePath
+
+    override fun children(parentDocId: String, parentPath: String): List<SafNode> =
+        java.io.File(parentDocId).listFiles().orEmpty().map { f ->
+            SafNode(f.absolutePath, f.name, if (parentPath.isEmpty()) f.name else "$parentPath/${f.name}", f.isDirectory,
+                if (f.isFile) f.length() else -1L, f.lastModified())
+        }
+
+    override fun open(docId: String): InputStream? = runCatching { java.io.File(docId).inputStream() }.getOrNull()
+}
+
+/**
  * Fast Storage Access Framework access using raw DocumentsContract queries (one query per directory),
  * which is an order of magnitude faster than DocumentFile.listFiles()/findFile() on large game folders.
  */
-class SafTree(private val resolver: ContentResolver, val treeUri: Uri) {
+class SafTree(private val resolver: ContentResolver, val treeUri: Uri) : GameTree {
 
-    val rootDocId: String get() = DocumentsContract.getTreeDocumentId(treeUri)
+    override val rootDocId: String get() = DocumentsContract.getTreeDocumentId(treeUri)
 
     fun documentUri(docId: String): Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
 
-    fun children(parentDocId: String, parentPath: String): List<SafNode> {
+    override fun children(parentDocId: String, parentPath: String): List<SafNode> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
         val out = ArrayList<SafNode>()
         resolver.query(childrenUri, PROJECTION, null, null, null)?.use { c ->
@@ -70,31 +118,7 @@ class SafTree(private val resolver: ContentResolver, val treeUri: Uri) {
         return WalkResult(out, truncated)
     }
 
-    /** Finds a file or folder by '/'-separated relative path (case-insensitive), one query per path segment. */
-    fun findPath(rootDocId: String, path: String): SafNode? {
-        var parentId = rootDocId
-        var parentPath = ""
-        var node: SafNode? = null
-        for (seg in path.replace('\\', '/').split('/').filter { it.isNotEmpty() }) {
-            node = children(parentId, parentPath).firstOrNull { it.name.equals(seg, ignoreCase = true) } ?: return null
-            parentId = node.docId
-            parentPath = node.path
-        }
-        return node
-    }
-
-    fun open(docId: String): InputStream? = resolver.openInputStream(documentUri(docId))
-
-    fun read(docId: String, maxBytes: Int): ByteArray? = open(docId)?.use { input ->
-        val buf = ByteArray(maxBytes)
-        var total = 0
-        while (total < maxBytes) {
-            val n = input.read(buf, total, maxBytes - total)
-            if (n <= 0) break
-            total += n
-        }
-        buf.copyOf(total)
-    }
+    override fun open(docId: String): InputStream? = resolver.openInputStream(documentUri(docId))
 
     /** Builds a detection snapshot of the folder [rootDocId]. Bounded so huge folders stay responsive. */
     fun snapshot(rootDocId: String, maxDepth: Int = 4, maxEntries: Int = 6000): GameSnapshot {

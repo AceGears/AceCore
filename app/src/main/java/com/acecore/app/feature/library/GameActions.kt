@@ -221,11 +221,19 @@ private fun MenuTile(icon: ImageVector, label: String, modifier: Modifier, enabl
 fun rememberCoverPicker(game: GameEntity, onPicked: () -> Unit = {}): () -> Unit {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
-        if (uri != null) scope.launch {
-            runCatching { ctx.container.games.setCustomCover(game, uri) }
-                .onFailure { Toast.makeText(ctx, "Couldn't use that image: ${it.message}", Toast.LENGTH_LONG).show() }
-            onPicked()
+    // The picked picture is framed first (cover shape from the library settings), then saved at exactly that shape.
+    var pending by remember { mutableStateOf<Uri?>(null) }
+    val settings by ctx.container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
+    val aspect = settings?.library?.aspect?.ratio ?: 0.75f
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? -> pending = uri }
+    pending?.let { uri ->
+        CoverFramer(uri, aspect, onCancel = { pending = null }) { bitmap ->
+            pending = null
+            scope.launch {
+                runCatching { ctx.container.games.setCustomCover(game, bitmap) }
+                    .onFailure { Toast.makeText(ctx, "Couldn't use that image: ${it.message}", Toast.LENGTH_LONG).show() }
+                onPicked()
+            }
         }
     }
     return { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }

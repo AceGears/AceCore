@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- AceArcade engine self-test for the web runtime (HTML5, RPG Maker MV/MZ, Construct, TyranoScript).
+     Passes when the page is running, drawing frames and receives held arrow-key input from the on-screen D-pad. -->
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AceArcade engine test</title>
+<style>html,body{margin:0;height:100%;background:#0b0820;color:#fff;font:16px system-ui,sans-serif;overflow:hidden}
+#c{display:block;margin:0 auto;background:#151033}#t{position:absolute;top:12px;left:0;right:0;text-align:center}</style></head>
+<body><div id="t">AceArcade engine test · Web runtime<br><b id="m">Hold ↓ (Down) on the D-pad</b></div><canvas id="c" width="640" height="360"></canvas>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d'), m = document.getElementById('m');
+let down = false, y = 60, steps = 0, held = 0, last = performance.now(), frames = 0, done = false;
+addEventListener('keydown', e => { if (e.key === 'ArrowDown' || e.keyCode === 40) down = true; });
+addEventListener('keyup', e => { if (e.key === 'ArrowDown' || e.keyCode === 40) down = false; });
+function fit() { const s = Math.min(innerWidth / 640, innerHeight / 360); c.style.width = 640 * s + 'px'; c.style.height = 360 * s + 'px'; }
+addEventListener('resize', fit); fit();
+function frame(now) {
+  const dt = Math.min(0.25, (now - last) / 1000); last = now; frames++;
+  if (down && !done) { held += dt; while (held >= 0.25) { held -= 0.25; steps++; y += 24; if (y > 320) y = 60; } } else held = 0;
+  g.fillStyle = '#151033'; g.fillRect(0, 0, 640, 360);
+  g.fillStyle = '#f03ad6'; g.fillRect(304, y, 32, 32);
+  g.fillStyle = '#fff'; g.fillText('steps: ' + steps + '  frames: ' + frames, 20, 340);
+  if (steps >= 6 && !done) {
+    done = true; m.textContent = 'Passed: the engine runs and the D-pad moves the character.';
+    setTimeout(() => { location.href = '/__acecore/selftest/ok?frames=' + frames; }, 1500);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>
