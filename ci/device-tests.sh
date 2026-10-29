@@ -27,26 +27,25 @@ grep -q "^OK (" device-results/easyrpg-test.txt || status=1
 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ || true
 adb logcat -d > device-results/logcat.txt || true
 grep -iE "AceCore|AceArcade|godot|EasyRPG|SDL|mkxp|libc|DEBUG|FATAL|AndroidRuntime|native_bridge|houdini|ndk_translation" device-results/logcat.txt | tail -400 > device-results/logcat-filtered.txt || true
-for f in device-results/rgss-test.txt device-results/ui-test.txt device-results/godot-test.txt device-results/easyrpg-test.txt; do
-  echo "::notice title=$(basename $f)::$(grep -E 'OK \(|FAILURES|Tests run|INSTRUMENTATION_STATUS: stack=|AssertionError|Exception' $f | head -20 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
-done
-[ -f device-results/testresults/metrics.txt ] && echo "::notice title=metrics::$(cat device-results/testresults/metrics.txt | awk '{printf "%s%%0A", $0}')"
-for f in device-results/testresults/godot-godot.log.txt device-results/testresults/easyrpg-easyrpg.log.txt device-results/testresults/godot-timeline.txt device-results/testresults/easyrpg-timeline.txt; do
-  [ -f "$f" ] && echo "::notice title=$(basename $f)::$(tail -n 40 "$f" | cut -c1-200 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
-done
-note() { # title file
+note() { # title file  (GitHub shows at most 10 notices per step, so results are grouped)
   [ -s "$2" ] && echo "::notice title=$1::$(cut -c1-230 "$2" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
 }
-grep -E "AceArcadeInput" device-results/logcat.txt | head -n 30 > device-results/input.txt || true
-note "on-screen input (first 30)" device-results/input.txt
-grep -E "Godot|godot" device-results/logcat.txt | grep -vE "^\S+ \S+ +[0-9]+ +[0-9]+ [A-Z] [A-Za-z]+ *: +at |chatty|iorapd|ArtManager" | head -n 45 > device-results/godot-start.txt || true
-note "godot start" device-results/godot-start.txt
-grep -E "EasyRPG|easyrpg|SDL" device-results/logcat.txt | grep -vE ": +at |chatty|iorapd|ArtManager" | tail -n 45 > device-results/easyrpg-start.txt || true
-note "easyrpg start" device-results/easyrpg-start.txt
-grep -E "AceCoreTest" device-results/logcat.txt | tail -n 30 > device-results/metrics-log.txt || true
+{
+  for f in device-results/rgss-test.txt device-results/ui-test.txt device-results/godot-test.txt device-results/easyrpg-test.txt; do
+    echo "== $(basename $f): $(grep -E 'OK \(|Tests run' $f | head -2 | tr '\n' ' ')"
+    grep -E 'AssertionError|Exception' $f | head -2
+  done
+} > device-results/summary.txt
+note "test results" device-results/summary.txt
+{ grep -E "AceCoreTest" device-results/logcat.txt | tail -n 25; cat device-results/testresults/metrics.txt 2>/dev/null; } > device-results/metrics-log.txt
 note "test metrics" device-results/metrics-log.txt
-grep -iE "godot|EasyRPG" device-results/logcat.txt | grep -ivE "chatty|ActivityTaskManager|ndk_translation" | tail -n 50 > device-results/engines-logcat.txt || true
-echo "::notice title=engine logcat::$(cut -c1-220 device-results/engines-logcat.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+grep -E "AceArcadeInput" device-results/logcat.txt | head -n 20 > device-results/input.txt || true
+[ -s device-results/input.txt ] || echo "no on-screen button presses were logged" > device-results/input.txt
+note "on-screen input" device-results/input.txt
+{ grep -E " godot  *:| Godot  *:|GodotFragment: [^ \t]" device-results/logcat.txt | grep -vE ": +at " | head -n 40; } > device-results/godot-start.txt
+note "godot log" device-results/godot-start.txt
+{ tail -n 30 device-results/testresults/easyrpg-easyrpg.log.txt 2>/dev/null || echo "no EasyRPG log file"; grep -E "EasyRPG Player" device-results/logcat.txt | tail -n 10; } > device-results/easyrpg.txt
+note "easyrpg log" device-results/easyrpg.txt
 echo "::notice title=abilist::$(cat device-results/abilist.txt)"
 if [ $status -ne 0 ]; then
   echo "::error title=logcat (filtered)::$(tail -n 60 device-results/logcat-filtered.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"

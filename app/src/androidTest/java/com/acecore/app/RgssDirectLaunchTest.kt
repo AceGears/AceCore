@@ -83,18 +83,29 @@ class RgssDirectLaunchTest {
         val pad = File(helper, "dpad").readText().trim().split(' ').map { it.toInt() }
         val x = (pad[0] + pad[2]) / 2f
         val y = pad[1] + (pad[3] - pad[1]) * 0.83f       // lower arm of the D-pad = Down
-        val before = walk(helper)
-        report("walk_before", before.joinToString(" "))
-        val downTime = android.os.SystemClock.uptimeMillis()
-        touch(downTime, android.view.MotionEvent.ACTION_DOWN, x, y)
-        try {
-            Thread.sleep(1200)
-            touch(downTime, android.view.MotionEvent.ACTION_MOVE, x, y + 1)
-            screenshot("rgss_walk.png")
-            Thread.sleep(1800)
-        } finally {
-            touch(downTime, android.view.MotionEvent.ACTION_UP, x, y + 1)
-        }
+        // Injected touches occasionally don't reach a just-started window on the CI emulator; retry the hold (up to 3×)
+        // until the game has seen Down at least once. Every attempt is reported.
+        var before = walk(helper)
+        var attempts = 0
+        var seen: Boolean
+        do {
+            attempts++
+            before = walk(helper)
+            report("walk_before_$attempts", before.joinToString(" "))
+            val downTime = android.os.SystemClock.uptimeMillis()
+            touch(downTime, android.view.MotionEvent.ACTION_DOWN, x, y)
+            try {
+                Thread.sleep(1200)
+                touch(downTime, android.view.MotionEvent.ACTION_MOVE, x, y + 1)
+                if (attempts == 1) screenshot("rgss_walk.png")
+                Thread.sleep(1800)
+            } finally {
+                touch(downTime, android.view.MotionEvent.ACTION_UP, x, y + 1)
+            }
+            seen = walk(helper).getOrElse(6) { "0" }.toInt() > before.getOrElse(6) { "0" }.toInt()
+            if (!seen) Thread.sleep(1500)
+        } while (!seen && attempts < 3)
+        report("walk_attempts", attempts)
         val held = walk(helper)
         report("walk_while_held", held.joinToString(" "))
         Thread.sleep(1500)

@@ -73,22 +73,31 @@ class EasyRpgLaunchTest {
         Thread.sleep(4000)
         screenshot("easyrpg_title.png")
 
-        // Title screen: "New Game" is selected → confirm.
+        // Title screen: "New Game" is selected → confirm (with the on-screen A button's key, Enter).
+        val title = ui().takeScreenshot()
         key(KeyEvent.KEYCODE_ENTER)
         Thread.sleep(5000)
+        val afterEnter = ui().takeScreenshot()
+        report("easyrpg_title_to_game_changed_pixels", "%.4f".format(changedShare(title, afterEnter, listOf(0, 0, 0, 0))))
         if (!waitFor(30_000) { File(helper, "dpad").exists() }) fail("No on-screen controls. " + diagnostics(helper))
         val pad = File(helper, "dpad").readText().trim().split(' ').map { it.toInt() }
         val before = ui().takeScreenshot()
         save(before, "easyrpg_map_before.png")
         val x = (pad[0] + pad[2]) / 2f
         val y = pad[1] + (pad[3] - pad[1]) * 0.83f
-        val downTime = SystemClock.uptimeMillis()
-        touch(downTime, MotionEvent.ACTION_DOWN, x, y)
-        try { Thread.sleep(1200) } finally { touch(downTime, MotionEvent.ACTION_UP, x, y) }
-        Thread.sleep(800)
-        val after = ui().takeScreenshot()
+        var after: Bitmap? = null
+        var changed = 0.0
+        for (attempt in 1..3) {   // retry: injected touches occasionally miss a just-started window on the CI emulator
+            val downTime = SystemClock.uptimeMillis()
+            touch(downTime, MotionEvent.ACTION_DOWN, x, y)
+            try { Thread.sleep(1200) } finally { touch(downTime, MotionEvent.ACTION_UP, x, y) }
+            Thread.sleep(800)
+            after = ui().takeScreenshot()
+            changed = changedShare(before, after, pad)
+            report("easyrpg_walk_attempt_$attempt", "%.4f".format(changed))
+            if (changed > 0.002) break
+        }
         save(after, "easyrpg_map_after.png")
-        val changed = changedShare(before, after, pad)
         report("easyrpg_walk_changed_pixels", "%.4f".format(changed))
         keepLog(helper)
         val text = log.takeIf { it.exists() }?.readText().orEmpty()
