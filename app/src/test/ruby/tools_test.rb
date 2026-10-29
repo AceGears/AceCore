@@ -154,7 +154,11 @@ $game_variables = [nil, 7]
 check "Essentials quick save", request(10, "quicksave")[1], "ok"
 $game_variables = [nil, 0]
 # Like Essentials: Spriteset_Map#dispose reaches the renderer through $scene, so the scene must still be $scene.
-class Renderer; def remove_tileset(_) = nil; end
+class Renderer
+  def remove_tileset(_) = nil
+  def dispose = (@disposed = true)
+  def disposed? = @disposed
+end
 class EssSpriteset
   def initialize(owner) = (@owner = owner)
   def dispose
@@ -175,10 +179,13 @@ end
 $scene = Scene_Map.new; $scene.createSpritesets
 $game_temp.instance_variable_set(:@followers, :cached)
 essentials_scene = $scene
+old_renderer = $scene.map_renderer
+class Player; def x = 5; def y = 6; def center(x, y) = ($centered = [x, y]); end
 check "Essentials quick load", request(11, "quickload")[1], "ok"
 check "Essentials values restored", [$game_variables[1], $loaded_player, $map_loaded, $autoplay], [7, [3, 4], true, true]
 check "Essentials reload stays in the running map scene (no remove_tileset crash)", $scene.equal?(essentials_scene), true
 check "Essentials sprites rebuilt for the loaded state", essentials_scene.created, 2
+check "Essentials tilemap renderer replaced (no stale scroll offset)", [old_renderer.disposed?, essentials_scene.map_renderer.equal?(old_renderer)], [true, false]
 check "Essentials followers rebuilt from the save", $game_temp.instance_variable_get(:@followers), nil
 
 # During dialogue Essentials doesn't call Scene_Map#update: the request is answered "not now" instead of hanging.

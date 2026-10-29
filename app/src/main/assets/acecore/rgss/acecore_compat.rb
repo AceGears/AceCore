@@ -967,6 +967,11 @@ module AceCoreCompat
           global = scene.instance_variable_get(:@spritesetGlobal)
           global.dispose if global.respond_to?(:dispose)
           scene.instance_variable_set(:@spritesetGlobal, nil)
+          # The tilemap renderer keeps the old map's scroll position; a fresh one is made by createSpritesets (as when
+          # a game is loaded from the title screen). Without this the map is drawn offset from the player.
+          renderer = scene.instance_variable_get(:@map_renderer)
+          renderer.dispose if renderer.respond_to?(:dispose) && !(renderer.respond_to?(:disposed?) && renderer.disposed?)
+          scene.instance_variable_set(:@map_renderer, nil)
         end
         ::SaveData.load_all_values(data)
         # Followers are cached in $game_temp and rebuilt from the loaded $PokemonGlobal on next use.
