@@ -43,7 +43,7 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
       - name: Runtime helper tests (Ruby, mock Essentials / RPG Maker games)
-        run: ruby app/src/test/ruby/runtime_test.rb && ruby app/src/test/ruby/compat_test.rb
+        run: ruby app/src/test/ruby/runtime_test.rb && ruby app/src/test/ruby/compat_test.rb && ruby app/src/test/ruby/wininet_test.rb
       - name: Compile
         run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=compile.log ci/run-gradle.sh compileDebugKotlin
       - name: Unit tests (JVM + Robolectric)
