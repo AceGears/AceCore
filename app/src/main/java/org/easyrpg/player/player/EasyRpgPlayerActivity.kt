@@ -158,6 +158,7 @@ class EasyRpgPlayerActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryO
     /** On-screen controller → keyboard key held in SDL until released (EasyRPG: arrows, Z/Enter = OK, X/Esc = cancel). */
     private fun sendPad(button: PadButton, down: Boolean) {
         val code = WebKey.byId(buttonMap[button])?.androidKeyCode ?: return
+        android.util.Log.d("AceArcadeInput", "easyrpg ${button.name} ${if (down) "down" else "up"} -> android key $code")
         if (code == 0 || mBrokenLibraries) return
         if (down) onNativeKeyDown(code) else onNativeKeyUp(code)
     }

@@ -144,6 +144,7 @@ class GodotGameActivity : GodotActivity() {
     /** Sends a key to Godot as a keyboard key press/release (held until released). */
     private fun sendPad(button: PadButton, down: Boolean) {
         val code = WebKey.byId(buttonMap[button])?.androidKeyCode ?: return
+        android.util.Log.d("AceArcadeInput", "godot ${button.name} ${if (down) "down" else "up"} -> android key $code")
         if (code == 0) return
         val now = SystemClock.uptimeMillis()
         val ev = KeyEvent(now, now, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code, 0, 0,

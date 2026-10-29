@@ -34,6 +34,17 @@ done
 for f in device-results/testresults/godot-godot.log.txt device-results/testresults/easyrpg-easyrpg.log.txt device-results/testresults/godot-timeline.txt device-results/testresults/easyrpg-timeline.txt; do
   [ -f "$f" ] && echo "::notice title=$(basename $f)::$(tail -n 40 "$f" | cut -c1-200 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
 done
+note() { # title file
+  [ -s "$2" ] && echo "::notice title=$1::$(cut -c1-230 "$2" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+}
+grep -E "AceArcadeInput" device-results/logcat.txt | head -n 30 > device-results/input.txt || true
+note "on-screen input (first 30)" device-results/input.txt
+grep -E "Godot|godot" device-results/logcat.txt | grep -vE "^\S+ \S+ +[0-9]+ +[0-9]+ [A-Z] [A-Za-z]+ *: +at |chatty|iorapd|ArtManager" | head -n 45 > device-results/godot-start.txt || true
+note "godot start" device-results/godot-start.txt
+grep -E "EasyRPG|easyrpg|SDL" device-results/logcat.txt | grep -vE ": +at |chatty|iorapd|ArtManager" | tail -n 45 > device-results/easyrpg-start.txt || true
+note "easyrpg start" device-results/easyrpg-start.txt
+grep -E "AceCoreTest" device-results/logcat.txt | tail -n 30 > device-results/metrics-log.txt || true
+note "test metrics" device-results/metrics-log.txt
 grep -iE "godot|EasyRPG" device-results/logcat.txt | grep -ivE "chatty|ActivityTaskManager|ndk_translation" | tail -n 50 > device-results/engines-logcat.txt || true
 echo "::notice title=engine logcat::$(cut -c1-220 device-results/engines-logcat.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
 echo "::notice title=abilist::$(cat device-results/abilist.txt)"

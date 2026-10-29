@@ -429,6 +429,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private fun sendPad(button: PadButton, down: Boolean) {
         val key = WebKey.byId(buttonMap[button]) ?: return
         if (down && testOpen) lastPad = "${button.label} → ${key.label}"
+        Log.d("AceArcadeInput", "rgss ${button.name} ${if (down) "down" else "up"} -> ${key.id} (android key ${key.androidKeyCode})")
         sendKey(key, down)
     }
 
