@@ -2,12 +2,12 @@ name: AceArcade desktop (Windows, macOS)
 
 # Builds the desktop app (desktop/) and its installers, with the engines AceArcade bundles:
 #   Windows: EasyRPG Player (RPG Maker 2000/2003), Ruffle (Flash)
-#   macOS:   EasyRPG Player, Ruffle, Godot 4.7 (runs Godot games exported for Windows from their .pck)
+#   macOS:   EasyRPG Player, Ruffle, Godot 4.7 (Godot games exported for Windows, from their .pck), mkxp-z (RPG Maker XP/VX/Ace)
 # Games that ship their own Windows program (RPG Maker XP/VX/Ace Game.exe, MV/MZ, Ren'Py, Unity…) run natively on Windows.
 on:
   push:
     branches: [ main, master, 'overhaul*' ]
-    paths: [ 'desktop/**', 'app/src/main/java/com/acecore/app/core/detection/**', 'app/src/main/java/com/acecore/app/core/model/**', '.github/workflows/desktop.yml' ]
+    paths: [ 'desktop/**', 'ci/desktop/**', 'app/src/main/java/com/acecore/app/core/detection/**', 'app/src/main/java/com/acecore/app/core/model/**', '.github/workflows/desktop.yml' ]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -17,6 +17,7 @@ on:
 
 env:
   EASYRPG_VERSION: 0.8.1.1
+  MKXPZ_COMMIT: 37a04d14413454551a7b6aadbb4e93e67168accb
   GODOT_VERSION: 4.7-stable
 
 jobs:
@@ -110,22 +111,50 @@ jobs:
           name: AceArcade-windows
           path: dist/*.zip
 
+  mkxpz-macos:
+    name: mkxp-z engine (macOS, RPG Maker XP/VX/Ace)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: mkxpz-out
+          key: mkxpz-macos-arm64-${{ env.MKXPZ_COMMIT }}-${{ hashFiles('ci/desktop/build-mkxpz-macos.sh') }}
+      - name: Build mkxp-z
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash ci/desktop/build-mkxpz-macos.sh "$PWD/mkxpz-out"
+      - name: Launch test (runs a generated RPG Maker XP game)
+        run: |
+          EXE=$(ls "$PWD"/mkxpz-out/mkxp-z.* | grep -v '\.txt$' | head -1)
+          echo "::notice title=mkxp-z::$(cat mkxpz-out/ACEARCADE-BUILD.txt)"
+          bash ci/desktop/mkxpz-launch-test.sh "$EXE" "$RUNNER_TEMP"
+      - name: Pack (keeps file permissions)
+        run: tar -czf mkxpz-macos.tar.gz -C mkxpz-out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mkxpz-macos
+          path: mkxpz-macos.tar.gz
+
   macos:
     name: macOS portable zip
-    needs: test
+    needs: [ test, mkxpz-macos ]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
-      - name: Bundle engines (EasyRPG Player, Ruffle, Godot)
+      - uses: actions/download-artifact@v4
+        with: { name: mkxpz-macos }
+      - name: Bundle engines (EasyRPG Player, Ruffle, Godot, mkxp-z)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           R=desktop/resources/macos/runtimes
-          mkdir -p $R/easyrpg $R/ruffle $R/godot
+          mkdir -p $R/easyrpg $R/ruffle $R/godot $R/mkxpz
+          tar -xzf mkxpz-macos.tar.gz -C $R/mkxpz
           curl -sSL -o easyrpg.zip "https://easyrpg.org/downloads/player/$EASYRPG_VERSION/easyrpg-player-$EASYRPG_VERSION-macos.app.zip"
           ditto -x -k easyrpg.zip $R/easyrpg
           A=$(gh release view --repo ruffle-rs/ruffle --json assets -q '.assets[].name' | grep -i 'macos-universal.tar.gz$' | head -1)
@@ -133,7 +162,7 @@ jobs:
           tar -xzf ruffle.tar.gz -C $R/ruffle
           curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/$GODOT_VERSION/Godot_v${GODOT_VERSION}_macos.universal.zip"
           ditto -x -k godot.zip $R/godot
-          echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION"
+          echo "::notice title=engines::EasyRPG $EASYRPG_VERSION, $A, Godot $GODOT_VERSION, mkxp-z ${MKXPZ_COMMIT:0:7}"
           ls -la $R/*
       - name: Build, sign, notarize and zip
         env:

@@ -277,7 +277,7 @@ private fun EnginesDialog(runtimes: Runtimes, onClose: () -> Unit) {
     val p = Platform.current
     fun bundled(f: File?) = if (f != null) "Bundled engine included" else "Engine not bundled in this build"
     val rows = listOf(
-        "RPG Maker XP / VX / VX Ace, Pokémon Essentials" to if (p == Platform.WINDOWS) "Runs the game's own Game.exe" else "Needs mkxp-z for ${p.label} (not bundled yet)",
+        "RPG Maker XP / VX / VX Ace, Pokémon Essentials" to if (p == Platform.WINDOWS) "Runs the game's own Game.exe" else "mkxp-z · " + bundled(runtimes.mkxpz()),
         "RPG Maker 2000 / 2003" to "EasyRPG Player · " + bundled(runtimes.easyRpg()),
         "RPG Maker MV / MZ, HTML5, Construct, TyranoScript" to (if (p == Platform.WINDOWS) "Game's own program when present, otherwise " else "") + "your web browser (served locally)",
         "Godot" to if (p == Platform.WINDOWS) "Runs the game's own program" else "Godot 4 packs · " + bundled(runtimes.godot()),

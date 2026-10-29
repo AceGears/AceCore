@@ -26,6 +26,7 @@ sealed class LaunchPlan(val summary: String) {
  *   easyrpg  EasyRPG Player (GPL-3.0)   RPG Maker 2000/2003         Windows, macOS
  *   ruffle   Ruffle (MIT/Apache-2.0)   Flash (.swf)                 Windows, macOS
  *   godot    Godot 4 (MIT)             Godot 4 packs on macOS       macOS
+ *   mkxpz    mkxp-z (GPL-2.0+)         RPG Maker XP/VX/VX Ace       macOS (built by CI, run with the game folder as working directory)
  * A missing engine is reported, never faked.
  */
 class Runtimes(private val root: File? = defaultRoot(), private val platform: Platform = Platform.current) {
@@ -45,6 +46,12 @@ class Runtimes(private val root: File? = defaultRoot(), private val platform: Pl
         Platform.WINDOWS -> listOf("godot.exe")
         Platform.MAC -> listOf("Godot.app/Contents/MacOS/Godot")
         Platform.LINUX -> listOf("godot")
+    })
+
+    fun mkxpz(): File? = find("mkxpz", when (platform) {
+        Platform.WINDOWS -> listOf("mkxp-z.exe")
+        Platform.MAC -> listOf("mkxp-z.aarch64", "mkxp-z.universal", "mkxp-z.x86_64", "mkxp-z")
+        Platform.LINUX -> listOf("mkxp-z.x86_64", "mkxp-z.aarch64", "mkxp-z")
     })
 
     /** A runtime's executable: a listed path, else the first matching file found in its folder. */
@@ -76,6 +83,8 @@ class Planner(private val runtimes: Runtimes, private val platform: Platform = P
 
         return when (g.engine.family) {
             EngineFamily.RGSS -> native("RPG Maker XP/VX/VX Ace")
+                // mkxp-z reads Game.ini (and the game's own mkxp.json, if any) from its working directory.
+                ?: runtimes.mkxpz()?.let { LaunchPlan.Process("RPG Maker XP/VX/VX Ace: mkxp-z (bundled)", listOf(it.absolutePath), gameDir(g)) }
                 ?: LaunchPlan.Unsupported(
                     if (platform == Platform.WINDOWS) "No Game.exe was found in this folder, so the game can't be started."
                     else "RPG Maker XP/VX/VX Ace games need mkxp-z on ${platform.label}, which isn't bundled in this version of AceArcade yet.",

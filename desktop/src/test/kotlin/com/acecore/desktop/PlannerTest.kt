@@ -33,6 +33,16 @@ class PlannerTest {
         assertTrue(p is LaunchPlan.Unsupported && p.summary.contains("mkxp-z"))
     }
 
+    @Test fun rgssOnMacUsesBundledMkxpzInTheGameFolder() {
+        val d = folder("Game.exe", "Game.ini", "Data/Scripts.rxdata")
+        val p = Planner(runtimes("mkxpz" to "mkxp-z.aarch64", platform = Platform.MAC), Platform.MAC)
+            .plan(game(d, Engine.POKEMON_ESSENTIALS, "Game.ini", "Game.exe"))
+        assertTrue(p is LaunchPlan.Process)
+        p as LaunchPlan.Process
+        assertTrue(p.command.single().endsWith("mkxp-z.aarch64"))
+        assertEquals(d.canonicalFile, p.workDir.canonicalFile)
+    }
+
     @Test fun rm2kUsesBundledEasyRpgWithProjectPath() {
         val d = folder("RPG_RT.ldb", "RPG_RT.lmt")
         val p = Planner(runtimes("easyrpg" to "Player.exe"), Platform.WINDOWS).plan(game(d, Engine.RPG_MAKER_2K, "RPG_RT.ldb"))
