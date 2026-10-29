@@ -47,6 +47,23 @@ object RgssRuntime {
 
     private const val HELPER_ASSET = "acecore/rgss/acecore_runtime.rb"
     const val PRELOAD_FILE = "acecore_preload.rb"
+    const val COMPAT_FILE = "acecore_compat.rb"
+
+    /**
+     * Always-on compatibility preload (also with the game helper off). Upstream mkxp-z loads Ruby's zlib extension
+     * during start-up, so games (e.g. Pokémon Essentials' PluginManager reading PluginScripts.rxdata) use `Zlib`
+     * without requiring it; mkxp-z-android-reworked compiles zlib into libruby but never loads it, which stopped
+     * games with "uninitialized constant PluginManager::Zlib". This does what upstream does. Never touches game files.
+     */
+    val COMPAT_SCRIPT = """
+        |# encoding: utf-8
+        |# AceCore engine compatibility: same start-up behaviour as upstream mkxp-z.
+        |begin
+        |  require 'zlib'
+        |rescue LoadError => e
+        |  (${'$'}stderr.puts("AceCore: Ruby zlib extension unavailable: #{e.message}") rescue nil)
+        |end
+        |""".trimMargin()
 
     /**
      * True when this APK actually contains the mkxp-z native library for the device's ABI. Uses the class loader's
@@ -91,6 +108,7 @@ object RgssRuntime {
         val dir = helperDir(dataDir).apply { mkdirs() }
         // Stale signals from a previous session must never be mistaken for this one.
         listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
+        val compat = File(dataDir, COMPAT_FILE).apply { writeText(COMPAT_SCRIPT, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
@@ -98,7 +116,8 @@ object RgssRuntime {
         } else {
             preload.delete()
         }
-        File(dataDir, "mkxp.json").writeText(overrideConfigJson(config, if (helper) preload.absolutePath else null))
+        val scripts = listOfNotNull(compat.absolutePath, if (helper) preload.absolutePath else null)
+        File(dataDir, "mkxp.json").writeText(overrideConfigJson(config, scripts))
     }
 
     /** Ruby constants the helper reads. Values are escaped so a path can never break out of the string literal. */
@@ -125,7 +144,7 @@ object RgssRuntime {
         append('"')
     }
 
-    fun overrideConfigJson(config: Map<String, String>, preloadPath: String? = null): String {
+    fun overrideConfigJson(config: Map<String, String>, preloadScripts: List<String> = emptyList()): String {
         val smooth = config[ConfigKey.FILTERING.id] != "sharp"
         return Json.encodeToString(
             kotlinx.serialization.json.JsonObject.serializer(),
@@ -139,7 +158,7 @@ object RgssRuntime {
                 put("enableSettings", false)
                 // F12 soft-reset is exposed in AceCore's in-game menu as "Restart game".
                 put("enableReset", true)
-                if (preloadPath != null) put("preloadScript", JsonArray(listOf(JsonPrimitive(preloadPath))))
+                if (preloadScripts.isNotEmpty()) put("preloadScript", JsonArray(preloadScripts.map { JsonPrimitive(it) }))
             },
         )
     }

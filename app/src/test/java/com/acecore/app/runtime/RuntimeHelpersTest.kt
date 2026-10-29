@@ -31,8 +31,8 @@ class RuntimeHelpersTest {
     }
 
     @Test fun configJsonAddsPreloadOnlyWithHelper() {
-        assertTrue(RgssRuntime.overrideConfigJson(emptyMap(), "/p/acecore_preload.rb").contains("\"preloadScript\":[\"/p/acecore_preload.rb\"]"))
-        assertFalse(RgssRuntime.overrideConfigJson(emptyMap(), null).contains("preloadScript"))
+        assertTrue(RgssRuntime.overrideConfigJson(emptyMap(), listOf("/p/acecore_compat.rb", "/p/acecore_preload.rb")).contains("\"preloadScript\":[\"/p/acecore_compat.rb\",\"/p/acecore_preload.rb\"]"))
+        assertFalse(RgssRuntime.overrideConfigJson(emptyMap()).contains("preloadScript"))
     }
 
     @Test fun sessionRecordRoundTripAndLegacy() {

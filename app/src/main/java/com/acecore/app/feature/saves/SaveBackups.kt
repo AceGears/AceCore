@@ -38,7 +38,7 @@ data class SaveBackup(val dir: File, val createdAt: Long, val reason: String, va
 class SaveBackupManager(private val context: Context) {
 
     private val saveName = Regex("(?i).+\\.(rxdata|rvdata|rvdata2)")
-    private val ownFiles = setOf("mkxp.json", RgssRuntime.PRELOAD_FILE)
+    private val ownFiles = setOf("mkxp.json", RgssRuntime.PRELOAD_FILE, RgssRuntime.COMPAT_FILE)
 
     fun supports(game: GameEntity) = game.effectiveEngine.family == EngineFamily.RGSS
 
