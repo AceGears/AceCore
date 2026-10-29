@@ -206,7 +206,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find dist -type f
-          gh release create "${{ inputs.release_tag }}" $(find dist -type f -name '*.zip') \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "AceArcade desktop ${{ inputs.release_tag }}" --notes "Portable Windows and macOS apps (unzip and run, no installer) built from $GITHUB_SHA."
+          find dist -type f -exec ls -l {} \;
+          FILES=$(find dist -type f -name '*.zip')
+          [ -n "$FILES" ] || { echo "::error title=publish::no zips were downloaded"; exit 1; }
+          for attempt in 1 2 3; do
+            if gh release view "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              out=$(gh release upload "${{ inputs.release_tag }}" $FILES --clobber --repo "$GITHUB_REPOSITORY" 2>&1) && break
+            else
+              out=$(gh release create "${{ inputs.release_tag }}" $FILES --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+                --title "AceArcade desktop ${{ inputs.release_tag }}" \
+                --notes "Portable Windows and macOS apps (unzip and run, no installer) built from $GITHUB_SHA." 2>&1) && break
+            fi
+            echo "::warning title=publish attempt $attempt::$(echo "$out" | tail -c 400 | tr '\n' ' ')"
+            [ $attempt = 3 ] && { echo "::error title=publish::$(echo "$out" | tail -c 600 | tr '\n' ' ')"; exit 1; }
+            sleep 20
+          done
+          echo "::notice title=published::$(gh release view "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --json assets -q '[.assets[]|.name+" "+(.size|tostring)]|join(", ")')"
