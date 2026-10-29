@@ -49,21 +49,28 @@ object RgssRuntime {
     const val PRELOAD_FILE = "acecore_preload.rb"
     const val COMPAT_FILE = "acecore_compat.rb"
 
+    private const val COMPAT_ASSET = "acecore/rgss/acecore_compat.rb"
+
     /**
-     * Always-on compatibility preload (also with the game helper off). Upstream mkxp-z loads Ruby's zlib extension
-     * during start-up, so games (e.g. Pokémon Essentials' PluginManager reading PluginScripts.rxdata) use `Zlib`
-     * without requiring it; mkxp-z-android-reworked compiles zlib into libruby but never loads it, which stopped
-     * games with "uninitialized constant PluginManager::Zlib". This does what upstream does. Never touches game files.
+     * Header for the always-on compatibility preload (acecore_compat.rb, also used with the game helper off): the
+     * device screen in landscape pixels, which upstream mkxp-z reports through Graphics.display_width/height.
      */
-    val COMPAT_SCRIPT = """
-        |# encoding: utf-8
-        |# AceCore engine compatibility: same start-up behaviour as upstream mkxp-z.
-        |begin
-        |  require 'zlib'
-        |rescue LoadError => e
-        |  (${'$'}stderr.puts("AceCore: Ruby zlib extension unavailable: #{e.message}") rescue nil)
-        |end
-        |""".trimMargin()
+    fun compatHeader(displayW: Int, displayH: Int): String =
+        "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\nend\n"
+
+    /** Real screen size in landscape orientation (games run landscape). */
+    fun landscapeDisplaySize(context: Context): Pair<Int, Int> {
+        val (w, h) = runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val b = context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+                b.width() to b.height()
+            } else {
+                val m = context.resources.displayMetrics
+                m.widthPixels to m.heightPixels
+            }
+        }.getOrElse { 1920 to 1080 }
+        return maxOf(w, h) to minOf(w, h)
+    }
 
     /**
      * True when this APK actually contains the mkxp-z native library for the device's ABI. Uses the class loader's
@@ -108,7 +115,9 @@ object RgssRuntime {
         val dir = helperDir(dataDir).apply { mkdirs() }
         // Stale signals from a previous session must never be mistaken for this one.
         listOf("ready", "error", "boot", "stage", "runtime.log", "java_crash.txt", "cmd", "result", "state", "items", "natures", "species").forEach { File(dir, it).delete() }
-        val compat = File(dataDir, COMPAT_FILE).apply { writeText(COMPAT_SCRIPT, Charsets.UTF_8) }
+        val (dw, dh) = landscapeDisplaySize(context)
+        val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
+        val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh) + compatBody, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
