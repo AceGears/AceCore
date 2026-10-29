@@ -19,6 +19,7 @@ sourceSets {
                 "com/acecore/desktop/**",
                 "com/acecore/app/core/detection/**",
                 "com/acecore/app/core/model/**",
+                "com/acecore/app/core/scripts/**",
                 "com/acecore/app/core/config/WebKey.kt",
                 "com/acecore/app/runtime/RuntimeRegistry.kt",
                 "com/acecore/app/runtime/godot/GodotPack.kt",
