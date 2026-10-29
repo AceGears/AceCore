@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -203,8 +202,9 @@ private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = f
     Box(
         Modifier.size(size)
             .then(if (onBounds != null) Modifier.onGloballyPositioned { c ->
-                val b = c.boundsInWindow()
-                onBounds(android.graphics.Rect(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
+                // Screen coordinates (a window can start right of a display cutout / navigation bar).
+                val p = c.localToScreen(androidx.compose.ui.geometry.Offset.Zero)
+                onBounds(android.graphics.Rect(p.x.toInt(), p.y.toInt(), (p.x + c.size.width).toInt(), (p.y + c.size.height).toInt()))
             } else Modifier)
             .clip(CircleShape)
             .background(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.55f))))

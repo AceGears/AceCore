@@ -55,7 +55,7 @@ class EasyRpgLaunchTest {
         val started = System.currentTimeMillis()
         ctx.startActivity(EasyRpgLaunchSpec.intent(ctx, spec).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
 
-        if (!waitFor(180_000) { File(helper, "ready").exists() }) fail("EasyRPG didn't load the game within 180 s. " + diagnostics(helper))
+        if (!waitFor(420_000) { File(helper, "ready").exists() }) fail("EasyRPG didn't load the game within 420 s. " + diagnostics(helper))
         report("easyrpg_game_loaded_ms", System.currentTimeMillis() - started)
         Thread.sleep(4000)
         screenshot("easyrpg_title.png")

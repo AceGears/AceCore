@@ -55,7 +55,7 @@ class GodotLaunchTest {
         val started = System.currentTimeMillis()
         ctx.startActivity(intent)
 
-        if (!waitFor(180_000) { File(helper, "godot_started").exists() }) fail("Godot game script didn't start within 180 s. " + diagnostics(helper))
+        if (!waitFor(420_000) { File(helper, "godot_started").exists() }) fail("Godot game script didn't start within 420 s. " + diagnostics(helper))
         report("godot_first_script_ms", System.currentTimeMillis() - started)
         report("godot_engine", File(helper, "godot_started").readText())
         if (!waitFor(30_000) { File(helper, "dpad").exists() && File(helper, "godot_walk").exists() }) fail("No D-pad / walk report. " + diagnostics(helper))

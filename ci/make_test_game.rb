@@ -50,7 +50,7 @@ script = <<~'RUBY'
     hero.bitmap = Bitmap.new(32, 32)
     hero.bitmap.fill_rect(0, 0, 32, 32, Color.new(255, 230, 40))
     hero.x = 304; hero.y = 32; hero.z = 10
-    steps = 0; facing = 8; frames = 0; skipped = 0; held = 0.0
+    steps = 0; facing = 8; frames = 0; skipped = 0; held = 0.0; down_frames = 0; started = System.uptime
     last = System.uptime
     mark.call("walk_ready", "1")
     while frames < 60 * 150
@@ -61,6 +61,7 @@ script = <<~'RUBY'
       dt = now - last
       last = now
       d = Input.dir4
+      down_frames += 1 if d == 2 || Input.press?(Input::DOWN)
       if dt > 0.25
         skipped += 1          # Game_Character#update: "return if @delta_t > 0.25"
       elsif d > 0
@@ -73,10 +74,10 @@ script = <<~'RUBY'
       else
         held = 0.0
       end
-      mark.call("walk", "#{steps} #{d} #{facing} #{skipped} #{frames} #{now.class}") if frames % 5 == 0
+      mark.call("walk", "#{steps} #{d} #{facing} #{skipped} #{frames} #{now.class} #{down_frames} #{(now - started).round(2)}") if frames % 3 == 0
       break if File.exist?(File.join(dir, "walk_done"))
     end
-    mark.call("walk", "#{steps} #{Input.dir4} #{facing} #{skipped} #{frames} #{System.uptime.class}")
+    mark.call("walk", "#{steps} #{Input.dir4} #{facing} #{skipped} #{frames} #{System.uptime.class} #{down_frames} #{(System.uptime - started).round(2)}")
     30.times { Graphics.update }
   rescue Exception => e
     mark.call("test_error", "#{e.class}: #{e.message}")

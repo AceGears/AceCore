@@ -15,19 +15,27 @@ status=0
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
 grep -q "AssumptionViolatedException\|no RGSS native" device-results/rgss-test.txt && { echo "::error title=rgss test skipped::the RGSS natives were not loadable"; status=1; }
+adb shell am force-stop $PKG; adb shell input keyevent KEYCODE_HOME; sleep 2
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
 grep -q "^OK (" device-results/ui-test.txt || status=1
+adb shell am force-stop $PKG; sleep 1
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.GodotLaunchTest $RUNNER | tee device-results/godot-test.txt
 grep -q "^OK (" device-results/godot-test.txt || status=1
+adb shell am force-stop $PKG; sleep 1
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunchTest $RUNNER | tee device-results/easyrpg-test.txt
 grep -q "^OK (" device-results/easyrpg-test.txt || status=1
 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ || true
 adb logcat -d > device-results/logcat.txt || true
-grep -iE "AceCore|AceArcade|godot|SDL|mkxp|libc|DEBUG|FATAL|AndroidRuntime|native_bridge|houdini|ndk_translation" device-results/logcat.txt | tail -400 > device-results/logcat-filtered.txt || true
+grep -iE "AceCore|AceArcade|godot|EasyRPG|SDL|mkxp|libc|DEBUG|FATAL|AndroidRuntime|native_bridge|houdini|ndk_translation" device-results/logcat.txt | tail -400 > device-results/logcat-filtered.txt || true
 for f in device-results/rgss-test.txt device-results/ui-test.txt device-results/godot-test.txt device-results/easyrpg-test.txt; do
   echo "::notice title=$(basename $f)::$(grep -E 'OK \(|FAILURES|Tests run|INSTRUMENTATION_STATUS: stack=|AssertionError|Exception' $f | head -20 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
 done
 [ -f device-results/testresults/metrics.txt ] && echo "::notice title=metrics::$(cat device-results/testresults/metrics.txt | awk '{printf "%s%%0A", $0}')"
+for f in device-results/testresults/godot-godot.log.txt device-results/testresults/easyrpg-easyrpg.log.txt device-results/testresults/godot-timeline.txt device-results/testresults/easyrpg-timeline.txt; do
+  [ -f "$f" ] && echo "::notice title=$(basename $f)::$(tail -n 40 "$f" | cut -c1-200 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+done
+grep -iE "godot|EasyRPG" device-results/logcat.txt | grep -ivE "chatty|ActivityTaskManager|ndk_translation" | tail -n 50 > device-results/engines-logcat.txt || true
+echo "::notice title=engine logcat::$(cut -c1-220 device-results/engines-logcat.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
 echo "::notice title=abilist::$(cat device-results/abilist.txt)"
 if [ $status -ne 0 ]; then
   echo "::error title=logcat (filtered)::$(tail -n 60 device-results/logcat-filtered.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
