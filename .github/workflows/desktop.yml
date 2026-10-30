@@ -264,6 +264,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with: { pattern: AceArcade-*, path: dist, merge-multiple: true }
       - name: Checksums and missing-platform report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           ls -l dist
           for p in windows macos; do
@@ -271,7 +274,12 @@ jobs:
             [ "$r" = success ] || echo "::warning title=Incomplete release::$p build $r - not included"
           done
           V=$(ls dist/*.zip | head -1 | sed -n 's/.*AceArcade-v\([0-9.]*\)-.*/\1/p')
-          ( cd dist && sha256sum *.zip > "AceArcade-v$V-desktop-checksums.sha256" && cat *.sha256 )
+          SUMS="AceArcade-v$V-desktop-checksums.sha256"
+          # A single-platform re-run keeps the other platform's checksum line from the existing release.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p "$SUMS" -D old > /dev/null 2>&1 || true
+          ( cd dist && sha256sum *.zip > new.sha256
+            { [ -f "../old/$SUMS" ] && grep -v -F -f <(awk '{print $2}' new.sha256) "../old/$SUMS"; cat new.sha256; } | sort -k2 > "$SUMS"
+            rm new.sha256; cat "$SUMS" )
       - name: Create or update the release (idempotent; safe to re-run)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
