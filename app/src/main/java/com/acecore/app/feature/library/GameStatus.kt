@@ -19,7 +19,7 @@ import com.acecore.app.core.model.CompatStatus
  */
 enum class GameState(val label: String, val detail: String) {
     UNSUPPORTED("Not supported", "No runtime for this engine can exist on Android (e.g. native Windows code)."),
-    RUNTIME_MISSING("Not playable yet", "The engine was detected, but its runtime isn't in this version of AceCore."),
+    RUNTIME_MISSING("Not playable yet", "The engine was detected, but its runtime isn't in this version of AceArcade."),
     PACKED("Needs extraction", "The game files are inside an archive that has to be extracted first."),
     FILES_MISSING("Launch file missing", "Choose the file that starts the game."),
     READY("Ready to try", "Runtime installed and game detected. It hasn't been launched on this device yet."),

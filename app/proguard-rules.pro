@@ -11,3 +11,11 @@
 -keep class org.libsdl.app.** { *; }
 -keep class com.acecore.app.runtime.rgss.RgssActivity { public static *; *; }
 -keep class com.acecore.app.runtime.rgss.RgssActivity$Companion { *; }
+
+# EasyRPG Player (RPG Maker 2000/2003): its native code calls the relocated SDL3 Java layer and the EasyRPG host
+# activity through JNI by name.
+-keep class org.libsdl3.app.** { *; }
+-keep class org.easyrpg.player.** { *; }
+# Godot: the engine library calls into its Java layer through JNI; keep it and AceArcade's Godot host as-is.
+-keep class org.godotengine.** { *; }
+-keep class com.acecore.app.runtime.godot.** { *; }

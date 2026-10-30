@@ -1,0 +1,22 @@
+name: Game / engine compatibility
+description: A game doesn't start or misbehaves in one of AceArcade's engines
+labels: [ compatibility ]
+body:
+  - type: input
+    id: game
+    attributes: { label: Game and version, placeholder: "Pokémon Flux EPISODE 2 v2.1.0" }
+    validations: { required: true }
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options: [ "RPG Maker XP/VX/VX Ace / Pokémon Essentials (mkxp-z)", "RPG Maker 2000/2003 (EasyRPG)", "RPG Maker MV/MZ / HTML5", "Godot", "Flash (Ruffle)", "Ren'Py", "Other / unknown" ]
+    validations: { required: true }
+  - type: dropdown
+    id: platform
+    attributes: { label: Platform, options: [ Android, Windows, macOS ] }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happens, description: "Screenshot of the error and the crash report (Settings › Advanced › Crash reports)" }
+    validations: { required: true }

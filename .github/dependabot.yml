@@ -1,0 +1,30 @@
+# Safe, low-noise dependency updates (docs/CI.md). Monthly, grouped, minor/patch only: major versions of
+# Gradle plugins, Kotlin, Compose or Android libraries are upgraded deliberately by a person, never automatically.
+# Native engine pins (mkxp-z port, EasyRPG, Godot, SDL) are not handled here: they live in the workflow env /
+# ci/*/build.sh and are updated together with an engine test run.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: [ "*" ]
+        update-types: [ minor, patch ]
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+  - package-ecosystem: gradle
+    directory: /
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      gradle-minor-patch:
+        patterns: [ "*" ]
+        update-types: [ minor, patch ]
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
+      # The Godot library must match the engine built in ci/godot/build.sh.
+      - dependency-name: "org.godotengine:godot"

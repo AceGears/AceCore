@@ -1,0 +1,15 @@
+name: Bug report
+description: Something in AceArcade doesn't work as expected
+labels: [ bug ]
+body:
+  - type: input
+    id: version
+    attributes: { label: AceArcade version and platform, placeholder: "0.9.1-debug (17), Android 17, Galaxy S26 Ultra" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: Steps to reproduce, what you expected, what you saw }
+    validations: { required: true }
+  - type: textarea
+    id: report
+    attributes: { label: Crash report or logs, description: "Settings › Advanced › Crash reports › Share (paste or attach)", render: text }

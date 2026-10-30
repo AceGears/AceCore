@@ -506,7 +506,7 @@ class GameActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val TAG = "AceCoreGame"
+        private const val TAG = "AceArcadeGame"
         const val EXTRA_SESSION_MS = "com.acecore.app.extra.SESSION_MS"
         /** Engine self-test: folder where a passing test page's result is recorded (see runtime.SelfTest). */
         const val EXTRA_SELFTEST_DIR = "com.acecore.app.extra.SELFTEST_DIR"

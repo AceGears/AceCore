@@ -20,9 +20,19 @@ sleep 2; kill $PID 2>/dev/null; wait $PID 2>/dev/null; CODE=$?
 echo "--- engine log (exit $CODE)"; cat engine.log
 ls -la
 n=0
-while IFS= read -r line; do n=$((n+1)); [ $n -le 8 ] && echo "::notice title=mkxp-z log $n::${line:0:900}"; done < <(fold -w 900 engine.log | tail -8)
+while IFS= read -r line; do n=$((n+1)); [ $n -le 3 ] && echo "::notice title=mkxp-z log $n::${line:0:900}"; done < <(fold -w 900 engine.log | tail -3)
 CR=$(ls -t ~/Library/Logs/DiagnosticReports/*mkxp* 2>/dev/null | head -1)
 [ -n "$CR" ] && echo "::notice title=mkxp-z crash report::$(grep -m1 -A12 -i 'exception\|"exception"\|Crashed' "$CR" | tr '\n' ' ' | cut -c1-900)"
+# A crash (signal) without a result: run once more under lldb and report the backtrace of the crashing thread.
+if [ ! -f launch_ok ] && [ "${CODE:-0}" -ge 128 ] && command -v lldb >/dev/null; then
+  rm -f launch_started launch_error
+  timeout_s=60; ( sleep $timeout_s; pkill -f "$EXE" ) & W=$!
+  lldb --batch -o "process launch --" -o "bt 25" -o "quit" -- "$EXE" > "$2/lldb.txt" 2>&1
+  kill $W 2>/dev/null
+  awk '/stop reason|frame #/' "$2/lldb.txt" | head -26 | cut -c1-300 | paste -sd"|" - | fold -w 900 | head -5 | while IFS= read -r l; do
+    echo "::notice title=mkxp-z crash backtrace::${l:0:900}"
+  done
+fi
 if [ -f launch_ok ]; then
   echo "::notice title=mkxp-z launch test passed::$(cat launch_ok)"
   [ -n "$shot" ] && echo "::notice title=mkxp-z launch screenshot (jpeg base64)::$(base64 < "$2/shot.jpg" | tr -d '\n')"

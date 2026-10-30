@@ -46,7 +46,7 @@ object RuntimeRegistry {
         RuntimeId.RGSS_MKXPZ to RuntimeInfo(
             RuntimeId.RGSS_MKXPZ, bundled = false,
             status = "Integrated, but the native mkxp-z libraries are not in this build. Builds produced by AceArcade's CI workflow include them.",
-            blocker = "Build with the 'AceCore full build' GitHub Actions workflow (it compiles mkxp-z, Ruby 3.1, SDL2 and OpenAL with the NDK), " +
+            blocker = "Build with the 'AceArcade Android' GitHub Actions workflow (Run workflow) (it compiles mkxp-z, Ruby 3.1, SDL2 and OpenAL with the NDK), " +
                 "or place the native libraries in app/src/main/jniLibs. See docs/RGSS_RUNTIME.md.",
             license = "GPL-2.0-or-later (mkxp-z); AceArcade is distributed under GPL-3.0-or-later",
         ),
@@ -90,7 +90,7 @@ object RuntimeRegistry {
         ),
         RuntimeId.NONE to RuntimeInfo(
             RuntimeId.NONE, bundled = false,
-            status = "This kind of game cannot run on Android through AceCore.",
+            status = "This kind of game cannot run on Android through AceArcade.",
             blocker = "Native Windows code (x86/x64) cannot execute on Android without a full Windows " +
                 "compatibility layer, which AceArcade does not include.",
         ),

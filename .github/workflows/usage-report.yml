@@ -1,0 +1,79 @@
+name: CI usage report
+
+# Lightweight cost/health report from this repository's own run history (one ~1 min Linux job per month).
+# Minutes are measured per job (start -> end, rounded up like GitHub bills). Costs are ESTIMATES at GitHub's
+# published per-minute list prices (docs/CI.md); the authoritative numbers are in GitHub > Settings > Billing.
+on:
+  schedule:
+    - cron: '17 6 1 * *'   # 1st of every month, 06:17 UTC (previous month)
+  workflow_dispatch:
+    inputs:
+      days:
+        description: How many days back to report
+        default: '30'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Build the report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYS: ${{ inputs.days || '31' }}
+        run: |
+          python3 - <<'PY'
+          import json, math, os, subprocess, datetime, collections
+          repo = os.environ["GITHUB_REPOSITORY"]; days = int(os.environ["DAYS"])
+          since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+          def api(path):
+              out = subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json", path], capture_output=True, text=True)
+              return json.loads(out.stdout or "{}")
+          runs, page = [], 1
+          while True:  # paginated, bounded
+              d = api(f"repos/{repo}/actions/runs?per_page=100&page={page}&created=>={since}")
+              batch = d.get("workflow_runs", []); runs += batch
+              if len(batch) < 100 or page >= 10: break
+              page += 1
+          P = lambda s: datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+          price = {"Linux": 0.006, "Windows": 0.010, "macOS": 0.062}   # USD/min, standard runners (verify in docs/CI.md)
+          per_wf = collections.defaultdict(lambda: {"runs": 0, "ok": 0, "min": collections.Counter()})
+          per_job = collections.Counter(); cache_hits = collections.Counter()
+          for r in runs:
+              w = per_wf[r["name"]]; w["runs"] += 1; w["ok"] += r["conclusion"] == "success"
+              for j in api(f"repos/{repo}/actions/runs/{r['id']}/jobs?per_page=100").get("jobs", []):
+                  if not (j.get("started_at") and j.get("completed_at")): continue
+                  secs = (P(j["completed_at"]) - P(j["started_at"])).total_seconds()
+                  if secs <= 0: continue
+                  lab = " ".join(j.get("labels", []))
+                  os_ = "macOS" if "macos" in lab else "Windows" if "windows" in lab else "Linux"
+                  m = math.ceil(secs / 60); w["min"][os_] += m; per_job[(j["name"], os_)] += m
+          tot = collections.Counter()
+          for w in per_wf.values(): tot.update(w["min"])
+          est = sum(tot[o] * price[o] for o in tot)
+          arts = []; page = 1
+          while True:
+              d = api(f"repos/{repo}/actions/artifacts?per_page=100&page={page}"); b = d.get("artifacts", []); arts += b
+              if len(b) < 100 or page >= 20: break
+              page += 1
+          live = [a for a in arts if not a["expired"]]; gb = sum(a["size_in_bytes"] for a in live) / 1e9
+          L = [f"## CI usage, last {days} days (since {since})", "",
+               "| Workflow | Runs | Success | Linux min | Windows min | macOS min | Est. USD |", "|---|---|---|---|---|---|---|"]
+          for n, w in sorted(per_wf.items(), key=lambda x: -sum(x[1]["min"][o] * price[o] for o in price)):
+              e = sum(w["min"][o] * price[o] for o in price)
+              L.append(f"| {n} | {w['runs']} | {100 * w['ok'] // max(1, w['runs'])}% | {w['min']['Linux']} | {w['min']['Windows']} | {w['min']['macOS']} | {e:.2f} |")
+          L += [f"| **Total** | {sum(w['runs'] for w in per_wf.values())} | | {tot['Linux']} | {tot['Windows']} | {tot['macOS']} | **{est:.2f}** |", "",
+                "### Most expensive jobs", "", "| Job | Runner | Minutes |", "|---|---|---|"]
+          for (n, o), m in sorted(per_job.items(), key=lambda x: -x[1] * price[x[0][1]])[:10]:
+              L.append(f"| {n} | {o} | {m} |")
+          L += ["", f"### Storage", "", f"Live workflow artifacts: **{len(live)}**, **{gb:.2f} GB** (billed as artifact storage; included: 0.5 GB Free / 1 GB Pro).", "",
+                "> Estimates use list prices per minute and per-job rounding; GitHub's billing page is authoritative "
+                "(included allowance, discounts and storage are not modelled)."]
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(L) + "\n")
+          print("\n".join(L))
+          print(f"::notice title=CI usage ({days} days)::Linux {tot['Linux']} min, Windows {tot['Windows']} min, macOS {tot['macOS']} min, est. ${est:.2f}; artifacts {gb:.2f} GB")
+          PY

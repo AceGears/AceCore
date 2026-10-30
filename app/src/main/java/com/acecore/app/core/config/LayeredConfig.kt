@@ -93,7 +93,7 @@ enum class ConfigKey(
         "masterVolume", "Master volume", "Game volume (%). RPG Maker MV/MZ only – uses the engine's own audio mixer.", ConfigType.INT, "100",
         section = "Audio", appliesTo = { it == Engine.RPG_MAKER_MV || it == Engine.RPG_MAKER_MZ },
     ),
-    PAUSE_AUDIO("pauseAudio", "Pause audio in background", "Suspend game audio when you leave AceCore.", ConfigType.BOOL, "true", section = "Audio"),
+    PAUSE_AUDIO("pauseAudio", "Pause audio in background", "Suspend game audio when you leave AceArcade.", ConfigType.BOOL, "true", section = "Audio"),
     GAME_FILES(
         "gameFiles", "How games are loaded",
         "Direct: AceArcade runs the game straight from your folder (needs Android's \"All files access\"; nothing is copied). " +

@@ -67,7 +67,7 @@ It can be turned off per game or globally (Game settings › Advanced › AceCor
 
 ## Building an APK with the runtime
 
-1. Copy `ci/build.yml` to `.github/workflows/build.yml`, then push AceCore to a GitHub repository.
+1. The workflow is `.github/workflows/build.yml` ("AceArcade Android"); see `docs/CI.md`.
 2. **Actions → AceCore build → Run workflow**, leave "build RGSS" ticked. Pushing a `v*` tag does the same.
 3. Download the **AceCore-full-debug-arm64** artifact, or run **Publish APK from a build** with that run ID to attach it to a pre-release.
 

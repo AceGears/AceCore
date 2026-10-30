@@ -187,7 +187,7 @@ class WebGameServer(
     }
 
     companion object {
-        private const val TAG = "AceCoreWeb"
+        private const val TAG = "AceArcadeWeb"
 
         /** Loads the cached index or walks the folder to build one. */
         fun loadOrBuildIndex(

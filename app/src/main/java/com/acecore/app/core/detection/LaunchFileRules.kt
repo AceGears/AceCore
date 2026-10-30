@@ -88,7 +88,7 @@ object LaunchFileRules {
                         ) else unavailable("HTML5")
                     }
                     has("RPG_RT.ldb") || has("RPG_RT.lmt") -> LaunchEvaluation.Unsupported(
-                        "This is an RPG Maker 2000/2003 game. That engine isn't playable in this version of AceCore.",
+                        "This is an RPG Maker 2000/2003 game. That engine isn't playable in this version of AceArcade.",
                     )
                     else -> LaunchEvaluation.Unsupported(
                         "$name is a Windows program. Android can't run Windows programs, and AceArcade found no game files it " +

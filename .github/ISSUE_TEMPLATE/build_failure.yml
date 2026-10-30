@@ -1,0 +1,17 @@
+name: Build / CI failure
+description: A GitHub Actions workflow failed or behaved unexpectedly (incl. performance regressions)
+labels: [ ci ]
+body:
+  - type: input
+    id: run
+    attributes: { label: Run link }
+    validations: { required: true }
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Failure type (docs/CI.md › Troubleshooting)
+      options: [ Compilation error, Test failure, Engine build, Missing dependency / network, Cache, Runner / infrastructure, Billing or spending limit, Artifact or release upload, Signing, Slower than usual ]
+    validations: { required: true }
+  - type: textarea
+    id: details
+    attributes: { label: Error annotations / what changed before it failed }

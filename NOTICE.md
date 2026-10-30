@@ -1,14 +1,14 @@
-# AceCore licensing
+# AceArcade licensing
 
-AceCore is free software: you can redistribute it and/or modify it under the terms of the
+AceArcade (formerly AceCore) is free software: you can redistribute it and/or modify it under the terms of the
 **GNU General Public License, version 3 or (at your option) any later version** (see `LICENSE`).
 
-AceCore links the RGSS runtime (mkxp-z, GPL-2.0-or-later) and may in future link EasyRPG Player (GPL-3.0),
-so the combined work is distributed under GPL-3.0-or-later. Anyone who receives an AceCore APK is entitled
+AceArcade links the RGSS runtime (mkxp-z, GPL-2.0-or-later) and may in future link EasyRPG Player (GPL-3.0),
+so the combined work is distributed under GPL-3.0-or-later. Anyone who receives an AceArcade APK is entitled
 to the complete corresponding source code, including the build scripts in `.github/workflows/` and the
 exact revisions of all native dependencies they fetch.
 
-The GPL covers AceCore's code. It does not by itself grant rights to use the AceCore name, logo and icon
+The GPL covers AceArcade's code. It does not by itself grant rights to use the AceArcade name, logo and icon
 (`app/src/main/res/drawable-nodpi/acecore_*`, launcher icons) as branding for other projects.
 
 ## Third-party components

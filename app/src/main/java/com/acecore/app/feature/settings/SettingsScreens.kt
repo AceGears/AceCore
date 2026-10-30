@@ -322,7 +322,7 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
 
     SettingsGroupTitle("Game folders")
     Text(
-        "Folders you picked for AceCore. Web and Flash games are read through these grants. RPG Maker XP/VX/VX Ace games " +
+        "Folders you picked for AceArcade. Web and Flash games are read through these grants. RPG Maker XP/VX/VX Ace games " +
             "also need \"All files access\" (see Storage & data) to run in place without a copy.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )

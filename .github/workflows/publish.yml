@@ -1,38 +1,50 @@
-name: Publish APK from a build
+name: Publish Android APK from a build
 
-# Copies the APK artifact of an existing "AceCore build" run into a GitHub (pre-)release,
-# without rebuilding. Release assets are easier to download than workflow artifacts.
+# Attaches the APK of an existing "AceArcade Android" run to a GitHub (pre-)release without rebuilding anything
+# (release assets are easier to download than workflow artifacts and don't count against Actions storage).
+# Idempotent: re-running with the same tag replaces the files instead of creating a duplicate release.
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: ID of the "AceCore build" run whose APK should be published
+        description: ID of the "AceArcade Android" run whose APK should be published
         required: true
       tag:
-        description: Release tag to create
+        description: Release tag (created if missing, updated if it exists)
         required: true
 
 permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: AceCore-full-debug-arm64
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: apk
-      - name: Create pre-release with the APK
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with: { sparse-checkout: ci }
+      - name: Download the APK (current artifact name, or the pre-AceArcade one for older runs)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir -p apk
+          gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n AceArcade-Android-arm64 -D apk 2>/dev/null \
+            || gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n AceCore-full-debug-arm64 -D apk
           ls -la apk
-          cp apk/*.apk "AceCore-${{ inputs.tag }}-arm64-debug.apk"
-          gh release create "${{ inputs.tag }}" "AceCore-${{ inputs.tag }}-arm64-debug.apk" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "AceCore ${{ inputs.tag }} (debug, arm64, with RGSS runtime)" \
-            --notes "Built by run ${{ inputs.run_id }}. Includes the mkxp-z RGSS runtime (RPG Maker XP/VX/VX Ace, Pokémon Essentials), web runtime and Ruffle. GPL-3.0-or-later; source is this repository at this tag."
+      - name: Name, checksum and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: '1'
+          NOTES: "Built by run ${{ inputs.run_id }}. Includes the game engines bundled by AceArcade (mkxp-z RGSS, EasyRPG, Godot, web runtime, Ruffle). GPL-3.0-or-later; source is this repository at this tag. SHA-256 checksums attached."
+        run: |
+          set -e
+          APK=$(ls apk/*.apk | head -1)
+          mkdir -p dist
+          cp "$APK" "dist/AceArcade-${{ inputs.tag }}-Android-arm64.apk"
+          ( cd dist && sha256sum *.apk > "AceArcade-${{ inputs.tag }}-Android-checksums.sha256" )
+          bash ci/release-publish.sh "${{ inputs.tag }}" "AceArcade ${{ inputs.tag }} (Android, arm64)" dist/*

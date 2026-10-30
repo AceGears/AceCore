@@ -128,7 +128,7 @@ fun CheatManagerScreen(gameId: Long, onBack: () -> Unit) {
             Text(g.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 20.dp))
             if (!supported) {
                 Text(
-                    "Cheats are available for RPG Maker XP/VX/VX Ace and Pokémon Essentials games. Web and Flash games don't expose their game state to AceCore.",
+                    "Cheats are available for RPG Maker XP/VX/VX Ace and Pokémon Essentials games. Web and Flash games don't expose their game state to AceArcade.",
                     modifier = Modifier.padding(20.dp),
                 )
                 return@Column

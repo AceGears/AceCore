@@ -38,9 +38,10 @@ RPG Maker XP/VX/VX Ace and Pokémon Essentials, on top of the web runtime, Flash
 | RPG Maker 2000/2003, Godot, Ren'Py runtimes | **Not implemented**; evaluated in `docs/COMPATIBILITY_MATRIX.md` |
 
 ## Getting a build that runs RPG Maker XP/VX/Ace games
-Android Studio builds everything except the native RGSS engine. Copy `ci/build.yml` to `.github/workflows/build.yml` (create the folders), push this folder to a GitHub repository, then
-**Actions → AceCore build → Run workflow**. It compiles and tests AceCore, builds mkxp-z with the NDK and produces
-`AceCore-full-debug-arm64`. Details: `docs/RGSS_RUNTIME.md`.
+Android Studio builds the app; the native game engines come from CI (or, locally, see `docs/BUILD-ANDROID-STUDIO.md`).
+On GitHub: **Actions → AceArcade Android → Run workflow**. Engines are rebuilt only when their pinned sources change;
+the APK is the `AceArcade-Android-arm64` artifact. Releases: push a tag `vX.Y.Z` matching `versionName`.
+How the pipelines, caches, costs and releases work: `docs/CI.md`. Engine details: `docs/RGSS_RUNTIME.md`.
 
 ## Known limitations to check first on device
 - Construct 3 exports using "worker mode" may not load if the WebView doesn't route worker requests through AceCore's file server. Re-export with worker mode off if this happens.

@@ -1,0 +1,78 @@
+name: Clean up CI artifacts
+
+# Workflow artifacts count against the account's Actions storage (billed hourly). Releases do not.
+# This deletes superseded artifacts that are only build by-products. It never runs on its own:
+# start it manually; the default is a DRY RUN that only lists what would be deleted.
+# Always kept: the newest copy of each engine build (reused by run id), the newest N APKs/zips, anything younger than
+# keep_days, and every artifact of a run that is still in progress.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only list what would be deleted
+        type: boolean
+        default: true
+      keep_days:
+        description: Never delete artifacts younger than this many days
+        default: '7'
+      keep_latest:
+        description: Keep this many newest copies of each APK/zip artifact
+        default: '3'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: artifact-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Select and (optionally) delete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP_DAYS: ${{ inputs.keep_days }}
+          KEEP_LATEST: ${{ inputs.keep_latest }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, datetime, collections
+          repo = os.environ["GITHUB_REPOSITORY"]; dry = os.environ["DRY_RUN"] == "true"
+          keep_days = int(os.environ["KEEP_DAYS"]); keep_latest = int(os.environ["KEEP_LATEST"])
+          def gh(*a): return subprocess.run(["gh", "api", *a], capture_output=True, text=True)
+          arts, page = [], 1
+          while True:
+              b = json.loads(gh(f"repos/{repo}/actions/artifacts?per_page=100&page={page}").stdout or "{}").get("artifacts", [])
+              arts += b
+              if len(b) < 100 or page >= 30: break
+              page += 1
+          live = [a for a in arts if not a["expired"]]
+          now = datetime.datetime.now(datetime.timezone.utc)
+          age = lambda a: (now - datetime.datetime.fromisoformat(a["created_at"].replace("Z", "+00:00"))).days
+          ENGINE = ("rgss-natives", "easyrpg-natives", "godot-natives", "mkxpz-macos")
+          groups = collections.defaultdict(list)
+          for a in live: groups[a["name"]].append(a)
+          delete = []
+          for name, items in groups.items():
+              items.sort(key=lambda a: a["created_at"], reverse=True)
+              keep_n = 1 if name.startswith(ENGINE) else keep_latest
+              for a in items[keep_n:]:
+                  if age(a) >= keep_days: delete.append(a)
+          freed = sum(a["size_in_bytes"] for a in delete) / 1e9
+          total = sum(a["size_in_bytes"] for a in live) / 1e9
+          lines = [f"## Artifact cleanup ({'dry run' if dry else 'deleting'})", "",
+                   f"Live artifacts: {len(live)} ({total:.2f} GB). Selected: {len(delete)} ({freed:.2f} GB).", "",
+                   "| Artifact | Run | Age (days) | MB |", "|---|---|---|---|"]
+          lines += [f"| {a['name']} | {a['workflow_run']['id']} | {age(a)} | {a['size_in_bytes'] // 1_000_000} |" for a in delete[:200]]
+          failed = 0
+          if not dry:
+              for a in delete:
+                  r = gh("-X", "DELETE", f"repos/{repo}/actions/artifacts/{a['id']}")
+                  if r.returncode != 0: failed += 1; print(f"::warning::could not delete {a['id']}: {r.stderr[:200]}")
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(lines) + "\n")
+          print(f"::notice title=Artifact cleanup::{'would free' if dry else 'freed'} {freed:.2f} GB of {total:.2f} GB ({len(delete)} artifacts{', ' + str(failed) + ' failed' if failed else ''})")
+          PY

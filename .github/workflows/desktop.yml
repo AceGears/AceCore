@@ -1,5 +1,10 @@
 name: AceArcade desktop (Windows, macOS)
 
+# Cost model (docs/CI.md): Windows minutes cost ~1.7x and macOS ~10x Linux minutes.
+#   push to a branch (desktop sources changed)  -> unit tests only (Linux)
+#   manual dispatch / tag desktop-v*             -> Windows and/or macOS zips (+ release when a tag is given)
+# The mkxp-z macOS engine is cached by its pinned commit + build script, so it is compiled once, not per run.
+
 # Builds the desktop app (desktop/) and its installers, with the engines AceArcade bundles:
 #   Windows: EasyRPG Player (RPG Maker 2000/2003), Ruffle (Flash)
 #   macOS:   EasyRPG Player, Ruffle, Godot 4.7 (Godot games exported for Windows, from their .pck), mkxp-z (RPG Maker XP/VX/Ace)
@@ -7,13 +12,26 @@ name: AceArcade desktop (Windows, macOS)
 on:
   push:
     branches: [ main, master, 'overhaul*' ]
-    paths: [ 'desktop/**', 'ci/desktop/**', 'app/src/main/java/com/acecore/app/core/detection/**', 'app/src/main/java/com/acecore/app/core/model/**', '.github/workflows/desktop.yml' ]
+    tags: [ 'desktop-v*' ]
+    paths: [ 'desktop/**', 'ci/desktop/**', 'app/src/main/java/com/acecore/app/core/detection/**', 'app/src/main/java/com/acecore/app/core/model/**', 'app/src/main/java/com/acecore/app/core/scripts/**', '.github/workflows/desktop.yml' ]
   workflow_dispatch:
     inputs:
+      platforms:
+        description: Which desktop apps to build
+        type: choice
+        options: [ both, windows, macos ]
+        default: both
       release_tag:
         description: Publish the zips as a pre-release with this tag (empty = artifacts only)
         type: string
         default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   EASYRPG_VERSION: 0.8.1.1
@@ -24,11 +42,15 @@ jobs:
   test:
     name: Desktop unit tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17' }
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          # Development happens on branches, not only main: let pushes write the dependency/build cache too.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Test
         run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=desktop-test.log ci/run-gradle.sh :desktop:test
       - name: Test summary
@@ -47,14 +69,19 @@ jobs:
   windows:
     name: Windows portable zip
     needs: test
+    if: startsWith(github.ref, 'refs/tags/desktop-v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'macos')
     runs-on: windows-latest
+    timeout-minutes: 40
     env:
       AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17' }
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          # Development happens on branches, not only main: let pushes write the dependency/build cache too.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Bundle engines (EasyRPG Player, Ruffle)
         shell: bash
         env:
@@ -84,7 +111,7 @@ jobs:
       # Optional: Microsoft's Azure Trusted Signing (gains SmartScreen reputation fastest).
       - name: Sign with Azure Trusted Signing
         if: env.AZURE_SIGNING_ACCOUNT != ''
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -108,20 +135,26 @@ jobs:
           set -e
           V=$(grep -m1 'appVersion *=' desktop/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
-          bash ci/desktop/windows-sign.sh desktop/build/compose/binaries/main/app/AceArcade "$GITHUB_WORKSPACE/dist/AceArcade-$V-windows-x64.zip"
+          bash ci/desktop/windows-sign.sh desktop/build/compose/binaries/main/app/AceArcade "$GITHUB_WORKSPACE/dist/AceArcade-v$V-Windows-x64.zip"
           ls -l dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: AceArcade-windows
           path: dist/*.zip
+          retention-days: 14
 
   mkxpz-macos:
     name: mkxp-z engine (macOS, RPG Maker XP/VX/Ace)
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/desktop-v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'windows')
     runs-on: macos-latest
+    timeout-minutes: 60
+    outputs:
+      ok: ${{ steps.launch.outcome == 'success' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: mkxpz-out
           key: mkxpz-macos-arm64-${{ env.MKXPZ_COMMIT }}-${{ hashFiles('ci/desktop/build-mkxpz-macos.sh') }}
@@ -130,32 +163,45 @@ jobs:
         run: bash ci/desktop/build-mkxpz-macos.sh "$PWD/mkxpz-out"
       - name: Save the engine build (even if the launch test fails)
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: mkxpz-out
           key: ${{ steps.cache.outputs.cache-primary-key }}
+      # Only an engine that really ran a game ships. If the test fails, the macOS app is still built, without mkxp-z,
+      # and AceArcade says RPG Maker XP/VX/Ace isn't available on this Mac (no broken engine is bundled).
       - name: Launch test (runs a generated RPG Maker XP game)
+        id: launch
+        continue-on-error: true
         run: |
           EXE=$(ls "$PWD"/mkxpz-out/mkxp-z.* | grep -v '\.txt$' | head -1)
           echo "::notice title=mkxp-z::$(cat mkxpz-out/ACEARCADE-BUILD.txt)"
           bash ci/desktop/mkxpz-launch-test.sh "$EXE" "$RUNNER_TEMP"
       - name: Pack (keeps file permissions)
+        if: steps.launch.outcome == 'success'
         run: tar -czf mkxpz-macos.tar.gz -C mkxpz-out .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.launch.outcome == 'success'
         with:
           name: mkxpz-macos
           path: mkxpz-macos.tar.gz
+          retention-days: 7
 
   macos:
     name: macOS portable zip
     needs: [ test, mkxpz-macos ]
+    if: always() && needs.test.result == 'success' && needs.mkxpz-macos.result == 'success'
     runs-on: macos-latest
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17' }
-      - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          # Development happens on branches, not only main: let pushes write the dependency/build cache too.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.mkxpz-macos.outputs.ok == 'true'
         with: { name: mkxpz-macos }
       - name: Bundle engines (EasyRPG Player, Ruffle, Godot, mkxp-z)
         env:
@@ -163,8 +209,9 @@ jobs:
         run: |
           set -e
           R=desktop/resources/macos/runtimes
-          mkdir -p $R/easyrpg $R/ruffle $R/godot $R/mkxpz
-          tar -xzf mkxpz-macos.tar.gz -C $R/mkxpz
+          mkdir -p $R/easyrpg $R/ruffle $R/godot
+          if [ -f mkxpz-macos.tar.gz ]; then mkdir -p $R/mkxpz && tar -xzf mkxpz-macos.tar.gz -C $R/mkxpz
+          else echo "::warning title=mkxp-z not bundled::its launch test failed, so RPG Maker XP/VX/Ace games are reported as unavailable in this macOS build"; fi
           curl -sSL -o easyrpg.zip "https://easyrpg.org/downloads/player/$EASYRPG_VERSION/easyrpg-player-$EASYRPG_VERSION-macos.app.zip"
           ditto -x -k easyrpg.zip $R/easyrpg
           A=$(gh release view --repo ruffle-rs/ruffle --json assets -q '.assets[].name' | grep -i 'macos-universal.tar.gz$' | head -1)
@@ -191,40 +238,43 @@ jobs:
           test -x $D/AceArcade.app/Contents/MacOS/AceArcade
           V=$(grep -m1 'appVersion *=' desktop/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
-          bash ci/desktop/macos-sign.sh $D/AceArcade.app "$PWD/dist/AceArcade-$V-macos-$(uname -m).zip"
+          bash ci/desktop/macos-sign.sh $D/AceArcade.app "$PWD/dist/AceArcade-v$V-macOS-$(uname -m).zip"
           ls -l dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: AceArcade-macos
           path: dist/*.zip
+          retention-days: 14
 
   publish:
     name: Publish zips
     needs: [ windows, macos ]
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    # Publishes whatever was built and verified; a platform that failed is reported, not silently dropped.
+    if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')) && (needs.windows.result == 'success' || needs.macos.result == 'success')
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     steps:
-      - uses: actions/download-artifact@v4
-        with: { path: dist }
-      - name: Create pre-release
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with: { sparse-checkout: ci }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: { pattern: AceArcade-*, path: dist, merge-multiple: true }
+      - name: Checksums and missing-platform report
+        run: |
+          ls -l dist
+          for p in windows macos; do
+            r=$([ $p = windows ] && echo "${{ needs.windows.result }}" || echo "${{ needs.macos.result }}")
+            [ "$r" = success ] || echo "::warning title=Incomplete release::$p build $r - not included"
+          done
+          V=$(ls dist/*.zip | head -1 | sed -n 's/.*AceArcade-v\([0-9.]*\)-.*/\1/p')
+          ( cd dist && sha256sum *.zip > "AceArcade-v$V-desktop-checksums.sha256" && cat *.sha256 )
+      - name: Create or update the release (idempotent; safe to re-run)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          find dist -type f -exec ls -l {} \;
-          FILES=$(find dist -type f -name '*.zip')
-          [ -n "$FILES" ] || { echo "::error title=publish::no zips were downloaded"; exit 1; }
-          for attempt in 1 2 3; do
-            if gh release view "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              out=$(gh release upload "${{ inputs.release_tag }}" $FILES --clobber --repo "$GITHUB_REPOSITORY" 2>&1) && break
-            else
-              out=$(gh release create "${{ inputs.release_tag }}" $FILES --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-                --title "AceArcade desktop ${{ inputs.release_tag }}" \
-                --notes "Portable Windows and macOS apps (unzip and run, no installer) built from $GITHUB_SHA." 2>&1) && break
-            fi
-            echo "::warning title=publish attempt $attempt::$(echo "$out" | tail -c 400 | tr '\n' ' ')"
-            [ $attempt = 3 ] && { echo "::error title=publish::$(echo "$out" | tail -c 600 | tr '\n' ' ')"; exit 1; }
-            sleep 20
-          done
-          echo "::notice title=published::$(gh release view "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --json assets -q '[.assets[]|.name+" "+(.size|tostring)]|join(", ")')"
+          PRERELEASE: '1'
+          NOTES: "Portable Windows and macOS apps (unzip and run, no installer). SHA-256 checksums attached."
+        run: bash ci/release-publish.sh "${{ inputs.release_tag || github.ref_name }}" "AceArcade desktop ${{ inputs.release_tag || github.ref_name }}" dist/*

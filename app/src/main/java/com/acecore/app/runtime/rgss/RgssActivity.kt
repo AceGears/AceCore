@@ -113,7 +113,7 @@ import java.util.Locale
 class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     companion object {
-        private const val TAG = "AceCoreRgss"
+        private const val TAG = "AceArcadeRgss"
         const val EXTRA_RETRY = "com.acecore.app.extra.RETRY"
         /** No visible progress for this long during start-up → failure screen (with "Keep waiting"). */
         private const val STALL_MS = 60_000L
