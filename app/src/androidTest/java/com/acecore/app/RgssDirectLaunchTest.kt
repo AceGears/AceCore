@@ -75,6 +75,9 @@ class RgssDirectLaunchTest {
         // thread's native stack was too small. The game reports "<depth or -reached> <marshal ok> env=..." before its first frame.
         val probe = File(helper, "stack_probe").takeIf { it.exists() }?.readText()?.trim().orEmpty()
         report("rgss_stack_probe", probe)
+        val encodings = File(helper, "encodings").takeIf { it.exists() }?.readText()?.trim().orEmpty()
+        report("rgss_encodings", encodings)
+        assertTrue("Ruby must use UTF-8 for file names: '$encodings'", encodings.startsWith("fs=UTF-8"))
         assertTrue("Deep recursion through C methods must reach 3000 levels: '$probe' " + diagnostics(helper), probe.startsWith("3000 "))
         assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.split(" ").getOrNull(1) == "true")
         Thread.sleep(1500)

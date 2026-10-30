@@ -4,6 +4,13 @@
 // initialised, a handler is chained in front of Ruby's: it walks the frame-pointer chain from the crash context and
 // writes "AceArcade native backtrace" lines (library, offset, nearest exported symbol) to stderr, which AceArcade
 // captures into the crash report, then hands the signal to Ruby's handler exactly as before (nothing is suppressed).
+// Also: Ruby's file-name encoding. Embedded Ruby takes it from the C locale, which on Android is "C" (US-ASCII):
+// Ruby's own main() calls setlocale(LC_CTYPE, ""), an embedder has to. mkxp-z puts the game folder into $LOAD_PATH, so
+// for a folder like "Pokémon Z" every require converted that UTF-8 path to US-ASCII; the converter is a transcoder
+// loaded by require, which converts the load path again -> endless recursion (rb_econv_open -> require ->
+// rb_str_conv_enc_opts -> rb_econv_open ...) until the engine thread's stack ran out (seen on the device as
+// "[BUG] Segmentation fault" in the first require). Android file systems store UTF-8 names, so the locale is set to
+// C.UTF-8 (bionic) before Ruby starts; Ruby then uses UTF-8 for file names and needs no conversion.
 /*
 ** binding-mri.cpp
 **
@@ -62,6 +69,8 @@ extern "C" {
 
 #include <assert.h>
 #include <signal.h>
+#include <locale.h>
+#include <langinfo.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <ucontext.h>
@@ -1202,6 +1211,9 @@ static void mriBindingExecute() {
      * stdio streams on some platforms (eg. Windows) */
     int argc = 0;
     char **argv = 0;
+    // AceArcade: UTF-8 file names (see file header). Before ruby_sysinit/ruby_init, which read the locale.
+    if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "en_US.UTF-8");
+    Debug() << "AceArcade: locale codeset" << nl_langinfo(CODESET);
     ruby_sysinit(&argc, &argv);
     
     RUBY_INIT_STACK;
