@@ -337,6 +337,12 @@ class LaunchCoordinator(
         return intent
     }
 
+    /** The game's own mkxp.json (direct folder or private copy), for crash reports; null when it has none. */
+    private fun gameMkxpJson(game: GameEntity): String? = runCatching {
+        val dir = GameLocations.directGameDir(context, game) ?: GameLocations.copyGameDir(context, game.id, game.entry)
+        com.acecore.app.core.storage.DirectStorage.findChild(dir, "mkxp.json")?.takeIf { it.length() in 1..64_000 }?.readText()?.take(8_000)
+    }.getOrNull()
+
     // ------------------------------------------------------------------ results
 
     /**
@@ -408,6 +414,8 @@ class LaunchCoordinator(
         val exit = cr.lastExit(context, ":rgss", since)
         val javaCrash = runCatching { cr.javaCrashFile(helperDir).readText() }.getOrNull()
         val log = runCatching { File(helperDir, "runtime.log").readLines().takeLast(250).joinToString("\n") }.getOrNull()
+        // What Ruby / mkxp-z printed (stdout+stderr), e.g. an invalid option or an exception raised before any dialog.
+        val engineOutput = runCatching { File(helperDir, "engine_output.txt").readText().takeLast(6_000).trim() }.getOrNull()?.ifEmpty { null }
         val activityError = if (resultCode == Activity.RESULT_FIRST_USER) data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) else null
         val (cause, identified) = when {
             rubyError != null -> "Ruby script error: ${rubyError.lineSequence().first()}" to true
@@ -425,6 +433,7 @@ class LaunchCoordinator(
             exit != null && exit.reason == "Native crash" -> "Native crash (${exit.signal ?: "signal"}); crashing library not recorded" to true
             exit != null && exit.reason != "Exited normally" -> exit.reason + (exit.description?.let { ": $it" } ?: "") to true
             activityError != null -> activityError to true
+            engineOutput != null -> "The engine stopped and printed: ${engineOutput.lineSequence().filter { it.isNotBlank() }.lastOrNull()?.take(300)}" to true
             else -> "The game process ended without reporting an error. The cause hasn't been identified yet." to false
         }
         val report = cr.redact(buildString {
@@ -441,6 +450,9 @@ class LaunchCoordinator(
             }
             javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
             rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }
+            engineOutput?.let { appendLine(); appendLine("== Engine output (stdout/stderr) =="); appendLine(it) }
+            // The game's own engine settings explain many start-up differences between games.
+            gameMkxpJson(game)?.let { appendLine(); appendLine("== Game's mkxp.json =="); appendLine(it) }
             appendLine(); append(com.acecore.app.runtime.rgss.GameDiagnostics.summary(helperDir))
             log?.let { appendLine(); appendLine("== Game process log (last lines) =="); appendLine(it) }
         })

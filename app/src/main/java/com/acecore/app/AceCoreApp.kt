@@ -27,11 +27,34 @@ class AceCoreApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        recordAppCrashes()
         com.acecore.app.runtime.RuntimeRegistry.rgssNativeAvailable = com.acecore.app.runtime.rgss.RgssRuntime.isPresent(this)
         com.acecore.app.runtime.RuntimeRegistry.easyRpgNativeAvailable = runCatching {
             val loader = classLoader as? dalvik.system.BaseDexClassLoader
             loader != null && loader.findLibrary("easyrpg_android") != null && loader.findLibrary("SDL3") != null
         }.getOrDefault(false)
+    }
+}
+
+/**
+ * Saves a report when AceArcade's own process (library, game details, launch-file browser…) crashes, so it can be shared
+ * from Settings › Advanced › Crash reports, then lets Android handle the crash as usual. Game processes install their own.
+ */
+private fun Application.recordAppCrashes() {
+    val previous = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+        runCatching {
+            val text = buildString {
+                append(com.acecore.app.runtime.CrashReports.header("AceArcade app", "-", "AceArcade itself (not a game)"))
+                appendLine("Cause: ${error.javaClass.name}: ${error.message}")
+                appendLine("Thread: ${thread.name}")
+                appendLine()
+                appendLine("== Stack trace ==")
+                append(android.util.Log.getStackTraceString(error).lineSequence().take(80).joinToString("\n"))
+            }
+            com.acecore.app.runtime.CrashReports.save(this, 0, text)
+        }
+        previous?.uncaughtException(thread, error)
     }
 }
 

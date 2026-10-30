@@ -175,14 +175,19 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                                 when {
                                     loadError != null -> Text(loadError!!, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
                                     listing == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                                    else -> LazyColumn(Modifier.fillMaxSize()) {
-                                        if (stack.size > 1) item(key = "..") {
-                                            FileRow(Icons.AutoMirrored.Rounded.ArrowBack, "Up to ${stack[stack.size - 2].third}", null, highlighted = false, selected = false) {
-                                                stack.removeAt(stack.lastIndex)
+                                    // LazyColumn builds its rows later (during layout), when `listing` may already be null again
+                                    // (a folder was just opened) and the folder stack may have shrunk (Up was tapped): use snapshots.
+                                    else -> {
+                                     val rows = listing.orEmpty().distinctBy { it.docId }
+                                     val parentName = stack.getOrNull(stack.size - 2)?.third
+                                     LazyColumn(Modifier.fillMaxSize()) {
+                                        if (parentName != null) item(key = "..") {
+                                            FileRow(Icons.AutoMirrored.Rounded.ArrowBack, "Up to $parentName", null, highlighted = false, selected = false) {
+                                                if (stack.size > 1) stack.removeAt(stack.lastIndex)
                                             }
                                         }
-                                        if (listing!!.isEmpty()) item { Text("This folder is empty.", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                        items(listing!!, key = { it.docId }) { node ->
+                                        if (rows.isEmpty()) item { Text("This folder is empty.", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                        items(rows, key = { "f:" + it.docId }) { node ->
                                             if (node.isDirectory) {
                                                 FileRow(Icons.Rounded.Folder, node.name, null, highlighted = false, selected = false, chevron = true) {
                                                     stack.add(Triple(node.docId, node.path, node.name))
@@ -202,6 +207,7 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                                                 ) { selected = node.path }
                                             }
                                         }
+                                    }
                                     }
                                 }
                             }

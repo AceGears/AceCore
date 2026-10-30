@@ -391,6 +391,22 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     }
 
     /** Records any uncaught Java/Kotlin exception of this game process for the launcher's crash report. */
+    /**
+     * Ruby and mkxp-z print start-up failures (bad options, uncaught exceptions before the game's error dialog, exit
+     * messages) to stdout/stderr, which Android discards. Point both at a file in the helper folder so the crash report
+     * can show them. This process only ever runs one game.
+     */
+    private fun captureEngineOutput(helperDir: File) {
+        runCatching {
+            val f = File(helperDir, "engine_output.txt")
+            val fd = android.system.Os.open(f.absolutePath,
+                android.system.OsConstants.O_WRONLY or android.system.OsConstants.O_CREAT or android.system.OsConstants.O_TRUNC, 0x1a4)
+            android.system.Os.dup2(fd, 2)   // stderr
+            android.system.Os.dup2(fd, 1)   // stdout
+            android.system.Os.close(fd)
+        }.onFailure { Log.w(TAG, "Could not capture engine output: $it") }
+    }
+
     private fun installCrashHandler(dataDir: File) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
@@ -631,6 +647,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         if (spec != null && !SDLActivity.mBrokenLibraries && !isFinishing) {
             if (!engineStartRequested) {
                 Log.i(TAG, "Starting the SDL/mkxp-z thread")
+                captureEngineOutput(RgssRuntime.helperDir(File(spec!!.dataPath)))
                 com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(spec!!.dataPath)), "Engine starting (SDL, OpenGL, audio, file index)")
             }
             engineStartRequested = true

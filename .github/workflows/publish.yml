@@ -1,14 +1,20 @@
-name: Publish Android APK from a build
+name: Publish a build
 
-# Attaches the APK of an existing "AceArcade Android" run to a GitHub (pre-)release without rebuilding anything
+# Attaches the APK of an existing "AceArcade Android" run, or the zips of an "AceArcade desktop" run, to a GitHub
+# (pre-)release without rebuilding anything
 # (release assets are easier to download than workflow artifacts and don't count against Actions storage).
 # Idempotent: re-running with the same tag replaces the files instead of creating a duplicate release.
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: ID of the "AceArcade Android" run whose APK should be published
+        description: ID of the run whose files should be published
         required: true
+      kind:
+        description: What that run built
+        type: choice
+        options: [ android, desktop ]
+        default: android
       tag:
         description: Release tag (created if missing, updated if it exists)
         required: true
@@ -29,6 +35,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with: { sparse-checkout: ci }
       - name: Download the APK (current artifact name, or the pre-AceArcade one for older runs)
+        if: inputs.kind == 'android'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -36,7 +43,8 @@ jobs:
           gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n AceArcade-Android-arm64 -D apk 2>/dev/null \
             || gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n AceCore-full-debug-arm64 -D apk
           ls -la apk
-      - name: Name, checksum and publish
+      - name: Name, checksum and publish (Android)
+        if: inputs.kind == 'android'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRERELEASE: '1'
@@ -48,3 +56,20 @@ jobs:
           cp "$APK" "dist/AceArcade-${{ inputs.tag }}-Android-arm64.apk"
           ( cd dist && sha256sum *.apk > "AceArcade-${{ inputs.tag }}-Android-checksums.sha256" )
           bash ci/release-publish.sh "${{ inputs.tag }}" "AceArcade ${{ inputs.tag }} (Android, arm64)" dist/*
+      - name: Download, checksum and publish the desktop zips
+        if: inputs.kind == 'desktop'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: '1'
+          NOTES: "Portable Windows and macOS apps (unzip and run, no installer), built by run ${{ inputs.run_id }}. SHA-256 checksums attached."
+        run: |
+          set -e
+          mkdir -p dl dist
+          for a in AceArcade-windows AceArcade-macos; do
+            gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n "$a" -D "dl/$a" 2>/dev/null || echo "::warning title=Incomplete release::$a not in run ${{ inputs.run_id }}"
+          done
+          find dl -name '*.zip' -exec cp {} dist/ \;
+          ls dist/*.zip > /dev/null
+          V=$(ls dist/*.zip | head -1 | sed -n 's/.*AceArcade-v\([0-9.]*\)-.*/\1/p')
+          ( cd dist && sha256sum *.zip > "AceArcade-v$V-desktop-checksums.sha256" && cat *.sha256 )
+          bash ci/release-publish.sh "${{ inputs.tag }}" "AceArcade desktop ${{ inputs.tag }}" dist/*
