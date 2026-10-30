@@ -68,7 +68,7 @@ private val Muted = Color.White.copy(alpha = 0.62f)
 /** Something the user is about to change, shown in a confirm/edit dialog before anything is sent to the game. */
 private sealed interface Pending {
     data class Number(val title: String, val hint: String, val initial: String, val min: Long, val max: Long, val command: (Long) -> Array<String>) : Pending
-    data class Pick(val title: String, val listCommand: String, val listFile: String, val filter: (List<String>) -> Boolean, val withQuantity: Boolean, val maxQty: Int, val command: (String, Int) -> Array<String>) : Pending
+    data class Pick(val title: String, val listCommand: String, val listFile: String, val filter: (List<String>) -> Boolean, val withQuantity: Boolean, val maxQty: Int, val partyFull: Boolean? = null, val command: (String, Int) -> Array<String>) : Pending
     data class Confirm(val title: String, val body: String, val command: Array<String>) : Pending
 }
 
@@ -211,7 +211,7 @@ fun RgssCheatPanel(spec: RgssLaunchSpec, appContext: Context, accent: Color, onC
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (s.has("party_heal")) Chip("Heal party", accent) { apply("party_heal") }
                         if (s.has("pkmn_add")) Chip("Add a Pokémon", accent) {
-                            pending = Pending.Pick("Add a Pokémon", "species", "species", { true }, withQuantity = true, maxQty = 100) { id, lv -> arrayOf("pkmn_add", id, lv.toString()) }
+                            pending = Pending.Pick("Add a Pokémon", "species", "species", { true }, withQuantity = true, maxQty = 100, partyFull = s.has("party_full")) { id, lv -> arrayOf("pkmn_add", id, lv.toString()) }
                         }
                     }
                 }
@@ -379,6 +379,9 @@ private fun PendingDialog(pd: Pending, channel: CheatChannel, accent: Color, onD
             var query by remember(pd) { mutableStateOf("") }
             var chosen by remember(pd) { mutableStateOf<List<String>?>(null) }
             var qty by remember(pd) { mutableStateOf(if (pd.listCommand == "species") "5" else "1") }
+            // Add a Pokémon: where it goes. Existing party members are never replaced.
+            var toPc by remember(pd) { mutableStateOf(false) }
+            var askStorage by remember(pd) { mutableStateOf(false) }
             LaunchedEffect(pd) {
                 val r = channel.send(pd.listCommand, timeoutMs = 8000)
                 if (r.ok) rows = channel.list(pd.listFile).filter(pd.filter) else error = r.message
@@ -414,8 +417,30 @@ private fun PendingDialog(pd: Pending, channel: CheatChannel, accent: Color, onD
                         label = { Text(if (pd.listCommand == "species") "Level" else "Quantity", color = Muted) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip("Apply", accent, selected = valid) { if (valid) onApply(pd.command(c[0], n!!)) }
+                    val full = pd.partyFull
+                    if (full != null) {
+                        Text("Add Pokémon to", color = Muted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip(if (full) "Party (full)" else "Party", accent, selected = !toPc) { toPc = false }
+                            Chip("PC Storage", accent, selected = toPc) { toPc = true }
+                        }
+                    }
+                    if (askStorage) {
+                        Text("Your party is full. Send the new Pokémon to Pokémon Storage?", color = Color.White, fontSize = 14.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Send to Storage", accent, selected = true) { onApply(pd.command(c[0], n ?: 1) + "pc") }
+                            Chip("Cancel", accent) { askStorage = false }
+                        }
+                    } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("Apply", accent, selected = valid) {
+                            if (!valid) return@Chip
+                            when {
+                                full == null -> onApply(pd.command(c[0], n!!))
+                                toPc -> onApply(pd.command(c[0], n!!) + "pc")
+                                full -> askStorage = true
+                                else -> onApply(pd.command(c[0], n!!) + "party")
+                            }
+                        }
                         Chip("Back", accent) { chosen = null }
                     }
                 }

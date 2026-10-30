@@ -154,7 +154,7 @@ ENVS["essentials_v18"] = <<~'RUBY'
   class PokeBattle_Pokemon
     attr_accessor :name, :happiness, :exp, :iv, :ev
     attr_reader :level, :species, :nature, :ability
-    def initialize(species, level)
+    def initialize(species, level, player = nil, with_moves = true)
       @species, @name, @level, @happiness, @exp = species, "Pika", level, 70, level ** 3
       @iv = [10, 11, 12, 13, 14, 15]; @ev = [0, 0, 0, 0, 0, 0]; @nature = 0; @ability = 0
     end
@@ -260,10 +260,30 @@ SCENARIOS["essentials_v20"] = <<~'RUBY'
   check("shiny set", pk.shiny? == true)
   cmd(DIR, "16\tparty_heal")
   check("party healed", $player.party.all? { |p| p.hp == 99 })
+  orig = $player.party.dup
   cmd(DIR, "17\tpkmn_add\tEEVEE\t30")
-  check("Pokémon added", $player.party.size == 3 && $player.party.last.level == 30)
+  check("Pokémon added to the next slot (3rd)", $player.party.size == 3 && $player.party.last.level == 30)
+  check("existing members are the same objects in the same slots", orig.each_with_index.all? { |x, k| $player.party[k].equal?(x) })
   cmd(DIR, "18\tpkmn_to_pc\t2")
   check("Pokémon sent to PC", $player.party.size == 2 && $PokemonStorage.stored.size == 1)
+  $player.party.push(Pokemon.new(:PIKACHU, 3), Pokemon.new(:PIKACHU, 4))
+  four = $player.party.dup
+  cmd(DIR, "40\tpkmn_add\tPIKACHU\t5\tparty")
+  check("4 → 5th slot", $player.party.size == 5 && $player.party[4].level == 5 && four.each_with_index.all? { |x, k| $player.party[k].equal?(x) })
+  cmd(DIR, "41\tpkmn_add\tEEVEE\t6\tparty")
+  check("5 → 6th slot", $player.party.size == 6 && $player.party[5].level == 6)
+  six = $player.party.dup; stored = $PokemonStorage.stored.size
+  probe = state(DIR) rescue nil
+  r = cmd(DIR, "42\tpkmn_add\tEEVEE\t7\tparty")
+  check("full party + Party: refused, nothing replaced", r[0][1] == "error" && $player.party.size == 6 && six.each_with_index.all? { |x, k| $player.party[k].equal?(x) } && $PokemonStorage.stored.size == stored)
+  r = cmd(DIR, "43\tpkmn_add\tEEVEE\t7\tpc")
+  check("full party + PC Storage: stored, party unchanged", r[0][1] == "ok" && $PokemonStorage.stored.size == stored + 1 && $PokemonStorage.stored.last.level == 7 && $player.party.size == 6)
+  def ($PokemonStorage).pbStoreCaught(pk) -1 end
+  r = cmd(DIR, "44\tpkmn_add\tEEVEE\t8\tpc")
+  check("storage full: safe error, no data lost", r[0][1] == "error" && $player.party.size == 6 && $PokemonStorage.stored.size == stored + 1)
+  r = cmd(DIR, "45\tpkmn_add\tNOT_A_SPECIES\t8\tpc")
+  check("unsupported species: validation error", r[0][1] == "error")
+  $player.party.pop(4)
   r = cmd(DIR, "19\tpkmn\t9\tlevel\t5")
   check("missing slot reported", r[0][1] == "error")
 
@@ -297,7 +317,13 @@ SCENARIOS["essentials_v18"] = <<~'RUBY'
   caps = s["caps"].split(",")
   check("detects Essentials 18.1", s["essentials_version"] == "18.1")
   check("v18 capabilities", (%w[money items pkmn_edit no_encounters walk_speed] - caps).empty?)
-  check("pkmn_add hidden when pbAddPokemonSilent is missing", !caps.include?("pkmn_add"))
+  check("v18 offers pkmn_add (PokeBattle_Pokemon)", caps.include?("pkmn_add"))
+  first = $Trainer.party[0]
+  r = cmd(DIR, "50\tpkmn_add\t25\t7\tparty")
+  check("v18 add appends, first member untouched", $Trainer.party.size == 2 && $Trainer.party[0].equal?(first) && $Trainer.party[1].level == 7 && r[0][1] == "ok")
+  r = cmd(DIR, "51\tpkmn_add\tMISSINGNO\t5\tparty")
+  check("v18 unknown species: safe error, party unchanged", r[0][1] == "error" && $Trainer.party.size == 2)
+  $Trainer.party.pop
   cmd(DIR, "2\tmoney\tset\t1234")
   check("v18 money", $Trainer.money == 1234)
   cmd(DIR, "3\titem\tPOKEBALL\t7")

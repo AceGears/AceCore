@@ -205,7 +205,8 @@ module AceCore
           if pt
             c << "party_heal" if pt.all? { |pk| pk.respond_to?(:heal) }
             c << "pkmn_edit"
-            c << "pkmn_add" if defined?(pbAddPokemonSilent)
+            c << "pkmn_add" if defined?(::GameData::Species) || defined?(::PBSpecies)
+            c << "party_full" if pt.length >= max_party
             c << "pkmn_to_pc" if defined?($PokemonStorage) && $PokemonStorage && pt.size > 1
           end
         elsif defined?($game_party) && $game_party
@@ -356,7 +357,7 @@ module AceCore
         when "items" then list_items
         when "party_heal" then heal_party
         when "pkmn" then edit_pkmn(int(a[0], 0), a[1].to_s, a[2..-1] || [])
-        when "pkmn_add" then add_pkmn(a[0], int(a[1], 1, max_level))
+        when "pkmn_add" then add_pkmn(a[0], int(a[1], 1, max_level), (a[2] || "party").to_s)
         when "pkmn_to_pc" then to_pc(int(a[0], 0))
         when "natures" then list_natures
         when "species" then list_species
@@ -550,18 +551,86 @@ module AceCore
         "#{lines.size} species"
       end
 
-      def add_pkmn(species, level)
+      # Adds a NEW Pokémon without touching the existing party: appended to the next free party slot, or stored in
+      # the PC when asked (dest "pc") or when the party is full and the player confirmed storage (dest "pc_if_full").
+      # Version-aware: Pokemon.new (Essentials v19+) or PokeBattle_Pokemon.new (v16-v18); $player or $Trainer;
+      # $PokemonStorage.pbStoreCaught. Verifies the result and restores the party if anything else changed.
+      def add_pkmn(species, level, dest = "party")
         need("pkmn_add")
-        sp = if defined?(::GameData::Species)
+        sp = pkmn_species(species)
+        pt = party
+        before = pt.dup
+        full = pt.length >= max_party
+        if dest == "party" && full
+          raise "Your party is full. Choose PC Storage to add it there."
+        end
+        pk = new_pkmn(sp, level)
+        register_dex(pk)
+        if dest == "pc" || dest == "pc_if_full" && full
+          st = defined?($PokemonStorage) ? $PokemonStorage : nil
+          raise "Pokémon Storage isn't available in this game yet" unless st && st.respond_to?(:pbStoreCaught)
+          box = st.pbStoreCaught(pk)
+          raise "Pokémon Storage is full. Nothing was changed." if box.nil? || box < 0
+          verify_party(pt, before, nil)
+          "Pokémon added successfully! (PC box #{box + 1})"
+        else
+          pt.push(pk)
+          verify_party(pt, before, pk)
+          "Pokémon added successfully! (party slot #{pt.length})"
+        end
+      end
+
+      def max_party
+        return ::Settings::MAX_PARTY_SIZE if defined?(::Settings::MAX_PARTY_SIZE)
+        return ::MAX_PARTY_SIZE if defined?(::MAX_PARTY_SIZE)
+        6
+      end
+
+      def pkmn_species(species)
+        if defined?(::GameData::Species)
           sym = species.to_s.to_sym
           raise "Unknown species #{species}" unless ::GameData::Species.exists?(sym)
           sym
         else
-          species.to_s =~ /\A\d+\z/ ? species.to_i : ::PBSpecies.const_get(species.to_s)
+          id = species.to_s =~ /\A\d+\z/ ? species.to_i : (::PBSpecies.const_get(species.to_s) rescue nil)
+          raise "Unknown species #{species}" unless id.is_a?(Integer) && id > 0
+          id
         end
-        ok = pbAddPokemonSilent(sp, level)
-        raise "No space in the party or the PC" unless ok
-        "Added a level #{level} Pokémon"
+      end
+
+      def new_pkmn(sp, level)
+        pk = if defined?(::Pokemon) && ::Pokemon.is_a?(Class) && ::Pokemon.instance_method(:initialize).arity != 0
+          ::Pokemon.new(sp, level)
+        elsif defined?(::PokeBattle_Pokemon)
+          ::PokeBattle_Pokemon.new(sp, level, player)
+        else
+          raise "This game's Pokémon class isn't supported"
+        end
+        pk.record_first_moves if pk.respond_to?(:record_first_moves)
+        pk
+      end
+
+      def register_dex(pk)
+        pl = player
+        if pl.respond_to?(:pokedex) && pl.pokedex
+          dex = pl.pokedex
+          dex.register(pk) if dex.respond_to?(:register)
+          dex.set_owned(pk.species) if dex.respond_to?(:set_owned)
+        elsif pl.respond_to?(:seen) && pl.respond_to?(:owned)
+          (pl.seen[pk.species] = true) rescue nil
+          (pl.owned[pk.species] = true) rescue nil
+        end
+      rescue StandardError
+        nil # the Pokédex is cosmetic for this cheat; never fail the add because of it
+      end
+
+      # Existing members must be the same objects in the same slots; the only change allowed is `added` at the end.
+      def verify_party(pt, before, added)
+        expected = added ? before + [added] : before
+        ok = pt.length == expected.length && pt.each_with_index.all? { |x, k| x.equal?(expected[k]) }
+        return if ok
+        pt.replace(before)
+        raise "The game changed the party unexpectedly; it was restored and nothing was added."
       end
 
       def to_pc(i)
