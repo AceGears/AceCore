@@ -70,7 +70,6 @@ extern "C" {
 #include <assert.h>
 #include <signal.h>
 #include <locale.h>
-#include <langinfo.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <ucontext.h>
@@ -1212,8 +1211,11 @@ static void mriBindingExecute() {
     int argc = 0;
     char **argv = 0;
     // AceArcade: UTF-8 file names (see file header). Before ruby_sysinit/ruby_init, which read the locale.
-    if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "en_US.UTF-8");
-    Debug() << "AceArcade: locale codeset" << nl_langinfo(CODESET);
+    {
+        const char *loc = setlocale(LC_CTYPE, "C.UTF-8");
+        if (!loc) loc = setlocale(LC_CTYPE, "en_US.UTF-8");
+        Debug() << "AceArcade: LC_CTYPE" << (loc ? loc : "(unchanged)");
+    }
     ruby_sysinit(&argc, &argv);
     
     RUBY_INIT_STACK;
