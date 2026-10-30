@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.zip.ZipInputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -158,7 +159,7 @@ val unpackNativeLibs by tasks.registering {
         for ((name, parts) in sets) {
             val joined = workDir.get().asFile.resolve(name).apply { parentFile.mkdirs() }
             joined.outputStream().use { out -> parts.sortedBy { it.name }.forEach { p -> p.inputStream().use { it.copyTo(out) } } }
-            java.util.zip.ZipInputStream(joined.inputStream()).use { zip ->
+            ZipInputStream(joined.inputStream()).use { zip ->
                 generateSequence { zip.nextEntry }.filter { !it.isDirectory }.forEach { e ->
                     val target = outDir.asFile.resolve(e.name).canonicalFile
                     require(target.path.startsWith(outDir.asFile.canonicalPath)) { "bad entry ${e.name}" }
