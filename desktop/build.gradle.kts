@@ -9,7 +9,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-kotlin { jvmToolchain(17) }
+// Java 17 bytecode, built with whatever JDK 17+ runs Gradle (Android Studio bundles JDK 21; no toolchain download).
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 
 sourceSets {
     main {
