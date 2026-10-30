@@ -111,7 +111,7 @@ Set these in **Settings → Billing and plans**:
    Engine builds and the newest APKs/zips are kept.
 
 ## Security
-- `permissions: contents: read` by default. Write access exists only in release/publish jobs (`contents: write`), the
+- `permissions: contents: read` by default. Write access exists only in release/publish jobs (`contents: write`; the desktop workflow as a whole, which has no pull-request trigger), the
   emulator job (publishes its screenshots as a pre-release) and the cleanup job (`actions: write`).
 - Every third-party action is pinned to a full commit SHA (the version is in a comment). Dependabot proposes updates
   monthly, grouped, minor/patch only; major versions and the Godot library are never auto-updated.
