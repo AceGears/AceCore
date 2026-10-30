@@ -48,7 +48,9 @@ class RgssDirectLaunchTest {
         assertTrue("All files access must be granted for this test", DirectStorage.hasAccess(ctx))
         ui() // connect before the game starts
 
-        val gameDir = File(Environment.getExternalStorageDirectory(), "AceCoreTest/TinyXP")
+        // A non-ASCII folder name, like real libraries ("Pokémon Z"): Ruby's load path contains the game folder, and
+        // converting it to a non-UTF-8 filesystem encoding recursed until the engine thread's stack ran out.
+        val gameDir = File(Environment.getExternalStorageDirectory(), "AceCoreTest/Pokémon TinyXP")
         gameDir.deleteRecursively()
         copyAsset("tinyxp", gameDir)
         assertTrue(File(gameDir, "Game.ini").isFile && File(gameDir, "Data/Scripts.rxdata").isFile)

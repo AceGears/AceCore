@@ -43,6 +43,8 @@ script = <<~'RUBY'
     nested = (1..2000).inject(0) { |acc, _| [acc] }
     marshal_ok = begin; Marshal.load(Marshal.dump(nested)).flatten == [0]; rescue SystemStackError; false; end
     mark.call("stack_probe", "#{depth} #{marshal_ok} env=#{ENV["SDL_THREAD_STACK_SIZE"]}")
+    # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
+    mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
     frames = 0
     while frames < 60 * 90
