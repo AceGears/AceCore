@@ -36,6 +36,13 @@ class LaunchDiagnosisTest {
         assertFalse("loaded features list is omitted", body.contains("enumerator.so"))
     }
 
+    @Test fun nativeBacktracePrintedBeforeTheDumpIsKept() {
+        val out = "AceArcade native backtrace (signal 11, code 2, fault address 0x7f0):\n  #00 pc 0000001234  libruby.so (rb_foo+0x10)\nAceArcade native backtrace end\n" + dump
+        val body = LaunchDiagnosis.rubyCrash(out)!!.second
+        assertTrue(body, body.contains("libruby.so (rb_foo+0x10)"))
+        assertTrue(body.contains("[BUG]"))
+    }
+
     @Test fun noBugLineMeansNoRubyCrash() {
         assertNull(LaunchDiagnosis.rubyCrash("7ff10f0000-7ff18ef000 rw-p 00000000 00:00 0 [stack]\n"))
     }

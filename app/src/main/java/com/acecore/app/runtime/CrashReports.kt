@@ -82,7 +82,16 @@ object LaunchDiagnosis {
             if (skipping && (l.startsWith("* ") || l.startsWith("-- "))) skipping = false
             if (!skipping) kept += l
         }
-        return lines[start].trim() to kept.joinToString("\n").take(14_000)
+        // AceArcade's engine patch prints the native call chain just before Ruby's dump: keep it, it names the
+        // C function that crashed (Ruby's own dump has no native backtrace on Android).
+        // Also keeps AceArcade's own start-up notes ("AceArcade: ...") printed before the crash.
+        val nb = lines.indexOfFirst { it.startsWith("AceArcade native backtrace (") }
+        val nbEnd = if (nb < 0) -1 else lines.indexOfFirst { it.startsWith("AceArcade native backtrace end") }.let { if (it < nb) minOf(lines.size, nb + 70) else it + 1 }
+        val notes = lines.subList(0, start).withIndex()
+            .filter { (i, l) -> l.startsWith("AceArcade") || (nb >= 0 && i in nb until nbEnd) }
+            .map { it.value }.takeLast(120)
+        val native = if (notes.isEmpty()) "" else notes.joinToString("\n") + "\n\n"
+        return lines[start].trim() to (native + kept.joinToString("\n")).take(20_000)
     }
 }
 

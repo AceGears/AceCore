@@ -9,8 +9,12 @@
 # AceArcade prepends a header defining AceCoreCompat::DISPLAY_W / DISPLAY_H (the device screen in landscape pixels).
 # Never touches game files.
 
+# Start-up notes for crash reports (stderr is captured into the report; nothing is shown to the player).
+($stderr.puts("AceArcade: compat start ruby=#{RUBY_VERSION} cwd=#{(Dir.pwd rescue '?')} load_path=#{$LOAD_PATH.inspect} " \
+  "features=#{$LOADED_FEATURES.size} zlib_defined=#{defined?(Zlib) ? 1 : 0}"); $stderr.flush) rescue nil
 begin
   require 'zlib'
+  ($stderr.puts("AceArcade: zlib loaded #{Zlib::ZLIB_VERSION rescue '?'}"); $stderr.flush) rescue nil
 rescue LoadError => e
   ($stderr.puts("AceArcade: Ruby zlib extension unavailable: #{e.message}") rescue nil)
 end
