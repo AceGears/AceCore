@@ -205,6 +205,7 @@ jobs:
           test -f port/app/jni/mkxp-z/src/util/encoding.h
           cp -rv acecore/ci/patches/mkxp-z/. port/app/jni/mkxp-z/
           grep -q "AceCore patch" port/app/jni/mkxp-z/src/util/encoding.h
+          python3 acecore/ci/patches/ruby/android_utf8_locale.py port/app/jni/ruby
       - name: Compile native dependencies (arm64-v8a, 16 KB pages)
         if: steps.have.outputs.ok != 'true'
         working-directory: port/app/jni
