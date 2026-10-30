@@ -143,3 +143,30 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.room.testing)
 }
+
+// Local builds without CI: engine libraries can be delivered as split zips (<name>.zip.001, .002, …) in
+// app/native-libs/. Each set is joined and unpacked into src/main/jniLibs before the build. No-op when absent.
+val unpackNativeLibs by tasks.registering {
+    val partsDir = layout.projectDirectory.dir("native-libs")
+    val outDir = layout.projectDirectory.dir("src/main/jniLibs")
+    val workDir = layout.buildDirectory.dir("native-libs")
+    val partName = Regex("""(.+\.zip)\.(\d{3})""")
+    onlyIf { partsDir.asFile.listFiles()?.any { partName.matches(it.name) } == true }
+    doLast {
+        val sets = partsDir.asFile.listFiles()!!.filter { partName.matches(it.name) }
+            .groupBy { partName.matchEntire(it.name)!!.groupValues[1] }
+        for ((name, parts) in sets) {
+            val joined = workDir.get().asFile.resolve(name).apply { parentFile.mkdirs() }
+            joined.outputStream().use { out -> parts.sortedBy { it.name }.forEach { p -> p.inputStream().use { it.copyTo(out) } } }
+            java.util.zip.ZipInputStream(joined.inputStream()).use { zip ->
+                generateSequence { zip.nextEntry }.filter { !it.isDirectory }.forEach { e ->
+                    val target = outDir.asFile.resolve(e.name).canonicalFile
+                    require(target.path.startsWith(outDir.asFile.canonicalPath)) { "bad entry ${e.name}" }
+                    target.parentFile.mkdirs(); target.outputStream().use { zip.copyTo(it) }
+                }
+            }
+            logger.lifecycle("Unpacked $name (${parts.size} parts) into ${outDir.asFile}")
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(unpackNativeLibs) }

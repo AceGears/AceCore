@@ -17,3 +17,4 @@ keystore.properties
 
 # The public development signing key IS committed (see app/build.gradle.kts)
 !ci/acecore-dev.keystore
+/app/native-libs/
