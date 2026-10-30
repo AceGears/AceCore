@@ -25,7 +25,66 @@ data class LaunchFailure(
     val reportFile: File?,
     val wasDirect: Boolean,
     val helperUsed: Boolean,
+    /** Plain-language diagnosis for the dialog (never a raw dump). */
+    val diagnosis: LaunchDiagnosis.Result = LaunchDiagnosis.Result("", "", LaunchDiagnosis.Fix.RETRY),
 )
+
+/**
+ * Turns the evidence of a failed launch into a plain-language issue and ONE recommended, safe next step. Rules are
+ * evidence-based (they look at what actually failed); unknown failures get a plain retry, never a cycle of settings.
+ */
+object LaunchDiagnosis {
+    enum class Fix { NONE, RETRY, NO_HELPER, PRIVATE_COPY }
+    data class Result(val issue: String, val recommendation: String, val fix: Fix)
+
+    fun classify(cause: String, rubyError: String?, engineCrash: String?, nativeCrash: Boolean, helperUsed: Boolean, wasDirect: Boolean): Result {
+        val ruby = rubyError.orEmpty()
+        val bug = engineCrash.orEmpty()
+        return when {
+            // AceArcade's own helper/compatibility script is in the failing backtrace: retry without the helper.
+            helperUsed && (ruby.contains("acecore_preload") || ruby.contains("acecore_runtime")) -> Result(
+                "AceArcade's game helper hit an error with this game's scripts.",
+                "Start the game without the helper (cheats and the in-game AceArcade menu tools are off for that session).", Fix.NO_HELPER)
+            // Files the engine can't open in the user's folder: a private copy has plain file semantics.
+            wasDirect && Regex("(?i)PHYSFS|No such file|Permission denied|Errno::E(ACCES|NOENT|PERM)").containsMatchIn(ruby + bug) -> Result(
+                "The engine couldn't open some of the game's files in their folder.",
+                "Run the game from AceArcade's private copy of the folder (made once; your original files are not changed).", Fix.PRIVATE_COPY)
+            bug.isNotEmpty() && Regex("(?i)stack level too deep|stack overflow|SystemStackError").containsMatchIn(bug) -> Result(
+                "The game's scripts needed more memory for nested code than the engine had.",
+                "Retry. If it happens again, send the report: this game needs a larger engine stack than AceArcade provides.", Fix.RETRY)
+            bug.isNotEmpty() -> Result(
+                "The Ruby engine inside AceArcade crashed while starting the game's scripts.",
+                "Retry once. If it happens again, the game uses something this engine version can't run yet; the report shows where.", Fix.RETRY)
+            ruby.isNotEmpty() -> Result(
+                "The game's own scripts stopped with an error.",
+                "This usually means the game needs a feature AceArcade's engine doesn't provide yet. Retrying won't change it; the report shows the script and line.", Fix.NONE)
+            nativeCrash -> Result(
+                "The game engine crashed (native code).",
+                "Retry once. If it happens again, the report names the crashing library.", Fix.RETRY)
+            else -> Result(
+                if (cause.startsWith("The game process ended without")) "The game stopped during start-up without reporting why." else cause,
+                "Retry once. If it happens again, the full report has the details.", Fix.RETRY)
+        }
+    }
+
+    /**
+     * Ruby's crash dump ("[BUG] Segmentation fault ...") ends with the process memory map, which says nothing about the
+     * cause. Returns the [BUG] line and the dump up to the memory map / loaded-features list, or null if it isn't one.
+     */
+    fun rubyCrash(output: String): Pair<String, String>? {
+        val lines = output.lines()
+        val start = lines.indexOfFirst { it.contains("[BUG]") }.takeIf { it >= 0 } ?: return null
+        val kept = ArrayList<String>()
+        var skipping = false
+        for (l in lines.drop(start)) {
+            if (l.startsWith("* Process memory map") ) break
+            if (l.startsWith("* Loaded features")) { skipping = true; kept += "* Loaded features: (omitted)"; continue }
+            if (skipping && (l.startsWith("* ") || l.startsWith("-- "))) skipping = false
+            if (!skipping) kept += l
+        }
+        return lines[start].trim() to kept.joinToString("\n").take(14_000)
+    }
+}
 
 /**
  * Local, privacy-conscious crash reports for game processes. Nothing is uploaded. Sources, in order of reliability:

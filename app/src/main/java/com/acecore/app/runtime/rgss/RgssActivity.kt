@@ -233,6 +233,10 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             GAME_PATH = s.gamePath
             // Read by AceArcade's mkxp-z patch (src/config.cpp) before the ini: renamed games (Flux.ini) start as-is.
             runCatching { android.system.Os.setenv("ACEARCADE_EXEC_NAME", s.execName.ifBlank { "Game" }, true) }
+            // mkxp-z runs Ruby on an SDL thread ("rgss") created with SDL's default stack (~1 MB on Android, vs 8 MB for a
+            // desktop main thread). Large script sets (Pokémon Essentials games: deep Marshal.load of Scripts/Data, deep
+            // recursion in plugin loaders) overflow it and Ruby aborts with a [BUG] dump. SDL_CreateThread reads this.
+            runCatching { android.system.Os.setenv("SDL_THREAD_STACK_SIZE", (16 * 1024 * 1024).toString(), true) }
             dataDir = File(s.dataPath).apply { mkdirs() }
             com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(s.dataPath)), "Game process started")
             buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id], ButtonMap.RGSS_DEFAULT)

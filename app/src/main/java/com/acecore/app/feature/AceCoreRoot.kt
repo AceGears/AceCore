@@ -20,6 +20,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
+import com.acecore.app.runtime.LaunchDiagnosis.Fix
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -428,33 +430,56 @@ private fun AceNavHost(nav: NavHostController) {
     }
 }
 
-/** Shown when a game process ended before the game started: the detected cause, and retries that isolate it. */
+/**
+ * Shown when a game process ended before the game started: what was detected (in plain language), one evidence-based
+ * recommended fix, and the technical options tucked away under Troubleshooting.
+ */
 @Composable
 private fun LaunchFailureDialog(f: com.acecore.app.runtime.LaunchFailure, onRetry: (LaunchOptions) -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var details by remember { mutableStateOf(false) }
+    var troubleshooting by remember { mutableStateOf(false) }
+    val d = f.diagnosis
+    val recommended: LaunchOptions? = when (d.fix) {
+        Fix.RETRY -> LaunchOptions()
+        Fix.NO_HELPER -> if (f.helperUsed) LaunchOptions(disableHelper = true) else null
+        Fix.PRIVATE_COPY -> if (f.wasDirect) LaunchOptions(forceCopy = true) else null
+        Fix.NONE -> null
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${f.title} could not start") },
+        title = { Text("Unable to start ${f.title}") },
         text = {
             Column(Modifier.androidx_verticalScroll(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Stage: ${f.stage}", style = MaterialTheme.typography.bodySmall)
-                Text(f.cause, style = MaterialTheme.typography.bodyMedium)
+                Text("Detected issue", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(d.issue.ifEmpty { f.cause }, style = MaterialTheme.typography.bodyMedium)
+                if (d.recommendation.isNotEmpty()) {
+                    Text("Recommended", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(d.recommendation, style = MaterialTheme.typography.bodyMedium)
+                }
                 Text(
-                    "AceArcade itself kept running: games run in their own process. A report was saved (Settings › Advanced › Crash reports).",
+                    "AceArcade itself kept running (games run in their own process). A report was saved in Settings › Advanced › Crash reports.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = { onRetry(LaunchOptions()) }) { Text("Retry") }
-                if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceArcade's game helper") }
-                if (f.wasDirect) TextButton(onClick = { onRetry(LaunchOptions(forceCopy = true)) }) { Text("Retry from a private copy (diagnostic)") }
-                TextButton(onClick = { details = !details }) { Text(if (details) "Hide error details" else "View error details") }
+                if (recommended != null) Button(onClick = { onRetry(recommended) }) {
+                    Text(when (d.fix) { Fix.NO_HELPER -> "Try without the game helper"; Fix.PRIVATE_COPY -> "Try from a private copy"; else -> "Try again" })
+                }
+                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "View details") }
                 if (details) {
+                    Text("Stage: ${f.stage}", style = MaterialTheme.typography.bodySmall)
+                    Text(f.cause, style = MaterialTheme.typography.bodySmall)
                     Text(f.report.take(6000), style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                     TextButton(onClick = {
                         (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                             .setPrimaryClip(android.content.ClipData.newPlainText("AceArcade crash report", f.report))
                         android.widget.Toast.makeText(ctx, "Report copied", android.widget.Toast.LENGTH_SHORT).show()
                     }) { Text("Copy full report") }
+                }
+                TextButton(onClick = { troubleshooting = !troubleshooting }) { Text(if (troubleshooting) "Hide troubleshooting" else "Troubleshooting") }
+                if (troubleshooting) {
+                    TextButton(onClick = { onRetry(LaunchOptions()) }) { Text("Retry") }
+                    if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceArcade's game helper") }
+                    if (f.wasDirect) TextButton(onClick = { onRetry(LaunchOptions(forceCopy = true)) }) { Text("Retry from a private copy") }
                 }
             }
         },

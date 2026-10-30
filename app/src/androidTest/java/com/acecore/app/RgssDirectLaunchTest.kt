@@ -69,6 +69,12 @@ class RgssDirectLaunchTest {
         if (!waitFor(180_000) { ready.exists() }) fail("No first frame within 180 s. " + diagnostics(helper))
         val latency = ready.readText().trim().toLong() - requestedAt
         report("rgss_first_frame_ms", latency)
+        // Deep-nesting probe in the test game (ci/make_test_game.rb): large games crashed at start-up when the engine
+        // thread's native stack was too small. The game reports "<depth> <marshal ok>" before its first frame.
+        val probe = File(helper, "stack_probe").takeIf { it.exists() }?.readText()?.trim().orEmpty()
+        report("rgss_stack_probe", probe)
+        assertTrue("Deep recursion through C methods must reach 3000 levels: '$probe' " + diagnostics(helper), probe.startsWith("3000 "))
+        assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.endsWith(" true"))
         Thread.sleep(1500)
         screenshot("rgss_game.png")
 
@@ -172,7 +178,7 @@ class RgssDirectLaunchTest {
         return cond()
     }
 
-    private fun diagnostics(helper: File): String = listOf("test_error", "error", "log", "test_started").joinToString(" | ") { n ->
+    private fun diagnostics(helper: File): String = listOf("test_error", "error", "log", "test_started", "stack_probe").joinToString(" | ") { n ->
         "$n=" + (File(helper, n).takeIf { it.exists() }?.readText()?.take(400) ?: "-")
     }
 

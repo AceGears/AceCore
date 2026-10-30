@@ -415,7 +415,9 @@ class LaunchCoordinator(
         val javaCrash = runCatching { cr.javaCrashFile(helperDir).readText() }.getOrNull()
         val log = runCatching { File(helperDir, "runtime.log").readLines().takeLast(250).joinToString("\n") }.getOrNull()
         // What Ruby / mkxp-z printed (stdout+stderr), e.g. an invalid option or an exception raised before any dialog.
-        val engineOutput = runCatching { File(helperDir, "engine_output.txt").readText().takeLast(6_000).trim() }.getOrNull()?.ifEmpty { null }
+        val engineOutputFull = runCatching { File(helperDir, "engine_output.txt").takeIf { it.length() in 1..2_000_000 }?.readText() }.getOrNull()?.trim()?.ifEmpty { null }
+        val engineCrash = engineOutputFull?.let { com.acecore.app.runtime.LaunchDiagnosis.rubyCrash(it) }
+        val engineOutput = engineCrash?.second ?: engineOutputFull?.takeLast(6_000)
         val activityError = if (resultCode == Activity.RESULT_FIRST_USER) data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) else null
         val (cause, identified) = when {
             rubyError != null -> "Ruby script error: ${rubyError.lineSequence().first()}" to true
@@ -433,6 +435,7 @@ class LaunchCoordinator(
             exit != null && exit.reason == "Native crash" -> "Native crash (${exit.signal ?: "signal"}); crashing library not recorded" to true
             exit != null && exit.reason != "Exited normally" -> exit.reason + (exit.description?.let { ": $it" } ?: "") to true
             activityError != null -> activityError to true
+            engineCrash != null -> "Ruby crashed: ${engineCrash.first.substringAfter("[BUG]").trim().take(200)}" to true
             engineOutput != null -> "The engine stopped and printed: ${engineOutput.lineSequence().filter { it.isNotBlank() }.lastOrNull()?.take(300)}" to true
             else -> "The game process ended without reporting an error. The cause hasn't been identified yet." to false
         }
@@ -459,7 +462,9 @@ class LaunchCoordinator(
         val file = cr.save(context, game.id, report)
         val direct = File(GameStorage.dataDir(context, game.id), "mkxp.json").exists() &&
             runCatching { File(helperDir, "runtime.log").readText().contains("direct=true") }.getOrDefault(false)
-        return com.acecore.app.runtime.LaunchFailure(game.id, game.title, stage, cause, identified, report, file, direct, helperUsed)
+        val diagnosis = com.acecore.app.runtime.LaunchDiagnosis.classify(
+            cause, rubyError, engineCrash?.second, exit?.reason == "Native crash", helperUsed, direct)
+        return com.acecore.app.runtime.LaunchFailure(game.id, game.title, stage, cause, identified, report, file, direct, helperUsed, diagnosis)
     }
 
     /**

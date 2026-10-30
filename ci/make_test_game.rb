@@ -34,6 +34,14 @@ script = <<~'RUBY'
       sprite.bitmap.draw_text(40, 240, 560, 40, "Runs directly from shared storage", 1)
     rescue Exception
     end
+    # Deep-nesting probe (regression check for start-up crashes of large games such as Pokémon Essentials titles):
+    # recursion through a C method (Array#each) and Marshal.load of deeply nested data both use the engine thread's
+    # native stack, like big script sets and plugin loaders do. Reports the depth reached; a crash here ends the test.
+    probe = lambda { |n, max| n >= max ? n : [0].each { return probe.call(n + 1, max) } }
+    depth = begin; probe.call(0, 3000); rescue SystemStackError; -1; end
+    nested = (1..2000).inject(0) { |acc, _| [acc] }
+    marshal_ok = begin; Marshal.load(Marshal.dump(nested)).flatten == [0]; rescue SystemStackError; false; end
+    mark.call("stack_probe", "#{depth} #{marshal_ok}")
     mark.call("test_started", "1")
     frames = 0
     while frames < 60 * 90
