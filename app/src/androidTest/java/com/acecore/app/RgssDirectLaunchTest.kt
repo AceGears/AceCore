@@ -180,7 +180,8 @@ class RgssDirectLaunchTest {
 
     private fun diagnostics(helper: File): String = listOf("test_error", "error", "log", "test_started", "stack_probe").joinToString(" | ") { n ->
         "$n=" + (File(helper, n).takeIf { it.exists() }?.readText()?.take(400) ?: "-")
-    }
+    } + " | engine_output=" + (File(helper, "engine_output.txt").takeIf { it.exists() }?.readText()
+        ?.let { o -> o.substring(maxOf(0, o.indexOf("[BUG]") - 200)).take(1500) } ?: "-")
 
     private fun report(key: String, value: Any) {
         val dir = File(ctx.getExternalFilesDir(null), "testresults").apply { mkdirs() }

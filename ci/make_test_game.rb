@@ -96,4 +96,7 @@ RUBY
 
 File.write(File.join(out, "Game.ini"), "[Game]\r\nLibrary=RGSS104E.dll\r\nScripts=Data\\Scripts.rxdata\r\nTitle=AceCore Test\r\nRTP1=\r\nRTP2=\r\nRTP3=\r\n")
 File.binwrite(File.join(out, "Data", "Scripts.rxdata"), Marshal.dump([[1, "Main", Zlib::Deflate.deflate(script)]]))
+# Like many released Essentials games (e.g. Pokémon Xenoverse), the test game ships mkxp.json with "debugMode": true,
+# which makes mkxp-z set Ruby's $DEBUG for RGSS1 games (Ruby then reports every exception, even rescued ones).
+File.write(File.join(out, "mkxp.json"), "{\n  \"debugMode\": true\n}\n")
 puts "Test game written to #{out}"
