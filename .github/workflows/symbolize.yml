@@ -2,7 +2,12 @@ name: Symbolize a native crash
 
 # Turns "AceArcade native backtrace" lines from a crash report into function names and source lines, using the
 # unstripped engine libraries (natives/symbols) kept with an RGSS engine build. Linux only, ~1 minute.
+# Also runs on a push to a "symbolize-*" branch, reading the run id (first line) and frames (other lines,
+# "lib offset") from ci/symbolize-request.txt (new workflows can only be started by hand from the default branch).
 on:
+  push:
+    branches: [ 'symbolize-*' ]
+    paths: [ ci/symbolize-request.txt ]
   workflow_dispatch:
     inputs:
       run_id:
@@ -21,13 +26,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        if: github.event_name == 'push'
+        with: { sparse-checkout: ci }
+      - name: Inputs
+        id: in
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          FRAMES: ${{ inputs.frames }}
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(head -1 ci/symbolize-request.txt)
+            FRAMES=$(tail -n +2 ci/symbolize-request.txt | paste -sd,)
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          { echo 'frames<<EOF'; echo "$FRAMES"; echo EOF; } >> "$GITHUB_OUTPUT"
       - name: Download the engine build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n rgss-natives-arm64-v8a -D natives
+        run: gh run download "${{ steps.in.outputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n rgss-natives-arm64-v8a -D natives
       - name: Symbolize
         env:
-          FRAMES: ${{ inputs.frames }}
+          FRAMES: ${{ steps.in.outputs.frames }}
         run: |
           SYM="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-symbolizer"
           [ -x "$SYM" ] || SYM=$(ls "$ANDROID_HOME"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-symbolizer | tail -1)
