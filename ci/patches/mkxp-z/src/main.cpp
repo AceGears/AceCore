@@ -1,5 +1,6 @@
 // AceCore/AceArcade patch (applied by CI over mkxp-z-android-reworked@b668e08 src/main.cpp):
-// logs start-up step durations ("AceArcade timing: ..." in the engine log). No behaviour change.
+// logs start-up step durations ("AceArcade timing: ..." in the engine log), and creates the "rgss" (Ruby) thread
+// with a 16 MB stack instead of the ~1 MB Android default (large games overflowed it at start-up).
 /*
 ** main.cpp
 **
@@ -487,7 +488,10 @@ int main(int argc, char *argv[])
 #endif
 
 	// Start RGSS thread
-	SDL_Thread *rgssThread = SDL_CreateThread(rgssThreadFun, "rgss", &rtData);
+	// AceArcade patch: the game's Ruby scripts run on this thread. SDL_CreateThread gives it the platform default stack
+	// (about 1 MB on Android, where a desktop game's main thread has 8 MB), which large games (Pokemon Essentials,
+	// deep Marshal/plugin loading) overflow during start-up. 16 MB, like a generous desktop main thread.
+	SDL_Thread *rgssThread = SDL_CreateThreadWithStackSize(rgssThreadFun, "rgss", 16 * 1024 * 1024, &rtData);
 
 	// Start events processing
 	eventThread.process(rtData);

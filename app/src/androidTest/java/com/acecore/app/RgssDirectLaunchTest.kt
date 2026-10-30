@@ -70,11 +70,11 @@ class RgssDirectLaunchTest {
         val latency = ready.readText().trim().toLong() - requestedAt
         report("rgss_first_frame_ms", latency)
         // Deep-nesting probe in the test game (ci/make_test_game.rb): large games crashed at start-up when the engine
-        // thread's native stack was too small. The game reports "<depth> <marshal ok>" before its first frame.
+        // thread's native stack was too small. The game reports "<depth or -reached> <marshal ok> env=..." before its first frame.
         val probe = File(helper, "stack_probe").takeIf { it.exists() }?.readText()?.trim().orEmpty()
         report("rgss_stack_probe", probe)
         assertTrue("Deep recursion through C methods must reach 3000 levels: '$probe' " + diagnostics(helper), probe.startsWith("3000 "))
-        assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.endsWith(" true"))
+        assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.split(" ").getOrNull(1) == "true")
         Thread.sleep(1500)
         screenshot("rgss_game.png")
 
