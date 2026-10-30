@@ -97,6 +97,25 @@ if defined?(System)
   def System.is_really_bsd?; false; end unless System.respond_to?(:is_really_bsd?)
 end
 
+# System.mount(archive, mountpoint): games built on newer/custom mkxp-z pass "." (or "./", "", Windows "\") to mean
+# "the root of the game's file tree" (Pokémon Flux: System.mount("Data/Data_0.fpk", ".", false)). PhysFS rejects "." as
+# an insecure filename, so the same call fails here. Normalise the mount point; the archive path is unchanged.
+module AceCoreCompat
+  def self.mount_point(mp)
+    return mp unless mp.is_a?(String)
+    m = mp.tr("\\", "/").sub(%r{\A(?:\./)+}, "").sub(%r{/+\z}, "")
+    (m.empty? || m == ".") ? nil : m
+  end
+end
+if defined?(System) && System.respond_to?(:mount) && !System.respond_to?(:__acearcade_mount)
+  class << System
+    alias_method :__acearcade_mount, :mount
+    def mount(path, mountpoint = nil, *rest)
+      __acearcade_mount(path, AceCoreCompat.mount_point(mountpoint), *rest)
+    end
+  end
+end
+
 if defined?(Audio)
   # Upstream keeps a separate volume per BGM track. The port has a single BGM channel and no such control, so the
   # value is remembered and reported back but does not change loudness (the volume passed to bgm_play still does).

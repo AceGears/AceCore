@@ -25,6 +25,11 @@ module System
   def self.platform; "Android"; end
   def self.delta; $fake_us; end
   def self.uptime; $fake_us; end
+  # Like PhysFS 3.2: a mount point of "." or one with "\\" is an illegal filename.
+  def self.mount(path, mp = nil, reload = true)
+    raise "PHYSFSError: Failed to mount #{path} (filename is illegal or insecure)" if mp.is_a?(String) && (mp == "." || mp.include?("\\"))
+    ($mounts ||= []) << [path, mp, reload]; path
+  end
 end
 module Input
   def self.time?(button); 30_000; end
@@ -92,6 +97,13 @@ check "timeline: engine ready, first data, plugins, first frame, scenes, first m
 check "timeline uses one monotonic clock", tl.lines.map { |l| l.split("\t").first.to_i }.each_cons(2).all? { |a, b| b >= a }, true
 check "scene log", File.read(File.join(dd, 'scenes')).include?("scene=Scene_Map map=12"), true
 check "heartbeat", File.read(File.join(dd, 'heartbeat')).split[1, 2], ["Scene_Map", "12"]
+# System.mount: Pokémon Flux mounts its archives at "." (the root)
+System.mount("Data/Data_0.fpk", ".", false)
+check "mount '.' mounts at the root", $mounts.last, ["Data/Data_0.fpk", nil, false]
+System.mount("Data/b.fpk", ".\\Gfx\\")
+check "mount point backslashes and ./ normalised", $mounts.last, ["Data/b.fpk", "Gfx", true]
+System.mount("Data/c.fpk")
+check "plain mount unchanged", $mounts.last, ["Data/c.fpk", nil, true]
 # existing engine methods are not replaced
 module Graphics; def self.display_width; 999; end; end
 load COMPAT; check "keeps native", Graphics.display_width, 999
