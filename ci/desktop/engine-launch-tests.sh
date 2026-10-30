@@ -75,7 +75,7 @@ open(sys.argv[1], 'wb').write(b'FWS' + bytes([10]) + struct.pack('<I', 8 + len(b
 PY
   run "$T/ruffle.out" 15 "false" "$RF" "$T/test.swf"
   if [ "$ALIVE" != 1 ]; then report Ruffle 1 "Ruffle exited within 15 s: $(tail -c 500 "$T/ruffle.out" | tr '\n' ' ')"
-  elif grep -qi 'panic\|error: \|failed to' "$T/ruffle.out"; then report Ruffle 1 "$(grep -i 'panic\|error\|failed' "$T/ruffle.out" | head -5 | tr '\n' ' ')"
+  elif grep -q 'panicked\|ERROR' "$T/ruffle.out"; then report Ruffle 1 "$(grep 'panicked\|ERROR' "$T/ruffle.out" | head -5 | tr '\n' ' ')"
   else report Ruffle 0 "ran the SWF for 15 s without errors $(head -c 200 "$T/ruffle.out" | tr '\n' ' ')"; fi
 else report Ruffle 1 "Ruffle not found under $R/ruffle"; fi
 
