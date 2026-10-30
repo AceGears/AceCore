@@ -1,0 +1,42 @@
+name: Symbolize a native crash
+
+# Turns "AceArcade native backtrace" lines from a crash report into function names and source lines, using the
+# unstripped engine libraries (natives/symbols) kept with an RGSS engine build. Linux only, ~1 minute.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run whose rgss-natives-arm64-v8a artifact matches the APK that crashed
+        required: true
+      frames:
+        description: 'Frames as "lib offset" pairs separated by commas, e.g. "libruby.so 0x758ba4, libruby.so 0x634020"'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  symbolize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download the engine build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" -n rgss-natives-arm64-v8a -D natives
+      - name: Symbolize
+        env:
+          FRAMES: ${{ inputs.frames }}
+        run: |
+          SYM="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-symbolizer"
+          [ -x "$SYM" ] || SYM=$(ls "$ANDROID_HOME"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-symbolizer | tail -1)
+          ls -la natives/symbols
+          echo "$FRAMES" | tr ',' '\n' | while read -r lib off; do
+            [ -n "$lib" ] || continue
+            f="natives/symbols/$lib"; [ -f "$f" ] || f="natives/arm64-v8a/$lib"
+            out=$("$SYM" --obj="$f" --functions=linkage --inlining --demangle "$off" | paste -sd' ')
+            echo "$lib $off -> $out"
+            echo "$lib $off -> $out" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=$lib $off::$out"
+          done
