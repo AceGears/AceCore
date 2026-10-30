@@ -350,6 +350,59 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
         },
         modifier = Modifier.padding(20.dp),
     ) { Text(if (rescanning) "Rescanning…" else "Rescan all games") }
+
+    SettingsGroupTitle("Library management")
+    var askRemoveAll by remember { mutableStateOf(false) }
+    var clearCaches by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf(false) }
+    var lastBackup by remember { mutableStateOf(games.lastRemoveAllBackup()) }
+    Text(
+        "Removes games from AceArcade's library only. Game folders, game files and saves stay where they are.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
+    )
+    Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(
+            enabled = allGames.isNotEmpty() && !removing, onClick = { clearCaches = false; askRemoveAll = true },
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+        ) { Text("Remove all games") }
+        val b = lastBackup
+        if (b != null && allGames.isEmpty()) OutlinedButton(onClick = {
+            scope.launch {
+                runCatching { games.undoRemoveAll(b) }
+                    .onSuccess { (n, _) -> Toast.makeText(ctx, "Restored $n game(s)", Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(ctx, "Could not restore: ${it.message}", Toast.LENGTH_LONG).show() }
+            }
+        }) { Text("Undo") }
+    }
+    if (askRemoveAll) AlertDialog(
+        onDismissRequest = { askRemoveAll = false },
+        title = { Text("Remove All Games?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("This will remove all imported games from your AceArcade library. Your original game files will remain untouched.")
+                Text(
+                    "Categories, saves and settings are kept. Play time and statistics go with the library entries; an automatic backup lets you undo this.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { clearCaches = !clearCaches }) {
+                    androidx.compose.material3.Checkbox(checked = clearCaches, onCheckedChange = { clearCaches = it })
+                    Text("Clear cached covers and file indexes")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                askRemoveAll = false; removing = true
+                scope.launch {
+                    runCatching { games.removeAll(clearCaches) }
+                        .onSuccess { lastBackup = it; Toast.makeText(ctx, "All games removed from the library", Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(ctx, "Nothing was removed: ${it.message}", Toast.LENGTH_LONG).show() }
+                    removing = false
+                }
+            }) { Text("Remove All Games", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = { askRemoveAll = false }) { Text("Cancel") } },
+    )
 }
 
 // ------------------------------------------------------------------ controllers

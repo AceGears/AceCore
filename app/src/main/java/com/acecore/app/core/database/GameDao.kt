@@ -36,6 +36,9 @@ interface GameDao {
     @Query("DELETE FROM games WHERE id = :id")
     suspend fun delete(id: Long)
 
+    @Query("DELETE FROM games")
+    suspend fun deleteAll(): Int
+
     @Query("UPDATE games SET favorite = :fav WHERE id = :id")
     suspend fun setFavorite(id: Long, fav: Boolean)
 

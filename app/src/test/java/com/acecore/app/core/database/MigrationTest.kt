@@ -127,6 +127,25 @@ class MigrationTest {
     }
 
     @Test
+    fun removeAllGames_keepsCategoriesAndFolders_removesMembership() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, AceDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val ids = (1..250).map { db.games().insert(sampleGame("g$it")) }
+            val c = db.categories().insert(CategoryEntity(name = "Hidden RPGs", icon = "rpg", color = 1, hidden = true))
+            db.categories().addRefs(ids.map { GameCategoryRef(it, c) })
+            db.categories().insertDir(CategoryDirEntity(categoryId = c, treeUri = "content://t", label = "Games"))
+            assertEquals(250, db.games().deleteAll())
+            assertTrue(db.games().getAll().isEmpty())
+            assertNotNull(db.categories().get(c))
+            assertEquals(1, db.categories().allDirs().size)
+            assertTrue(db.categories().allRefs().isEmpty())
+            assertEquals(0, db.games().deleteAll()) // empty library
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun sessionsUpdateStatistics() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(context, AceDatabase::class.java).allowMainThreadQueries().build()
         try {

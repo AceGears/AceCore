@@ -344,6 +344,30 @@ class GameRepository(
         if (!stillUsed) revokeFolder(Uri.parse(game.treeUri))
     }
 
+    /**
+     * Removes every game from the library in one transaction. Never touches the games' folders or files, AceArcade's
+     * private copies or saves, categories (they are kept, now empty) or app settings. Before removing, the library is
+     * written to an automatic backup that [undoRemoveAll] restores; folder permissions are kept for that reason.
+     * Statistics belong to library entries and are removed with them (they are in the backup).
+     * @param clearCaches also delete AceArcade's cached data for these games (custom cover images, file indexes).
+     */
+    suspend fun removeAll(clearCaches: Boolean): File = withContext(Dispatchers.IO) {
+        val all = dao.getAll()
+        val backup = File(File(context.filesDir, "library-backups").apply { mkdirs() }, "before-remove-all-${System.currentTimeMillis()}.json")
+        exportLibrary(Uri.fromFile(backup))
+        check(backup.length() > 0) { "Could not write the safety backup; nothing was removed" }
+        db.withTransaction { dao.deleteAll() }
+        if (clearCaches) all.forEach { g -> pathIndexFile(g.id).delete(); g.customCoverPath?.let { File(it).delete() } }
+        backup
+    }
+
+    /** The newest automatic backup written by [removeAll], if any. */
+    fun lastRemoveAllBackup(): File? =
+        File(context.filesDir, "library-backups").listFiles { f -> f.name.startsWith("before-remove-all-") }?.maxByOrNull { it.name }
+
+    /** Restores the library from [backup] (only adds games that are not in the library). */
+    suspend fun undoRemoveAll(backup: File): Pair<Int, Int> = importLibrary(Uri.fromFile(backup))
+
     // ------------------------------------------------------------------ covers
 
     /**
