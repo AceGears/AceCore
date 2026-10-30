@@ -6,6 +6,9 @@
 #                           exactly like the game's own Game.exe on Windows, which reads Game.ini/mkxp.json next to it.
 #   ACEARCADE_EXEC_NAME     environment variable read as mkxp-z's "execName" before the ini is read, so renamed games
 #                           (Flux.exe + Flux.ini) start without renaming the game's files (same patch as on Android).
+#   -Diconv_system=enabled  macOS's own libiconv: mkxp-z converts file names from "UTF-8-MAC" (NFD) when indexing the
+#                           game folder; GNU libiconv (the vendored fallback) has no UTF-8-MAC, so iconv_open failed
+#                           and the engine crashed in libiconv before running any script (found by the CI launch test).
 #   Downloads check removed upstream refuses to start when its working directory is under ~/Downloads (a guard for
 #                           games bundled inside the engine's .app). With AceArcade the working directory is the
 #                           user's game folder, which is often in Downloads.
@@ -31,7 +34,7 @@ open(p, "w").write(s.replace(old, old + """    // AceArcade: renamed games (Flux
 """))
 PY
 meson subprojects download >/dev/null
-meson setup --prefix "$OUT" --cross-file macos/meson-arm64.txt --buildtype release -Dstrip=true -Dworkdir_current=true build
+meson setup --prefix "$OUT" --cross-file macos/meson-arm64.txt --buildtype release -Dstrip=true -Dworkdir_current=true -Diconv_system=enabled build
 ninja -C build
 meson install -C build --no-rebuild --tags mkxp-z
 cd "$OUT"
@@ -40,4 +43,4 @@ EXE=$(ls mkxp-z.* | grep -v '\.txt$' | head -1)
 file "$EXE"
 echo "--- linked libraries"
 otool -L "$EXE" | grep -v '/System/\|/usr/lib/' || true
-printf 'mkxp-z %s (macOS arm64), built with -Dworkdir_current=true; source: https://github.com/mkxp-z/mkxp-z/tree/%s\n' "$COMMIT" "$COMMIT" > ACEARCADE-BUILD.txt
+printf 'mkxp-z %s (macOS arm64), built with -Dworkdir_current=true -Diconv_system=enabled; source: https://github.com/mkxp-z/mkxp-z/tree/%s\n' "$COMMIT" "$COMMIT" > ACEARCADE-BUILD.txt
