@@ -19,6 +19,25 @@ rescue LoadError => e
   ($stderr.puts("AceArcade: Ruby zlib extension unavailable: #{e.message}") rescue nil)
 end
 
+# Windows folders games use for saves and settings. Essentials up to v18 saves to %APPDATA%\<game> (or the folder
+# Windows reports for "Saved Games"); on Android these variables don't exist, and File.join(nil, ...) stopped such
+# games while their scripts loaded. They point into AceArcade's private folder for this game, where AceArcade's save
+# backups look for saves. Never overrides a value that is already set.
+if defined?(AceCoreCompat::DATA_DIR) && AceCoreCompat::DATA_DIR
+  begin
+    home = File.join(AceCoreCompat::DATA_DIR, 'User')
+    { 'USERPROFILE' => home, 'APPDATA' => File.join(home, 'AppData', 'Roaming'),
+      'LOCALAPPDATA' => File.join(home, 'AppData', 'Local') }.each do |k, v|
+      next if ENV[k] && !ENV[k].empty?
+      Dir.mkdir(v) rescue nil
+      [File.dirname(File.dirname(v)), File.dirname(v), v].each { |d| Dir.mkdir(d) rescue nil }
+      ENV[k] = v
+    end
+  rescue StandardError => e
+    ($stderr.puts("AceArcade: could not prepare Windows folders: #{e.message}") rescue nil)
+  end
+end
+
 module AceCoreCompat
   module_function
 
@@ -249,8 +268,10 @@ end
 #             SetWindowPos/MoveWindow/ShowWindow/SetWindowText/SetWindowLong... -> success, no effect: the game always
 #                                                     fills the Android screen, there is no desktop window to move
 #             MessageBox(A/W)                      -> shown as the engine's message box
-#   any other Windows function: returns 0, which games treat as "call failed", and is listed once in the engine log
-#   ("AceArcade: Windows function ... not available on Android"), the same policy as upstream mkxp-z's win32_wrap.
+#   any other Windows function: Win32API.new raises, as it does for a missing DLL on Windows, and the call is listed
+#   once in the engine log ("AceArcade: Windows function ... not available on Android"). Games guard optional calls
+#   with "rescue"; returning a fake 0 instead would read as success for HRESULT functions (SHGetKnownFolderPath) and
+#   send games down a wrong path (Pokémon Infinity: File.join(nil) in FileTests).
 #   wininet   InternetOpenA / InternetConnectA     -> session handles
 #             InternetOpenUrl(A)                   -> real HTTP(S) GET (redirects followed, TLS verified against the
 #                                                     game's cacert.pem or Android's CA store); 0 on failure, like Windows
@@ -504,7 +525,7 @@ module AceCoreCompat
       key = "#{dll}!#{func}"
       unless @missing[key]
         @missing[key] = true
-        ($stderr.puts("AceArcade: Windows function #{key} is not available on Android; it returns 0") rescue nil)
+        ($stderr.puts("AceArcade: Windows function #{key} is not available on Android") rescue nil)
       end
       0
     end
@@ -605,12 +626,6 @@ module AceCoreCompat
     },
   }.freeze
 
-  # Windows functions with no Android equivalent: a function object that returns 0 ("failed") and logs it once.
-  def self.missing_win_function(dll, func)
-    lib = dll.to_s.downcase.sub(/\.dll\z/, '')
-    WinFunction.new("#{lib}!#{func}") { |*_| Win32.missing(lib, func) }
-  end
-
   def self.win_function(dll, func)
     lib = dll.to_s.downcase.sub(/\.dll\z/, '')
     table = WIN_FUNCTIONS[lib] or return nil
@@ -626,7 +641,10 @@ if defined?(MiniFFI)
         super
       rescue RuntimeError => e
         raise unless e.message.start_with?('Failed loading', 'Failed to find')
-        AceCoreCompat.win_function(dll, func) || AceCoreCompat.missing_win_function(dll, func)
+        AceCoreCompat.win_function(dll, func) or begin
+          AceCoreCompat::Win32.missing(dll, func)
+          raise(e.class, "#{e.message} (Windows function #{dll}!#{func} is not available on Android)")
+        end
       end
     end
   end
@@ -1203,3 +1221,50 @@ if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(
     end
   end
 end
+
+#===============================================================================
+# Ruby 1.8 syntax in RPG Maker XP games
+#
+# RGSS1 (RPG Maker XP) ran Ruby 1.8, which accepted "when 0: ..." (a colon instead of "then"); Ruby 1.9 removed it,
+# so older games stop with a SyntaxError before they start (Pokémon Z, 040:AudioUtilities:919). mkxp-z decodes the
+# game's scripts into $RGSS_SCRIPTS before this file runs and evaluates them afterwards, so a script that does not
+# compile is adapted in memory here: the colon after a "when" condition becomes "then". The change is kept only if
+# the whole script then compiles; otherwise the original runs and reports its own error. Game files are not touched.
+#===============================================================================
+module AceCoreCompat
+  module Ruby18Syntax
+    # "when <condition>:" where the colon ends the condition (not "::", not a symbol, not "a ? b : c").
+    WHEN_COLON = /^(\s*when\s+[^#\n]*?[^\s:?])\s*:(?!:)(?=\s|$)/
+    module_function
+
+    def compiles?(src, name)
+      RubyVM::InstructionSequence.compile(src, name)
+      true
+    rescue SyntaxError
+      false
+    end
+
+    # Returns the adapted source, or nil when the script needs no change or can't be adapted safely.
+    def adapt(src, name)
+      return nil unless src.is_a?(String) && src.match?(WHEN_COLON)
+      return nil if compiles?(src, name)
+      fixed = src.gsub(WHEN_COLON) { "#{$1} then" }
+      compiles?(fixed, name) ? fixed : nil
+    end
+
+    def apply(scripts)
+      return unless scripts.is_a?(Array) && defined?(RubyVM::InstructionSequence)
+      scripts.each_with_index do |entry, i|
+        next unless entry.is_a?(Array) && entry[3].is_a?(String)
+        name = format('%03d:%s', i, entry[1].to_s)
+        fixed = adapt(entry[3], name) or next
+        n = entry[3].scan(WHEN_COLON).size
+        entry[3] = fixed
+        ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{n} \"when ...:\")") rescue nil)
+      end
+    rescue StandardError => e
+      ($stderr.puts("AceArcade: Ruby 1.8 syntax check skipped: #{e.class}: #{e.message}") rescue nil)
+    end
+  end
+end
+AceCoreCompat::Ruby18Syntax.apply($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS

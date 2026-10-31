@@ -57,7 +57,7 @@ script = <<~'RUBY'
     rescue Exception => e
       "#{e.class}: #{e.message}"
     end
-    mark.call("rgss1", "cvar=#{cvar} win32=#{win}")
+    mark.call("rgss1", "r18=#{$acearcade_r18} cvar=#{cvar} win32=#{win}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
@@ -112,7 +112,9 @@ script = <<~'RUBY'
 RUBY
 
 File.write(File.join(out, "Game.ini"), "[Game]\r\nLibrary=RGSS104E.dll\r\nScripts=Data\\Scripts.rxdata\r\nTitle=AceCore Test\r\nRTP1=\r\nRTP2=\r\nRTP3=\r\n")
-File.binwrite(File.join(out, "Data", "Scripts.rxdata"), Marshal.dump([[1, "Main", Zlib::Deflate.deflate(script)]]))
+# A Ruby 1.8-style script (RGSS1): "when x:" instead of "when x then"; AceArcade adapts it in memory.
+ruby18 = "case 1\nwhen 1: $acearcade_r18 = :ok\nend\n"
+File.binwrite(File.join(out, "Data", "Scripts.rxdata"), Marshal.dump([[2, "Ruby18", Zlib::Deflate.deflate(ruby18)], [1, "Main", Zlib::Deflate.deflate(script)]]))
 # Like many released Essentials games (e.g. Pokémon Xenoverse), the test game ships mkxp.json with "debugMode": true,
 # which makes mkxp-z set Ruby's $DEBUG for RGSS1 games (Ruby then reports every exception, even rescued ones).
 File.write(File.join(out, "mkxp.json"), "{\n  \"debugMode\": true\n}\n")

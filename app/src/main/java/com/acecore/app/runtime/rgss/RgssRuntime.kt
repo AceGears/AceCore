@@ -57,8 +57,9 @@ object RgssRuntime {
      * Header for the always-on compatibility preload (acecore_compat.rb, also used with the game helper off): the
      * device screen in landscape pixels, which upstream mkxp-z reports through Graphics.display_width/height.
      */
-    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true, sizePercent: Int = 100): String =
+    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true, sizePercent: Int = 100, dataDir: File? = null): String =
         "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\n" +
+            "  DATA_DIR = ${dataDir?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent\nend\n"
 
@@ -122,7 +123,7 @@ object RgssRuntime {
         val (dw, dh) = landscapeDisplaySize(context)
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
         val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir), DisplayPrefs.from(config).fit,
-            config[ConfigKey.FILTERING.id] != "sharp", DisplayPrefs.from(config).sizePercent) + compatBody, Charsets.UTF_8) }
+            config[ConfigKey.FILTERING.id] != "sharp", DisplayPrefs.from(config).sizePercent, dataDir) + compatBody, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }

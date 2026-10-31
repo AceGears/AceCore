@@ -66,7 +66,16 @@ Dir.mktmpdir do |d|
   end
 end
 
-check 'unknown function returns 0', api['user32', 'SetLayeredWindowAttributes', 'lili', 'i'].call(42, 0, 255, 2), 0
-check 'unknown function logged once', $stderr.string.scan('user32!SetLayeredWindowAttributes').size, 1
+2.times do
+  begin
+    api['shell32', 'SHGetKnownFolderPath', 'pllp', 'i']; check 'unknown function raises', :created, :raised
+  rescue RuntimeError => e
+    check 'unknown function raises clearly', e.message.include?('shell32!SHGetKnownFolderPath is not available on Android'), true
+  end
+end
+check 'unknown function logged once', $stderr.string.scan('shell32!SHGetKnownFolderPath').size, 1
+# Essentials pattern: optional calls guarded with "rescue nil" fall back to their non-Windows path.
+skgfp = (Win32API.new('shell32.dll', 'SHGetKnownFolderPath', 'pllp', 'i') rescue nil)
+check 'Essentials getKnownFolder falls back', skgfp, nil
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

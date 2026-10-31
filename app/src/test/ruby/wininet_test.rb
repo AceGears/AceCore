@@ -65,7 +65,11 @@ client = <<~'RUBY'
   check 'unreachable host -> handle 0, empty body', fetch('https://localhost:1/x'), [0, '']
   File.rename('cacert.pem', 'other.pem'); ENV.delete('SSL_CERT_FILE'); AceCoreCompat::WinInet.instance_variable_set(:@store, nil)
   check 'untrusted certificate rejected', fetch('https://localhost:8443/version'), [0, '']
-  check 'unknown Windows call returns 0 (failed)', Win32API.new('gdi32', 'CreateFontA', 'iiiiiiiiiiiiip', 'l').call(*Array.new(13, 0), ''), 0
+  begin
+    Win32API.new('gdi32', 'CreateFontA', 'iiiiiiiiiiiiip', 'l'); check 'unknown Windows call', :none, :error
+  rescue RuntimeError => e
+    check 'unknown Windows call fails clearly', e.message.include?('gdi32!CreateFontA is not available on Android'), true
+  end
   exit($fail ? 1 : 0)
 RUBY
 ok = Dir.chdir(dir) { system(RbConfig.ruby, '-W0', '-e', client, COMPAT) }
