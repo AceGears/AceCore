@@ -51,6 +51,14 @@ enum class ConfigKey(
             "Can also be changed in-game (☰ › Display).",
         ConfigType.INT, "100", range = 50..100, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
     ),
+    GODOT_RENDERER(
+        "godotRenderer", "Renderer",
+        "Automatic uses Vulkan (Godot's Mobile renderer) on devices with a hardware Vulkan driver and OpenGL ES 3 " +
+            "(Compatibility renderer) otherwise. Try OpenGL if a game shows a black screen or hangs at start-up.",
+        ConfigType.CHOICE, "auto",
+        listOf("auto" to "Automatic", "vulkan" to "Vulkan (Mobile)", "opengl" to "OpenGL ES 3 (Compatibility)"),
+        section = "Display", appliesTo = { it.family == EngineFamily.GODOT },
+    ),
     SHOW_FPS("showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display"),
     FF_SPEED(
         "ffSpeed", "Fast-forward speed",

@@ -75,10 +75,36 @@ data class GodotLaunchSpec(
         }
 
         /** Godot's command line for running [pack] (non-exported activity only, see GodotActivity). */
-        fun intent(context: Context, spec: GodotLaunchSpec, pack: File, logFile: File): Intent =
+        fun intent(context: Context, spec: GodotLaunchSpec, pack: File, logFile: File, renderer: String = "auto"): Intent =
             Intent(context, GodotGameActivity::class.java)
                 .putExtra(GodotLaunchSpec.EXTRA, spec.toJson())
-                .putExtra(GodotActivity.EXTRA_COMMAND_LINE_PARAMS, arrayOf("--main-pack", pack.absolutePath, "--log-file", logFile.absolutePath))
+                .putExtra(
+                    GodotActivity.EXTRA_COMMAND_LINE_PARAMS,
+                    arrayOf("--main-pack", pack.absolutePath, "--log-file", logFile.absolutePath) + rendererArgs(context, renderer),
+                )
+
+        /**
+         * Vulkan (Godot's Mobile renderer) needs a hardware Vulkan 1.1 driver. On software Vulkan (emulators,
+         * SwiftShader) or older drivers Godot compiles its pipelines on the CPU, which can take minutes before the
+         * game's first frame; OpenGL ES 3 with the Compatibility renderer starts in seconds there.
+         */
+        fun rendererArgs(context: Context, choice: String): Array<String> {
+            val opengl = when (choice) {
+                "opengl" -> true
+                "vulkan" -> false
+                else -> !hasHardwareVulkan(context)
+            }
+            return if (opengl) arrayOf("--rendering-method", "gl_compatibility", "--rendering-driver", "opengl3") else emptyArray()
+        }
+
+        fun hasHardwareVulkan(context: Context): Boolean {
+            val pm = context.packageManager
+            val emulator = android.os.Build.HARDWARE.let { it == "ranchu" || it == "goldfish" } ||
+                android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.PRODUCT.contains("sdk")
+            // Vulkan 1.1 = 0x401000
+            return !emulator && pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x401000) &&
+                pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL, 0)
+        }
     }
 }
 

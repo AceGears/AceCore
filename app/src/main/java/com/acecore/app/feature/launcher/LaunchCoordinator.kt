@@ -251,7 +251,8 @@ class LaunchCoordinator(
                         scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
                         haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
                     )
-                    com.acecore.app.runtime.godot.GodotLaunchSpec.intent(context, spec, check.pack.file, File(helperDir, "godot.log"))
+                    com.acecore.app.runtime.godot.GodotLaunchSpec.intent(context, spec, check.pack.file, File(helperDir, "godot.log"),
+                        config[ConfigKey.GODOT_RENDERER.id] ?: "auto")
                 }
                 startSession(game.id, requestedAt)
                 games.markLaunched(game.id)
