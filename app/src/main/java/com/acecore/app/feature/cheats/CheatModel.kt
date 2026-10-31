@@ -87,6 +87,8 @@ data class CheatConfig(
     val favorites: Set<String> = emptySet(),
     /** Back up save files automatically before the first cheat of each session. */
     val autoBackup: Boolean = true,
+    /** True once "cheats on by default" (0.9.6) was applied to this game; a later "off" is the user's choice. */
+    val onByDefaultApplied: Boolean = false,
 ) {
     val profile: CheatProfile get() = profiles[activeProfile] ?: CheatProfile()
     val flags: Map<String, String> get() = CheatFlags.KEYS.associateWith { profile.flags[it] ?: "0" }
@@ -103,8 +105,17 @@ class CheatStore(context: Context) {
 
     fun file(gameId: Long) = File(dir, "game_$gameId.json")
 
-    fun load(gameId: Long): CheatConfig = runCatching { json.decodeFromString(CheatConfig.serializer(), file(gameId).readText()) }
-        .getOrDefault(CheatConfig())
+    /**
+     * Cheats are on by default for every game (the user can switch them off per game). Settings saved before that
+     * default existed are switched on once; after that, whatever the user chooses is kept.
+     */
+    fun load(gameId: Long): CheatConfig {
+        val f = file(gameId)
+        if (!f.exists()) return CheatConfig(enabled = true, onByDefaultApplied = true)
+        val c = runCatching { json.decodeFromString(CheatConfig.serializer(), f.readText()) }.getOrNull()
+            ?: return CheatConfig(enabled = true, onByDefaultApplied = true)
+        return if (c.onByDefaultApplied) c else c.copy(enabled = true, onByDefaultApplied = true)
+    }
 
     fun save(gameId: Long, config: CheatConfig) {
         dir.mkdirs()
