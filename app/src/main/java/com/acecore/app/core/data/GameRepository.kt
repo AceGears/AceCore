@@ -29,6 +29,8 @@ data class ScanCandidate(
     val detection: DetectionResult,
     /** Path → SAF document id for the cover candidates found during the scan. */
     val coverDocIds: Map<String, String>,
+    /** The folder had more files than one scan reads; detection saw only part of it. */
+    val truncated: Boolean = false,
 )
 
 sealed interface ScanOutcome {
@@ -134,12 +136,10 @@ class GameRepository(
         val rootName = SafTree.displayName(resolver, tree.documentUri(rootId)) ?: "Game"
         progress("Analysing $rootName…")
         val root = scanFolder(tree, rootId, rootName, depth = 4)
-        val rootIsCollectionCandidate = root.detection.engine == Engine.UNKNOWN ||
-            root.detection.engine == Engine.NATIVE_WINDOWS ||
-            (root.detection.engine == Engine.HTML5 && root.detection.entry == null)
+        if (!CollectionRules.mayBeCollection(root.detection, root.truncated)) return@withContext ScanOutcome.Single(root)
 
-        if (!rootIsCollectionCandidate) return@withContext ScanOutcome.Single(root)
-
+        // A library folder ("AceArcade/") holds several games, each in its own sub-folder: every sub-folder is
+        // detected on its own, so games aren't merged into one entry or classified by a partial sample of all of them.
         val dirs = tree.children(rootId, "").filter { it.isDirectory }.take(MAX_COLLECTION)
         val found = mutableListOf<ScanCandidate>()
         dirs.forEachIndexed { i, d ->
@@ -147,10 +147,11 @@ class GameRepository(
             val c = runCatching { scanFolder(tree, d.docId, d.name, depth = 3) }.getOrNull() ?: return@forEachIndexed
             if (c.detection.engine != Engine.UNKNOWN) found += c
         }
-        when {
-            found.isNotEmpty() -> ScanOutcome.Collection(found)
-            root.detection.engine != Engine.UNKNOWN -> ScanOutcome.Single(root)
-            else -> ScanOutcome.NothingFound("No recognisable game files were found in “$rootName” or its sub-folders.")
+        when (CollectionRules.pick(root.detection, found.size)) {
+            CollectionRules.Pick.COLLECTION -> ScanOutcome.Collection(found)
+            CollectionRules.Pick.ROOT -> ScanOutcome.Single(root)
+            CollectionRules.Pick.ONLY_CHILD -> ScanOutcome.Single(found.first())
+            CollectionRules.Pick.NOTHING -> ScanOutcome.NothingFound("No recognisable game files were found in “$rootName” or its sub-folders.")
         }
     }
 
@@ -164,7 +165,7 @@ class GameRepository(
         )
         val detection = detector.detect(snapshot, name)
         val covers = detection.coverCandidates.mapNotNull { p -> idByPath[p]?.let { p to it } }.toMap()
-        return ScanCandidate(tree.treeUri, docId, name, detection, covers)
+        return ScanCandidate(tree.treeUri, docId, name, detection, covers, walk.truncated)
     }
 
     // ------------------------------------------------------------------ import

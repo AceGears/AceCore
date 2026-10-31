@@ -520,6 +520,21 @@ module AceCoreCompat
       sc ? !!states[sc] : false
     end
 
+    # Text up to the first NUL (or [len] bytes when len >= 0).
+    def c_string(src, len)
+      str = src.is_a?(String) ? src.b : ''.b
+      return str.byteslice(0, len) || ''.b if len >= 0
+      i = str.index("\0".b)
+      i ? str.byteslice(0, i) : str
+    end
+
+    @notes = {}
+    def note_once(text)
+      return if @notes[text]
+      @notes[text] = true
+      ($stderr.puts("AceArcade: #{text}") rescue nil)
+    end
+
     @missing = {}
     def missing(dll, func)
       key = "#{dll}!#{func}"
@@ -550,6 +565,44 @@ module AceCoreCompat
       'getprivateprofilestringa' => gpps,
       'outputdebugstring' => (ods = proc { |text| ($stderr.puts(text.to_s) rescue nil); 0 }),
       'outputdebugstringa' => ods,
+      # RtlMoveMemory(dest, src, len): copies between buffers the game passed as Strings, within both buffers'
+      # bounds. A raw address (an Integer from a native API) can't be read on Android: nothing is copied and the
+      # engine log says so, instead of reading arbitrary memory.
+      'rtlmovememory' => proc { |dest, src, len = nil|
+        if dest.is_a?(String) && src.is_a?(String)
+          n = [len ? len.to_i : src.bytesize, src.bytesize, dest.bytesize].min
+          Win32.fill(dest, src.b.byteslice(0, [n, 0].max)) if n > 0
+        else
+          Win32.note_once('kernel32!RtlMoveMemory with a raw memory address: nothing copied (no Windows memory on Android)')
+        end
+        0
+      },
+      # Text conversion between the game's 8-bit text and UTF-16 (code page 65001 = UTF-8, others as Windows-1252).
+      'multibytetowidechar' => proc { |cp, _flags, src, srclen, dst = nil, dstlen = 0|
+        text = Win32.c_string(src, srclen.to_i).force_encoding(cp.to_i == 65001 ? Encoding::UTF_8 : Encoding::Windows_1252)
+        wide = (text.encode(Encoding::UTF_16LE, invalid: :replace, undef: :replace) rescue ''.encode(Encoding::UTF_16LE)).b
+        wide += "\0\0".b if srclen.to_i < 0
+        chars = wide.bytesize / 2
+        next chars if dstlen.to_i <= 0
+        n = [chars, dstlen.to_i].min
+        Win32.fill(dst, wide.byteslice(0, n * 2))
+        n
+      },
+      'widechartomultibyte' => proc { |cp, _flags, src, srclen, dst = nil, dstlen = 0, *_|
+        bytes = src.is_a?(String) ? src.b : ''.b
+        bytes = bytes.byteslice(0, srclen.to_i * 2) if srclen.to_i >= 0
+        if srclen.to_i < 0
+          stop = (0...bytes.bytesize).step(2).find { |i| bytes.byteslice(i, 2) == "\0\0".b }
+          bytes = bytes.byteslice(0, stop || bytes.bytesize)
+        end
+        target = cp.to_i == 65001 ? Encoding::UTF_8 : Encoding::Windows_1252
+        out = (bytes.force_encoding(Encoding::UTF_16LE).encode(target, invalid: :replace, undef: :replace) rescue '').b
+        out += "\0".b if srclen.to_i < 0
+        next out.bytesize if dstlen.to_i <= 0
+        n = [out.bytesize, dstlen.to_i].min
+        Win32.fill(dst, out.byteslice(0, n))
+        n
+      },
     },
     'user32' => {
       'findwindow' => (fw = proc { |*_| Win32::WINDOW }),

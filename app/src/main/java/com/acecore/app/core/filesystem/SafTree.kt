@@ -68,6 +68,11 @@ class SafTree(private val resolver: ContentResolver, val treeUri: Uri) : GameTre
 
     fun documentUri(docId: String): Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
 
+    /** True when the document still exists (a listing of a deleted or moved folder can come back empty, not fail). */
+    fun exists(docId: String): Boolean = runCatching {
+        resolver.query(documentUri(docId), arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)?.use { it.count > 0 } ?: false
+    }.getOrDefault(false)
+
     override fun children(parentDocId: String, parentPath: String): List<SafNode> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
         val out = ArrayList<SafNode>()

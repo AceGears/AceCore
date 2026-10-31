@@ -123,7 +123,12 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
     LaunchedEffect(dirId) {
         listing = null; loadError = null
         withContext(Dispatchers.IO) {
-            runCatching { tree.children(dirId, dirPath) }
+            runCatching {
+                val list = tree.children(dirId, dirPath)
+                // An empty answer can also mean the folder no longer exists (moved or renamed): say so, not "empty".
+                if (list.isEmpty() && !tree.exists(dirId)) throw java.io.FileNotFoundException("The folder “${stack.last().third}” no longer exists at its saved location.")
+                list
+            }
         }.onSuccess { list ->
             listing = list.sortedWith(compareByDescending<SafNode> { it.isDirectory }.thenByDescending { LaunchFileRules.isCandidateName(it.name) }.thenBy { it.name.lowercase() })
         }.onFailure { loadError = if (it is SecurityException) "AceArcade no longer has access to this folder." else (it.message ?: it.toString()) }

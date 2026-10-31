@@ -267,8 +267,14 @@ private fun Notices(g: GameEntity) {
     val ctx = LocalContext.current
     val access = remember(g.treeUri) { ctx.container.games.hasAccess(g.treeUri) }
     if (!access && g.effectiveEngine.family != EngineFamily.RGSS) Warning("AceArcade no longer has permission to read this folder. Remove the game and add its folder again.")
-    val folderMissing = g.lastLaunchOk == false && g.lastError?.startsWith("Game folder not found") == true
-    if (folderMissing) FolderUnavailableCard(g, g.lastError, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+    // Checked when the page opens, so a moved or renamed folder is noticed before Play is pressed.
+    val folderExists by androidx.compose.runtime.produceState<Boolean?>(null, g.treeUri, g.rootDocId) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            if (!access) null else com.acecore.app.core.filesystem.SafTree(ctx.contentResolver, android.net.Uri.parse(g.treeUri)).exists(g.rootDocId)
+        }
+    }
+    val folderMissing = folderExists == false || (g.lastLaunchOk == false && g.lastError?.startsWith("Game folder not found") == true)
+    if (folderMissing) FolderUnavailableCard(g, g.lastError ?: "Saved location: ${g.folderLabel}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
     else if (g.lastLaunchOk == false && g.lastError != null) Warning("Last launch: ${g.lastError}")
 }
 

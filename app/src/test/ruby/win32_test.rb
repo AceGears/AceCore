@@ -66,6 +66,19 @@ Dir.mktmpdir do |d|
   end
 end
 
+dst = "\0" * 8; api['kernel32', 'RtlMoveMemory', 'ppl', ''].call(dst, "ABCDEFGHIJ", 4)
+check 'RtlMoveMemory copies between buffers', dst, "ABCD\0\0\0\0"
+dst = "xxxx"; api['kernel32', 'RtlMoveMemory', 'pll', ''].call(dst, 123456, 4)
+check 'RtlMoveMemory from a raw address copies nothing', dst, 'xxxx'
+mb = api['kernel32', 'MultiByteToWideChar', 'ilpipi', 'i']
+need = mb.call(65001, 0, "Pokémon", -1, nil, 0)
+w = "\0" * (need * 2); mb.call(65001, 0, "Pokémon", -1, w, need)
+check 'MultiByteToWideChar UTF-8 -> UTF-16 with NUL', [need, w.force_encoding('UTF-16LE').encode('UTF-8')], [8, "Pokémon\0"]
+wc = api['kernel32', 'WideCharToMultiByte', 'ilpipipp', 'i']
+u16 = "Pokémon".encode('UTF-16LE').b + "\0\0".b
+need = wc.call(65001, 0, u16, -1, nil, 0, nil, nil)
+o = "\0" * need; wc.call(65001, 0, u16, -1, o, need, nil, nil)
+check 'WideCharToMultiByte UTF-16 -> UTF-8 with NUL', o.force_encoding('UTF-8'), "Pokémon\0"
 2.times do
   begin
     api['shell32', 'SHGetKnownFolderPath', 'pllp', 'i']; check 'unknown function raises', :created, :raised
