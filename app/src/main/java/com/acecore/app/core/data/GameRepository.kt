@@ -9,6 +9,7 @@ import com.acecore.app.core.database.GameEntity
 import com.acecore.app.core.datastore.SettingsRepository
 import com.acecore.app.core.detection.DetectionEngine
 import com.acecore.app.core.detection.DetectionResult
+import com.acecore.app.core.detection.CollectionRules
 import com.acecore.app.core.detection.LaunchCandidate
 import com.acecore.app.core.filesystem.SafTree
 import com.acecore.app.core.model.CompatStatus
