@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CollectionRulesTest {
-    private fun d(engine: Engine, conf: Int, entry: String? = null) = DetectionResult(engine = engine, confidence = conf, entry = entry)
+    private fun d(engine: Engine, conf: Int, entry: String? = null) = DetectionResult(engine = engine, confidence = conf, entry = entry, status = com.acecore.app.core.model.CompatStatus.PLAYABLE_UNTESTED)
 
     @Test fun libraryFolderMisdetectedAsRenpyIsScannedAsACollection() {
         // The reported case: "AceArcade/" (7 Pokémon games) matched Ren'Py at 34 % from a partial sample.
