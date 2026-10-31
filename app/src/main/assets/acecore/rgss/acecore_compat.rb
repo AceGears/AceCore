@@ -203,22 +203,45 @@ module AceCoreCompat
     end
 
     def speed=(value)
-      @speed = value.to_f.clamp(1.0, 8.0)
+      value = value.to_f.clamp(1.0, 8.0)
+      @last_draw = @frame_us = nil if value != speed # measure the frame length afresh at the new speed
+      @speed = value
     end
 
     # [real_us]: the engine's own microsecond clock. Returns the game clock in microseconds.
+    # At normal speed the game clock follows real time. While fast-forwarding, the game runs [speed] updates per
+    # drawn frame (Tools.skip_frame?), and the clock advances in equal steps, one per Graphics.update call, each one
+    # real frame long (frame_tick). The game then sees [speed] times as much time pass, in the same per-update steps
+    # it sees at normal speed. A clock running continuously [speed] times faster instead gave the drawn update the
+    # whole speed x frame time (0.45 s at 3x and 7 fps) and the skipped ones none: Essentials ignores updates longer
+    # than 0.25 s, so the player stopped walking while fast-forwarding on slower devices.
     def virtual_us(real_us)
       @last_real ||= real_us
       @virtual ||= real_us
-      @virtual += ((real_us - @last_real) * speed).round if real_us > @last_real
+      @virtual += real_us - @last_real if real_us > @last_real && speed == 1.0
       @last_real = real_us
       @virtual
     end
 
-    # Durations (Graphics.delta, System.delta) scaled to the game clock.
+    # Called by Graphics.update while fast-forwarding: [drawn] is true for the call that draws the frame.
+    def now_us = Process.clock_gettime(Process::CLOCK_MONOTONIC, :microsecond)
+
+    def frame_tick(drawn)
+      now = now_us
+      if drawn
+        @frame_us = (now - @last_draw).clamp(1, 1_000_000) if @last_draw && now > @last_draw
+        @last_draw = now
+      end
+      @step_us = @last_draw && @frame_us ? @frame_us : 16_667
+      @virtual += @step_us if @virtual
+    end
+
+    # Durations (Graphics.delta, System.delta): while fast-forwarding, one clock step (the length of a real frame)
+    # per update, matching the game clock above.
     def scaled(value)
       return value if speed == 1.0 || !value.is_a?(Numeric)
-      value.is_a?(Integer) ? (value * speed).round : value * speed
+      step = @step_us || 16_667
+      value.is_a?(Integer) ? step : step / 1_000_000.0
     end
   end
 end
@@ -229,7 +252,7 @@ if defined?(System) && System.respond_to?(:uptime) && System.uptime.is_a?(Intege
     def uptime; AceCoreCompat::Timing.virtual_us(__acearcade_uptime_us) / AceCoreCompat::Timing::US_PER_S; end
     if method_defined?(:delta)
       alias_method :__acearcade_delta_us, :delta
-      def delta; AceCoreCompat::Timing.convert(AceCoreCompat::Timing.virtual_us(__acearcade_delta_us)); end
+      def delta; AceCoreCompat::Timing.convert(AceCoreCompat::Timing.scaled(__acearcade_delta_us)); end
     end
   end
 end
@@ -1536,7 +1559,9 @@ if defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(
     alias_method :__acearcade_update, :update
     def update(*args)
       AceCoreCompat::Tools.poll
-      if AceCoreCompat::Tools.skip_frame?
+      skip = AceCoreCompat::Tools.skip_frame?
+      AceCoreCompat::Timing.frame_tick(!skip) if AceCoreCompat::Tools.fast?
+      if skip
         # Fast-forward: advance the game's frame without drawing it.
         self.frame_count += 1 if respond_to?(:frame_count=)
         return nil

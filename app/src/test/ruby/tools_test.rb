@@ -54,8 +54,25 @@ Graphics.drawn = 0; Graphics.frame_count = 0
 30.times { Graphics.update }
 check "3x: draws one of three frames", Graphics.drawn, 10
 check "3x: every call still counts as a game frame", Graphics.frame_count, 30
-t0 = System.uptime; $us += 1_000_000; t1 = System.uptime
-check "3x: game clock runs 3 times faster", (t1 - t0).round(3), 3.0
+# A slow device: each drawn frame takes 0.15 s of real time. Essentials v21 moves the player by the time between
+# updates and ignores updates longer than 0.25 s, so each update must see a normal-length step, not 3 x 0.15 s.
+AceCoreCompat::Timing.define_singleton_method(:now_us) { $us }
+class << Graphics
+  alias_method :__mock_draw, :__acearcade_update
+  def __acearcade_update(*a); $us += 150_000; __mock_draw(*a); end # the engine draws and waits for the frame
+end
+speed!(1); speed!(3, "quiet") # fresh frame measurement on the simulated clock
+Graphics.update # starts the next draw cycle (as a game loop does)
+deltas = []; last = System.uptime; r0 = $us
+30.times { Graphics.update; now = System.uptime; deltas << (now - last).round(4); last = now }
+real = ($us - r0) / 1_000_000.0
+check "3x slow device: every update is a normal-length step (< 0.25 s)", deltas.drop(5).uniq, [0.15]
+check "3x slow device: no update is skipped by the 0.25 s rule", deltas.max < 0.25, true
+check "3x slow device: game time runs 3 times faster", (deltas[6, 24].sum / (8 * 0.15)).round(2), 3.0
+check "3x: Graphics.delta is one step per update", Graphics.delta, 0.15
+class << Graphics
+  alias_method :__acearcade_update, :__mock_draw
+end
 Audio.se_play("Cursor"); Audio.me_play("Fanfare")
 check "quiet mode skips sound effects while fast", $se, []
 speed!(1.5)
