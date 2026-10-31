@@ -1117,7 +1117,16 @@ static void showExc(VALUE exc, const BacktraceData &btData) {
     snprintf(&ms[0], ms.size(), "Script '%s' line %s: %s occured.\n\n%s",
              file.c_str(), line, RSTRING_PTR(name), RSTRING_PTR(msg));
     
+#ifdef __ANDROID__
+    // AceArcade: the launcher reads this from the engine output and shows it in its own error screen (cause,
+    // recommendation, full report with the backtrace), so the engine doesn't also put a raw message box over the
+    // game. Nothing is dropped: the text goes to stderr (engine_output.txt) and the log.
+    fprintf(stderr, "AceArcade script error: %s\n", ms.c_str());
+    fflush(stderr);
+    Debug() << ms;
+#else
     showMsg(ms);
+#endif
 }
 
 // ---- AceArcade: native crash backtrace (see file header) --------------------------------------------------------

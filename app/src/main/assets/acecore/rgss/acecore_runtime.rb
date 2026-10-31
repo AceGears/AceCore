@@ -97,7 +97,8 @@ module AceCore
     def on_exit
       e = $!
       if e && !e.is_a?(SystemExit)
-        where = (e.backtrace || []).first.to_s
+        # The first frames: where the game script failed, not only the compatibility layer's line.
+        where = (e.backtrace || []).first(12).join("\n")
         write("error", "#{e.class}: #{e.message}\n#{where}\n")
       end
     rescue Exception

@@ -116,5 +116,60 @@ check 'RegisterHotKey fails (no global hotkeys on Android)', [rh.call(42, 1, 0, 
 check 'UnregisterHotKey fails', Win32API.new('user32', 'UnregisterHotKey', 'li', 'i').call(42, 1), 0
 check 'PeekMessage: no message', Win32API.new('user32', 'PeekMessage', 'plllll', 'i').call("\0" * 48, 0, 0, 0, 0, 1), 0
 check 'WinHttpOpen binds at load time (Xenoverse Sockets)', Win32API.new('winhttp', 'WinHttpOpen', 'plppl', 'l').call("G\0\0\0".b, 0, nil, nil, 0) > 0, true
+# Essentials "MiniRegistry" (SpriteWindow / FileTests sections of Pokémon Z, Infinity, Xenoverse, Reminiscencia):
+# all functions are bound when the module loads; reads fall back to defaults when a key isn't there.
+module MiniRegistry
+  HKEY_CURRENT_USER = 0x80000001
+  HKEY_LOCAL_MACHINE = 0x80000002
+  FormatMessageA = Win32API.new("kernel32", "FormatMessageA", "LPLLPLP", "L")
+  RegOpenKeyExA = Win32API.new("advapi32", "RegOpenKeyExA", "LPLLP", "L")
+  RegCloseKey = Win32API.new("advapi32", "RegCloseKey", "L", "L")
+  RegQueryValueExA = Win32API.new("advapi32", "RegQueryValueExA", "LPLPPP", "L")
+  def self.open(hkey, subkey, bit64 = false)
+    key = 0.chr * 4
+    rg = RegOpenKeyExA.call(hkey, subkey, 0, bit64 ? 0x20119 : 0x20019, key)
+    return nil if rg != 0
+    key = key.unpack("V")[0]
+    if block_given?
+      begin yield(key) ensure check(RegCloseKey.call(key)) end
+    else
+      key
+    end
+  end
+  def self.get(hkey, subkey, name, default = nil, bit64 = false)
+    self.open(hkey, subkey, bit64) { |key| return (self.read(key, name) rescue default) }
+    default
+  end
+  def self.read(hkey, name)
+    type = 0.chr * 4; size = 0.chr * 4
+    check(RegQueryValueExA.call(hkey, name, 0, type, 0, size))
+  end
+  def self.check(code)
+    if code != 0
+      msg = "\0" * 1024
+      len = FormatMessageA.call(0x1200, 0, code, 0, msg, 1024, 0)
+      raise msg[0, len].tr("\r", '').chomp
+    end
+  end
+end
+check 'MiniRegistry.get on a missing key returns the default',
+      MiniRegistry.get(MiniRegistry::HKEY_LOCAL_MACHINE, "SOFTWARE\\Enterbrain\\RGSS\\RTP", "Standard", "none"), "none"
+check 'MiniRegistry.open on a missing key returns nil', MiniRegistry.open(MiniRegistry::HKEY_CURRENT_USER, "Software\\X"), nil
+err = (MiniRegistry.read(MiniRegistry::HKEY_CURRENT_USER, "Personal") rescue $!.message)
+check 'MiniRegistry.read on a root: Windows message for ERROR_FILE_NOT_FOUND', err, 'The system cannot find the file specified.'
+err = (MiniRegistry.check(6) rescue $!.message)
+check 'MiniRegistry.check(6): invalid handle message', err, 'The handle is invalid.'
+fm = Win32API.new('kernel32', 'FormatMessageA', 'LPLLPLP', 'L')
+check 'FormatMessageA unknown message id -> 0, ERROR_MR_MID_NOT_FOUND',
+      [fm.call(0x1200, 0, 424242, 0, "\0" * 64, 64, 0), Win32API.new('kernel32', 'GetLastError', '', 'l').call], [0, 317]
+check 'FormatMessageA too-small buffer -> 0, ERROR_INSUFFICIENT_BUFFER',
+      [fm.call(0x1200, 0, 2, 0, "\0" * 8, 8, 0), Win32API.new('kernel32', 'GetLastError', '', 'l').call], [0, 122]
+check 'FormatMessageA ALLOCATE_BUFFER is refused', fm.call(0x1300, 0, 2, 0, "\0" * 8, 0, 0), 0
+b = "\0" * 64
+check 'FormatMessageA FROM_STRING', [fm.call(0x400, "Hello", 0, 0, b, 64, 0), b[0, 5]], [5, 'Hello']
+w = "\0" * 200
+n = Win32API.new('kernel32', 'FormatMessageW', 'LPLLPLP', 'L').call(0x1200, 0, 5, 0, w, 100, 0)
+check 'FormatMessageW UTF-16 text', w.byteslice(0, n * 2).force_encoding('UTF-16LE').encode('UTF-8'), "Access is denied.\r\n"
+check 'RegCloseKey on a root succeeds, on another handle fails', [Win32API.new('advapi32', 'RegCloseKey', 'L', 'L').call(0x80000001), Win32API.new('advapi32', 'RegCloseKey', 'L', 'L').call(1234)], [0, 6]
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

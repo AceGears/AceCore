@@ -287,6 +287,10 @@ end
 #             LoadLibrary(A/W/Ex), GetProcAddress, FreeLibrary -> fail as for a DLL that isn't there (NULL,
 #                                                     GetLastError 126/127): Windows DLLs can't run on Android
 #             GetLastError / SetLastError          -> the error code the functions here set
+#             FormatMessage(A/W)                   -> Windows' text for system error codes (FROM_SYSTEM) or the given
+#                                                     format string (FROM_STRING); 0 + ERROR_MR_MID_NOT_FOUND otherwise
+#   advapi32  RegOpenKey(Ex)(A/W), RegQueryValueEx, RegEnum*, RegQueryInfoKey, RegCloseKey -> the registry is
+#                                                     empty: keys not found (2), so games use their defaults
 #   game DLLs (audio.dll, rubyscreen.dll...) -> reported absent to File.exist?/File.open, so Essentials' own
 #                                                     "no DLL" code path runs
 #   user32    FindWindow(Ex)(A), GetForegroundWindow/GetActiveWindow -> the game window (there is exactly one)
@@ -795,6 +799,77 @@ module AceCoreCompat
       0
     end
 
+    # FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM): the Windows text for the error codes the functions here produce
+    # and the ones games report (registry, files). Each ends in CR LF, as on Windows.
+    SYSTEM_MESSAGES = {
+      0 => 'The operation completed successfully.',
+      2 => 'The system cannot find the file specified.',
+      3 => 'The system cannot find the path specified.',
+      5 => 'Access is denied.',
+      6 => 'The handle is invalid.',
+      8 => 'Not enough memory resources are available to process this command.',
+      50 => 'The request is not supported.',
+      87 => 'The parameter is incorrect.',
+      120 => 'This function is not supported on this system.',
+      122 => 'The data area passed to a system call is too small.',
+      126 => 'The specified module could not be found.',
+      127 => 'The specified procedure could not be found.',
+      234 => 'More data is available.',
+      259 => 'No more data is available.',
+      1419 => 'Hot key is not registered.',
+      12029 => 'A connection with the server could not be established',
+    }.freeze
+    FORMAT_ALLOCATE_BUFFER = 0x100
+    FORMAT_FROM_STRING = 0x400
+    FORMAT_FROM_HMODULE = 0x800
+    FORMAT_FROM_SYSTEM = 0x1000
+    ERROR_MR_MID_NOT_FOUND = 317
+
+    # FormatMessage(A/W)(flags, source, id, lang, buffer, size, args) -> characters written (without the NUL), or 0
+    # with GetLastError set, exactly as Windows reports a message it doesn't have.
+    def format_message(flags, source, id, buf, size, wide)
+      flags = flags.to_i
+      if (flags & FORMAT_ALLOCATE_BUFFER) != 0
+        # Windows would allocate memory and return its address; there is no Windows heap to hand out.
+        note_once('FormatMessage with FORMAT_MESSAGE_ALLOCATE_BUFFER -> fails (no Windows memory on Android)')
+        self.last_error = 50
+        return 0
+      end
+      text = if (flags & FORMAT_FROM_STRING) != 0 && source.is_a?(String)
+               wide ? WinHttp.wide(source) : c_string(source, -1).force_encoding(Encoding::Windows_1252)
+             elsif (flags & FORMAT_FROM_SYSTEM) != 0 && (msg = SYSTEM_MESSAGES[id.to_i & 0xFFFFFFFF])
+               msg + "\r\n"
+             end
+      if text.nil?
+        self.last_error = ERROR_MR_MID_NOT_FOUND
+        return 0
+      end
+      out = wide ? text.encode(Encoding::UTF_16LE).b : text.encode(Encoding::Windows_1252, invalid: :replace, undef: :replace).b
+      unit = wide ? 2 : 1
+      chars = out.bytesize / unit
+      cap = [size.to_i, buf.is_a?(String) ? buf.bytesize / unit : 0].min
+      if chars + 1 > cap
+        self.last_error = 122
+        return 0
+      end
+      fill(buf, out + ("\0" * unit).b)
+      self.last_error = 0
+      chars
+    end
+
+    # The Windows registry doesn't exist on Android: every key is absent, as on a Windows install where nothing was
+    # ever written there. Opening a key fails with ERROR_FILE_NOT_FOUND (Essentials MiniRegistry then returns its
+    # default), values of the predefined roots are not found, and no other handle is valid.
+    HKEY_ROOTS = (0x80000000..0x80000006).freeze
+    def reg_root?(h) = HKEY_ROOTS.cover?(h.to_i & 0xFFFFFFFF)
+
+    def reg_open(name)
+      note_once("registry key #{c_string(name, -1).force_encoding(Encoding::UTF_8).scrub} -> not found (no Windows registry on Android)") if name.is_a?(String)
+      2
+    end
+
+    def reg_value(hkey) = reg_root?(hkey) ? 2 : 6
+
     @notes = {}
     def note_once(text)
       return if @notes[text]
@@ -837,6 +912,9 @@ module AceCoreCompat
       # No library is ever loaded, so no handle is valid and no function address exists.
       'getprocaddress' => proc { |*_| Win32.last_error = Win32::ERROR_PROC_NOT_FOUND; 0 },
       'freelibrary' => proc { |*_| Win32.last_error = WinHttp::ERROR_INVALID_HANDLE; 0 },
+      'formatmessage' => (fm = proc { |flags, source, id, _lang, buf, size, *_| Win32.format_message(flags, source, id, buf, size, false) }),
+      'formatmessagea' => fm,
+      'formatmessagew' => proc { |flags, source, id, _lang, buf, size, *_| Win32.format_message(flags, source, id, buf, size, true) },
       'getlasterror' => proc { |*_| Win32.last_error },
       'setlasterror' => proc { |code| Win32.last_error = code.to_i; 0 },
       'outputdebugstring' => (ods = proc { |text| ($stderr.puts(text.to_s) rescue nil); 0 }),
@@ -913,6 +991,19 @@ module AceCoreCompat
       'registerhotkey' => proc { |*_| Win32.unsupported('user32!RegisterHotKey') },
       'unregisterhotkey' => proc { |*_| Win32.last_error = 1419; 0 }, # ERROR_HOTKEY_NOT_REGISTERED
       'peekmessage' => (pm = proc { |*_| 0 }), 'peekmessagea' => pm, 'peekmessagew' => pm,
+    },
+    # Registry functions return their error code directly (they don't use GetLastError).
+    'advapi32' => {
+      'regopenkeyex' => (rok = proc { |_hkey, name, *_| Win32.reg_open(name) }),
+      'regopenkeyexa' => rok, 'regopenkeya' => rok, 'regopenkey' => rok,
+      'regopenkeyexw' => (rokw = proc { |_hkey, name, *_| Win32.reg_open(name.is_a?(String) ? WinHttp.wide(name).b : name) }),
+      'regopenkeyw' => rokw,
+      'regclosekey' => proc { |hkey| Win32.reg_root?(hkey) ? 0 : 6 },
+      'regqueryvalueex' => (rqv = proc { |hkey, *_| Win32.reg_value(hkey) }),
+      'regqueryvalueexa' => rqv, 'regqueryvalueexw' => rqv, 'regqueryvaluea' => rqv,
+      'regenumkeyex' => rqv, 'regenumkeyexa' => rqv, 'regenumkeyexw' => rqv,
+      'regenumvalue' => rqv, 'regenumvaluea' => rqv, 'regenumvaluew' => rqv,
+      'regqueryinfokey' => rqv, 'regqueryinfokeya' => rqv, 'regqueryinfokeyw' => rqv,
     },
     'winhttp' => {
       'winhttpopen' => proc { |agent, *_| WinHttp.open_session(agent) },
