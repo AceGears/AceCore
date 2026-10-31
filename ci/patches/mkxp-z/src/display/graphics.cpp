@@ -5,6 +5,10 @@
 // Also adds a game-area scale (AceArcade's "Game size", Graphics.acearcade_area = 0.5..1.0): the game screen is
 // fitted / stretched / integer-scaled into that share of the window, centred. The window (Android surface) itself
 // always stays full size, so nothing has to be resized while the game runs.
+// Sharp scaling for Fit and Stretch: AceArcade always enables the integer step (nearest-neighbour to the largest whole
+// multiple that fits) with "last mile" smoothing of the remainder, i.e. sharp-bilinear: pixel edges stay crisp at any
+// non-integer size instead of the whole image being linearly blurred from 1x. These paths now also require an actual
+// integer step (factor >= 1), so a game larger than its area still draws.
 /*
  ** graphics.cpp
  **
@@ -897,7 +901,7 @@ struct GraphicsPrivate {
             return;
         }
         
-        if (integerScaleActive && !integerLastMileScaling) {
+        if (integerScaleStepApplicable() && !integerLastMileScaling) {
             scSize = Vec2i(scRes.x * integerScaleFactor.x, scRes.y * integerScaleFactor.y);
             scOffset.x = (winSize.x - scSize.x) / 2;
             scOffset.y = (winSize.y - scSize.y) / 2;
@@ -1071,7 +1075,9 @@ struct GraphicsPrivate {
         
         Vec2i sourceSize;
         
-        if (integerScaleActive)
+        /* AceArcade: only when an integer step exists (factor >= 1); a game larger than its screen area falls back to
+         * the plain path instead of sampling an empty buffer. */
+        if (integerScaleStepApplicable())
         {
             GLMeta::blitSource(integerScaleBuffer);
             sourceSize = Vec2i(integerScaleBuffer.width, integerScaleBuffer.height);

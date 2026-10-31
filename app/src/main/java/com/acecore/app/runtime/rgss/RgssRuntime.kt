@@ -169,7 +169,9 @@ object RgssRuntime {
                 put("smoothScaling", smooth && !display.integerScaling)
                 // Fit / Stretch / Pixel-perfect are done by the engine inside the full-screen surface.
                 put("fixedAspectRatio", display.fixedAspectRatio)
-                put("integerScalingActive", display.integerScaling)
+                // Sharp scaling everywhere: whole-number nearest-neighbour step first; Fit/Stretch then smooth only the
+                // last, fractional step (sharp-bilinear); Pixel-perfect stops at the whole number.
+                put("integerScalingActive", true)
                 put("integerScalingLastMile", !display.integerScaling)
                 put("vsync", true)
                 put("frameSkip", false)

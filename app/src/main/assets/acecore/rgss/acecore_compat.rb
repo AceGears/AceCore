@@ -711,9 +711,10 @@ module AceCoreCompat
       @fit = fit
       @size = size.to_i.clamp(50, 100)
       integer = fit == 'integer'
+      # Sharp scaling in every mode: a whole-number nearest-neighbour step, then (Fit/Stretch) a smoothed last step.
       Graphics.last_mile_scaling = !integer if Graphics.respond_to?(:last_mile_scaling=)
       Graphics.fixed_aspect_ratio = (fit != 'fill') if Graphics.respond_to?(:fixed_aspect_ratio=)
-      Graphics.integer_scaling = integer if Graphics.respond_to?(:integer_scaling=)
+      Graphics.integer_scaling = true if Graphics.respond_to?(:integer_scaling=)
       if Graphics.respond_to?(:smooth_scaling=)
         smooth = defined?(AceCoreCompat::SMOOTH) ? AceCoreCompat::SMOOTH : true
         Graphics.smooth_scaling = integer ? false : smooth

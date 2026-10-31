@@ -25,6 +25,9 @@ class DisplayPrefsTest {
         assertTrue(json, json.contains("\"fixedAspectRatio\":true") && json.contains("\"integerScalingActive\":true") &&
             json.contains("\"smoothScaling\":false"))
         assertTrue(RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "fill")).contains("\"fixedAspectRatio\":false"))
+        // Fit and Stretch are sharp too: whole-number step plus a smoothed last step.
+        val fit = RgssRuntime.overrideConfigJson(mapOf(ConfigKey.SCREEN_FIT.id to "fit"))
+        assertTrue(fit, fit.contains("\"integerScalingActive\":true") && fit.contains("\"integerScalingLastMile\":true"))
     }
 
     @Test fun surfaceSizes() {
