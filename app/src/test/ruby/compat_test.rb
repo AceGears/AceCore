@@ -71,7 +71,7 @@ check "live fit: pixel-perfect, 80% area", [Graphics.fixed_aspect_ratio, Graphic
 check "engine update still runs", Graphics.updates, 30
 sleep 1.1; File.write(DISPLAY_TMP, '{"screenFit":"fill","screenSize":"100"}')
 30.times { Graphics.update }
-check "live fit: stretch, full area", [Graphics.fixed_aspect_ratio, Graphics.integer_scaling, Graphics.last_mile_scaling, Graphics.smooth_scaling, Graphics.acearcade_area], [false, false, true, true, 1.0]
+check "live fit: stretch (sharp: integer step + smoothed last step), full area", [Graphics.fixed_aspect_ratio, Graphics.integer_scaling, Graphics.last_mile_scaling, Graphics.smooth_scaling, Graphics.acearcade_area], [false, true, true, true, 1.0]
 Graphics.fixed_aspect_ratio = true # what the engine does after a window resize
 30.times { Graphics.update }
 check "stretch re-asserted after the engine re-locks the aspect ratio", Graphics.fixed_aspect_ratio, false
