@@ -171,5 +171,34 @@ w = "\0" * 200
 n = Win32API.new('kernel32', 'FormatMessageW', 'LPLLPLP', 'L').call(0x1200, 0, 5, 0, w, 100, 0)
 check 'FormatMessageW UTF-16 text', w.byteslice(0, n * 2).force_encoding('UTF-16LE').encode('UTF-8'), "Access is denied.\r\n"
 check 'RegCloseKey on a root succeeds, on another handle fails', [Win32API.new('advapi32', 'RegCloseKey', 'L', 'L').call(0x80000001), Win32API.new('advapi32', 'RegCloseKey', 'L', 'L').call(1234)], [0, 6]
+# Essentials FontInstaller (PScreen_Load in Infinity / Xenoverse), shortened: copies the game's fonts into the
+# Windows font folder, registers them, writes win.ini and broadcasts WM_FONTCHANGE.
+Dir.mktmpdir do |d|
+  Dir.chdir(d) do
+    Dir.mkdir('Fonts'); File.binwrite('Fonts/pkmnem.ttf', 'TTF'); Dir.mkdir('Windows'); Dir.mkdir('Windows/Fonts')
+    ENV['SystemRoot'] = File.join(d, 'Windows')
+    def safeExists?(f) = (ret = false; File.open(f, 'rb') { ret = true } rescue nil; ret)
+    afr = Win32API.new('gdi32', 'AddFontResource', ['P'], 'L')
+    wps = Win32API.new('kernel32', 'WriteProfileString', ['P'] * 3, 'L')
+    sm = Win32API.new('user32', 'PostMessage', ['L'] * 4, 'L')
+    dest = ENV['SystemRoot'] + '\\Fonts\\'
+    check 'fonts not yet in the Windows font folder', safeExists?(dest + 'pkmnem.ttf'), false
+    File.open('Fonts/' + 'pkmnem.ttf', 'rb') { |s| File.open(dest + 'pkmnem.ttf', 'wb') { |o| o.write(s.read) } }
+    check 'backslash path written as a real file in the font folder', File.binread(File.join(d, 'Windows', 'Fonts', 'pkmnem.ttf')), 'TTF'
+    check 'safeExists? with backslashes finds it', safeExists?(dest + 'pkmnem.ttf'), true
+    check 'AddFontResource: the game font is available', afr.call(dest + 'pkmnem.ttf'), 1
+    check 'AddFontResource: another font is not added', afr.call(dest + 'other.ttf'), 0
+    check 'WriteProfileString', wps.call('Fonts', 'Power Green (TrueType)', 'pkmnem.ttf'), 1
+    wps.call('Fonts', 'Power Green (TrueType)', 'pkmnem2.ttf')
+    check 'win.ini written and updated in place', File.binread(File.join(d, 'Windows', 'win.ini')), "[Fonts]\r\nPower Green (TrueType)=pkmnem2.ttf\r\n"
+    check 'PostMessage broadcast accepted', sm.call(0xFFFF, 0x1D, 0, 0), 1
+    check 'PostMessage to an unknown window fails', sm.call(777, 0x1D, 0, 0), 0
+    check 'Dir.exist? with backslashes', Dir.exist?(d + '\\Windows\\Fonts'), true
+  end
+end
+# Essentials "Mouse" module (Reminiscencia PSystem_Controls): capture functions bound at load.
+sc = Win32API.new('user32', 'SetCapture', 'p', 'i'); rc = Win32API.new('user32', 'ReleaseCapture', '', 'i')
+check 'SetCapture returns the previous capture (none), then the game window', [sc.call(42), sc.call(42)], [0, 42]
+check 'ReleaseCapture', [rc.call, Win32API.new('user32', 'GetCapture', '', 'i').call], [1, 0]
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

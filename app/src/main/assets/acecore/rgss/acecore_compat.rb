@@ -33,6 +33,11 @@ if defined?(AceCoreCompat::DATA_DIR) && AceCoreCompat::DATA_DIR
       [File.dirname(File.dirname(v)), File.dirname(v), v].each { |d| Dir.mkdir(d) rescue nil }
       ENV[k] = v
     end
+    # %SystemRoot% / %windir%: a Windows folder of this game's own, so scripts that look for system fonts
+    # (Essentials FontInstaller) find a real folder. The engine already loads the game's Fonts folder itself.
+    win = File.join(AceCoreCompat::DATA_DIR, 'Windows')
+    [win, File.join(win, 'Fonts')].each { |d| Dir.mkdir(d) rescue nil }
+    %w[SystemRoot windir].each { |k| ENV[k] = win if ENV[k].nil? || ENV[k].empty? }
   rescue StandardError => e
     ($stderr.puts("AceArcade: could not prepare Windows folders: #{e.message}") rescue nil)
   end
@@ -289,6 +294,9 @@ end
 #             GetLastError / SetLastError          -> the error code the functions here set
 #             FormatMessage(A/W)                   -> Windows' text for system error codes (FROM_SYSTEM) or the given
 #                                                     format string (FROM_STRING); 0 + ERROR_MR_MID_NOT_FOUND otherwise
+#             WriteProfileString(A)                -> win.ini in the game's own Windows folder (%SystemRoot%)
+#   gdi32     AddFontResource(A/W/Ex)              -> 1 for a font the engine has loaded (the game's Fonts folder)
+#   user32    PostMessage to the game window / HWND_BROADCAST -> accepted; SetCapture/ReleaseCapture/GetCapture
 #   advapi32  RegOpenKey(Ex)(A/W), RegQueryValueEx, RegEnum*, RegQueryInfoKey, RegCloseKey -> the registry is
 #                                                     empty: keys not found (2), so games use their defaults
 #   game DLLs (audio.dll, rubyscreen.dll...) -> reported absent to File.exist?/File.open, so Essentials' own
@@ -660,11 +668,19 @@ module AceCoreCompat
     def close(h) = WinInet.close(h) ? ok : failed(ERROR_INVALID_HANDLE)
   end
 
+  # Windows paths in game scripts ("Graphics\\Titles\\x.png", ENV['SystemRoot'] + "\\Fonts\\"): Windows accepts "\\"
+  # as a folder separator, Android only "/". Paths given to File / FileTest / Dir have "\\" turned into "/" (a "\\"
+  # can't be part of a file name on Windows, so no real name changes meaning).
+  #
   # Windows DLLs that ship with a game (audio.dll, rubyscreen.dll, ...) are Windows machine code and can't be loaded
   # on Android. Pokémon Essentials checks for them by opening the file (safeExists?) and only then binds their
   # functions; reporting such a DLL as absent sends the game down its own documented no-DLL path (RGSS Audio etc.).
   # Only paths ending in ".dll" are affected; every other file behaves exactly as before.
   module HideWindowsDlls
+    def self.fix(path)
+      path.is_a?(String) && path.include?('\\') ? path.tr('\\', '/') : path
+    end
+
     def self.dll?(path)
       path.is_a?(String) && path.match?(/\.dll\z/i)
     end
@@ -673,36 +689,65 @@ module AceCoreCompat
       Win32.note_once("#{File.basename(path.to_s)} is a Windows DLL: reported absent so the game uses its non-DLL code path")
     end
 
+    def self.writing?(mode)
+      (mode.is_a?(String) && mode.match?(/[wa+]/)) || (mode.is_a?(Integer) && (mode & (File::WRONLY | File::RDWR | File::CREAT)) != 0)
+    end
+
     module FileClass
       %i[exist? file? readable? size?].each do |m|
-        define_method(m) { |path, *rest| HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest) }
+        define_method(m) do |path, *rest|
+          path = HideWindowsDlls.fix(path)
+          HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest)
+        end
+      end
+
+      %i[directory? writable? size mtime atime ctime stat lstat read binread readlines foreach write binwrite
+         expand_path truncate].each do |m|
+        define_method(m) { |path, *rest, **kw, &blk| super(HideWindowsDlls.fix(path), *rest, **kw, &blk) }
       end
 
       def open(path, *rest, **kw, &blk)
-        if HideWindowsDlls.dll?(path) && !(rest[0].is_a?(String) && rest[0].match?(/[wa+]/))
+        path = HideWindowsDlls.fix(path)
+        if HideWindowsDlls.dll?(path) && !HideWindowsDlls.writing?(rest[0] || kw[:mode])
           HideWindowsDlls.hide(path)
           raise Errno::ENOENT, path
         end
-        super
+        super(path, *rest, **kw, &blk)
       end
 
       def new(path, *rest, **kw, &blk)
-        if HideWindowsDlls.dll?(path) && !(rest[0].is_a?(String) && rest[0].match?(/[wa+]/))
+        path = HideWindowsDlls.fix(path)
+        if HideWindowsDlls.dll?(path) && !HideWindowsDlls.writing?(rest[0] || kw[:mode])
           HideWindowsDlls.hide(path)
           raise Errno::ENOENT, path
         end
-        super
+        super(path, *rest, **kw, &blk)
       end
+
+      def delete(*paths) = super(*paths.map { |x| HideWindowsDlls.fix(x) })
+      def unlink(*paths) = super(*paths.map { |x| HideWindowsDlls.fix(x) })
+      def rename(a, b) = super(HideWindowsDlls.fix(a), HideWindowsDlls.fix(b))
     end
 
     module FileTestModule
       %i[exist? file? readable? size?].each do |m|
-        define_method(m) { |path, *rest| HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest) }
+        define_method(m) do |path, *rest|
+          path = HideWindowsDlls.fix(path)
+          HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest)
+        end
+      end
+      define_method(:directory?) { |path| super(HideWindowsDlls.fix(path)) }
+    end
+
+    module DirClass
+      %i[mkdir exist? entries children each_child rmdir delete chdir].each do |m|
+        define_method(m) { |path = nil, *rest, **kw, &blk| path.nil? ? super(*rest, **kw, &blk) : super(HideWindowsDlls.fix(path), *rest, **kw, &blk) }
       end
     end
   end
   File.singleton_class.prepend(HideWindowsDlls::FileClass)
   FileTest.singleton_class.prepend(HideWindowsDlls::FileTestModule)
+  Dir.singleton_class.prepend(HideWindowsDlls::DirClass)
 
   # A Windows function implemented by AceArcade. Arguments arrive as Ruby values: 'p' buffers are the caller's own
   # String objects and are filled in place, as Windows fills the memory behind the pointer.
@@ -777,8 +822,9 @@ module AceCoreCompat
     end
 
     @last_error = 0
+    @captured = false
     class << self
-      attr_accessor :last_error
+      attr_accessor :last_error, :captured
     end
     ERROR_MOD_NOT_FOUND = 126
     ERROR_PROC_NOT_FOUND = 127
@@ -870,6 +916,53 @@ module AceCoreCompat
 
     def reg_value(hkey) = reg_root?(hkey) ? 2 : 6
 
+    # AddFontResource: the engine loads every font in the game's "Fonts" folder at start-up, so a font file that is
+    # there (or a copy of one, as Essentials' FontInstaller makes) is available to the game: 1 font added. Any other
+    # font can't be added to the running engine: 0, as Windows returns for a font it couldn't add.
+    def add_font(path)
+      path = HideWindowsDlls.fix(path.is_a?(String) ? c_string(path, -1).force_encoding(Encoding::UTF_8) : '')
+      name = File.basename(path)
+      game_fonts = (Dir.children('Fonts') rescue [])
+      if File.exist?(path) && game_fonts.any? { |f| f.casecmp?(name) }
+        note_once("font #{name}: available (loaded by the engine from the game's Fonts folder)")
+        1
+      else
+        note_once("font #{name}: not added (only fonts in the game's Fonts folder are loaded)")
+        self.last_error = 2
+        0
+      end
+    end
+
+    # WriteProfileString (win.ini): written to win.ini in this game's own Windows folder (see SystemRoot above).
+    def write_profile(section, key, value)
+      dir = ENV['SystemRoot'] or return 0
+      file = File.join(dir, 'win.ini')
+      section, key = c_string(section, -1), (key.is_a?(String) ? c_string(key, -1) : nil)
+      value = value.is_a?(String) ? c_string(value, -1) : nil
+      lines = (File.binread(file).split(/\r?\n/) rescue [])
+      start = lines.index { |l| l.strip.casecmp?("[#{section}]".b) }
+      unless start
+        lines << "[#{section}]".b
+        start = lines.size - 1
+      end
+      stop = (start + 1...lines.size).find { |i| lines[i].start_with?('[') } || lines.size
+      idx = key && (start + 1...stop).find { |i| lines[i].split('=', 2)[0].to_s.strip.casecmp?(key) }
+      if key.nil?
+        lines.slice!(start, stop - start)                   # NULL key: delete the section
+      elsif value.nil?
+        lines.delete_at(idx) if idx                          # NULL value: delete the key
+      elsif idx
+        lines[idx] = "#{key}=#{value}".b
+      else
+        lines.insert(stop, "#{key}=#{value}".b)
+      end
+      File.binwrite(file, lines.join("\r\n") + "\r\n")
+      1
+    rescue StandardError
+      self.last_error = 5
+      0
+    end
+
     @notes = {}
     def note_once(text)
       return if @notes[text]
@@ -915,6 +1008,8 @@ module AceCoreCompat
       'formatmessage' => (fm = proc { |flags, source, id, _lang, buf, size, *_| Win32.format_message(flags, source, id, buf, size, false) }),
       'formatmessagea' => fm,
       'formatmessagew' => proc { |flags, source, id, _lang, buf, size, *_| Win32.format_message(flags, source, id, buf, size, true) },
+      'writeprofilestring' => (wps = proc { |section, key, value| Win32.write_profile(section, key, value) }),
+      'writeprofilestringa' => wps,
       'getlasterror' => proc { |*_| Win32.last_error },
       'setlasterror' => proc { |code| Win32.last_error = code.to_i; 0 },
       'outputdebugstring' => (ods = proc { |text| ($stderr.puts(text.to_s) rescue nil); 0 }),
@@ -991,6 +1086,24 @@ module AceCoreCompat
       'registerhotkey' => proc { |*_| Win32.unsupported('user32!RegisterHotKey') },
       'unregisterhotkey' => proc { |*_| Win32.last_error = 1419; 0 }, # ERROR_HOTKEY_NOT_REGISTERED
       'peekmessage' => (pm = proc { |*_| 0 }), 'peekmessagea' => pm, 'peekmessagew' => pm,
+      # Posting to the game window or broadcasting (HWND_BROADCAST, e.g. WM_FONTCHANGE) is accepted like on Windows;
+      # no other window exists to receive anything.
+      'postmessage' => (post = proc { |hwnd, *_|
+        if [Win32::WINDOW, 0xFFFF].include?(hwnd.to_i) then 1 else Win32.last_error = 1400; 0 end # ERROR_INVALID_WINDOW_HANDLE
+      }),
+      'postmessagea' => post, 'postmessagew' => post,
+      # Mouse capture: the game window is the only window, so it always has the mouse. SetCapture returns the window
+      # that had capture before (none); GetCapture the game window once captured.
+      'setcapture' => proc { |_hwnd| prev = Win32.captured ? Win32::WINDOW : 0; Win32.captured = true; prev },
+      'releasecapture' => proc { |*_| Win32.captured = false; 1 },
+      'getcapture' => proc { |*_| Win32.captured ? Win32::WINDOW : 0 },
+    },
+    'gdi32' => {
+      'addfontresource' => (afr = proc { |path, *_| Win32.add_font(path) }),
+      'addfontresourcea' => afr, 'addfontresourceex' => afr, 'addfontresourceexa' => afr,
+      'addfontresourcew' => (afrw = proc { |path, *_| Win32.add_font(path.is_a?(String) ? WinHttp.wide(path).b : path) }),
+      'addfontresourceexw' => afrw,
+      'removefontresource' => afr, 'removefontresourcea' => afr,
     },
     # Registry functions return their error code directly (they don't use GetLastError).
     'advapi32' => {
@@ -1675,6 +1788,8 @@ end
 # the whole script then compiles; otherwise the original runs and reports its own error. Game files are not touched.
 #===============================================================================
 module AceCoreCompat
+  class Ruby18Retry < Exception; end
+
   module Ruby18Syntax
     # "when <condition>:" where the colon ends the condition (not "::", not a symbol, not "a ? b : c").
     WHEN_COLON = /^(\s*when\s+[^#\n]*?[^\s:?])\s*:(?!:)(?=\s|$)/
@@ -1687,6 +1802,13 @@ module AceCoreCompat
       false
     end
 
+    def compile_error(src, name)
+      RubyVM::InstructionSequence.compile(src, name)
+      nil
+    rescue SyntaxError => e
+      e
+    end
+
     # Returns the adapted source, or nil when the script needs no change or can't be adapted safely.
     def adapt(src, name)
       return nil unless src.is_a?(String) && src.match?(WHEN_COLON)
@@ -1695,15 +1817,75 @@ module AceCoreCompat
       compiles?(fixed, name) ? fixed : nil
     end
 
+    # ---- "retry" inside a block or for loop (Ruby 1.8: restarts that iterator call from the beginning, receiver and
+    # arguments re-evaluated; since 1.9 retry is only allowed in rescue, so the script doesn't compile: "Invalid
+    # retry"). The same behaviour in current Ruby: the iterator call is wrapped in begin/rescue/retry and the retry
+    # becomes a raise of a private exception (not a StandardError, so the game's own "rescue" clauses can't catch it).
+    # Everything is inserted on the existing lines, so line numbers in error messages stay the game's own.
+    RETRY_RAISE = 'raise(::AceCoreCompat::Ruby18Retry)'
+    RETRY_ONLY = /(?<![\w.:$@])retry(?![\w?!])/
+
+    def adapt_retry(src, name)
+      return nil unless src.is_a?(String) && src.include?('retry') && defined?(RubyVM::AbstractSyntaxTree)
+      marked_lines = []
+      # 1. Each line the compiler rejects: its retry becomes the raise (reported one line at a time).
+      200.times do
+        err = compile_error(src, name) or break
+        line_no = err.message[/:(\d+): Invalid retry/, 1]&.to_i or return nil
+        lines = src.lines
+        code, comment = (lines[line_no - 1] or return nil).split('#', 2)
+        return nil unless code.match?(RETRY_ONLY)
+        lines[line_no - 1] = code.gsub(RETRY_ONLY, RETRY_RAISE) + (comment ? "##{comment}" : '')
+        src = lines.join
+        marked_lines << line_no
+      end
+      return nil if marked_lines.empty? || !compiles?(src, name)
+      # 2. Wrap the innermost iterator (block call or for loop) around each of those lines.
+      ast = RubyVM::AbstractSyntaxTree.parse(src)
+      nodes = marked_lines.map { |l| innermost_iterator(ast, l) or return nil }.uniq { |n| [n.first_lineno, n.first_column, n.last_lineno, n.last_column] }
+      fixed = wrap(src.lines, nodes)
+      compiles?(fixed, name) ? [fixed, marked_lines.size] : nil
+    rescue SyntaxError, StandardError
+      nil
+    end
+
+    def innermost_iterator(node, line_no, best = nil)
+      return best unless node.is_a?(RubyVM::AbstractSyntaxTree::Node)
+      if %i[ITER FOR].include?(node.type) && node.first_lineno <= line_no && node.last_lineno >= line_no
+        best = node
+      end
+      node.children.each { |c| best = innermost_iterator(c, line_no, best) if c.is_a?(RubyVM::AbstractSyntaxTree::Node) }
+      best
+    end
+
+    # Inserts "begin;" before and ";rescue ...;retry;end" after each node, working from the end of the text back so
+    # every position still refers to the original source.
+    def wrap(lines, nodes)
+      lines = lines.map(&:b)
+      inserts = nodes.flat_map do |n|
+        [[n.first_lineno - 1, n.first_column, 'begin;'], [n.last_lineno - 1, n.last_column, ';rescue ::AceCoreCompat::Ruby18Retry;retry;end']]
+      end
+      inserts.sort_by { |l, c, _| [-l, -c] }.each do |l, c, text|
+        line = lines[l]
+        lines[l] = line.byteslice(0, c) + text.b + line.byteslice(c..)
+      end
+      lines.join.force_encoding(Encoding::UTF_8)
+    end
+
     def apply(scripts)
       return unless scripts.is_a?(Array) && defined?(RubyVM::InstructionSequence)
       scripts.each_with_index do |entry, i|
         next unless entry.is_a?(Array) && entry[3].is_a?(String)
         name = format('%03d:%s', i, entry[1].to_s)
-        fixed = adapt(entry[3], name) or next
-        n = entry[3].scan(WHEN_COLON).size
-        entry[3] = fixed
-        ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{n} \"when ...:\")") rescue nil)
+        if (fixed = adapt(entry[3], name))
+          n = entry[3].scan(WHEN_COLON).size
+          entry[3] = fixed
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{n} \"when ...:\")") rescue nil)
+        end
+        if (r = adapt_retry(entry[3], name))
+          entry[3] = r[0]
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} \"retry\" in an iterator)") rescue nil)
+        end
       end
     rescue StandardError => e
       ($stderr.puts("AceArcade: Ruby 1.8 syntax check skipped: #{e.class}: #{e.message}") rescue nil)
