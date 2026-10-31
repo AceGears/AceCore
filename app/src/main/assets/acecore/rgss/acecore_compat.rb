@@ -1268,3 +1268,49 @@ module AceCoreCompat
   end
 end
 AceCoreCompat::Ruby18Syntax.apply($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
+
+#===============================================================================
+# Ruby 1.8 byte reading in Pokémon Essentials data files
+#
+# Essentials (up to about v16) reads its binary data (dexdata.dat, ...) through its own StringInput class, whose
+# each_byte yields getc, and getc returns @string[@pos]. In Ruby 1.8 that was the byte as an Integer; since Ruby 1.9
+# it is a one-character String, so fgetb/fgetw (built on each_byte) return Strings and the game stops with
+# "comparison of Integer with String failed" (Pokémon Xenoverse, PokeBattle_Pokemon.isFemale, loading a save).
+# IO#each_byte yields Integers in every Ruby version, so when a game defines StringInput, its each_byte is made to
+# yield Integers too (a value that already is an Integer is passed through unchanged).
+#===============================================================================
+module AceCoreCompat
+  module StringInputBytes
+    def each_byte(*args)
+      return enum_for(:each_byte, *args) unless block_given?
+      super(*args) { |b| yield(b.is_a?(String) ? b.getbyte(0) : b) }
+    end
+  end
+
+  # For readers whose fgetb returns getc directly.
+  module StringInputFgetb
+    def fgetb(*args)
+      b = super
+      b.is_a?(String) ? b.getbyte(0) : b
+    end
+  end
+
+  module Ruby18Bytes
+    @done = {}
+    def self.patch(klass)
+      return if @done[klass] || !klass.method_defined?(:each_byte)
+      @done[klass] = true
+      klass.prepend(StringInputBytes)
+      klass.prepend(StringInputFgetb) if klass.method_defined?(:fgetb)
+      ($stderr.puts("AceArcade: #{klass} reads bytes as Integers (Ruby 1.8 data readers)") rescue nil)
+    end
+  end
+end
+begin
+  AceCoreCompat::Ruby18Bytes.instance_variable_set(:@trace, TracePoint.new(:end) do |tp|
+    mod = tp.self
+    AceCoreCompat::Ruby18Bytes.patch(mod) if mod.is_a?(Class) && mod.name == 'StringInput'
+  end.tap(&:enable))
+rescue StandardError => e
+  ($stderr.puts("AceArcade: byte-reader check unavailable: #{e.message}") rescue nil)
+end

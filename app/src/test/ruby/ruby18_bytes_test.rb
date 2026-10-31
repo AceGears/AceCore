@@ -1,0 +1,61 @@
+# Essentials v16-era StringInput + FileInputMixin (verbatim logic) read through acecore_compat.rb's fix.
+# Run: ruby app/src/test/ruby/ruby18_bytes_test.rb
+require 'stringio'
+COMPAT = File.expand_path('../../main/assets/acecore/rgss/acecore_compat.rb', __dir__)
+module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end
+$stderr = StringIO.new
+load COMPAT
+$fail = false
+def check(n, got, want) = (got == want ? puts("ok   #{n}") : (puts("FAIL #{n}: #{got.inspect} != #{want.inspect}"); $fail = true))
+# Defined the way the game does, after the compat layer has loaded.
+eval(<<~'GAME', TOPLEVEL_BINDING)
+  module FileInputMixin
+    def fgetb
+      x = 0; ret = 0
+      each_byte do |i|
+        ret = i || 0
+        break
+      end
+      return ret
+    end
+    def fgetw
+      x = 0; ret = 0
+      each_byte do |i|
+        break if !i
+        ret |= (i << x)
+        x += 8
+        break if x == 16
+      end
+      return ret
+    end
+  end
+  class StringInput
+    include FileInputMixin
+    def initialize(str) @string = str; @pos = 0 end
+    def eof? = @pos >= @string.length
+    def getc
+      return nil if eof?
+      ret = @string[@pos]
+      @pos += 1
+      return ret
+    end
+    def each_byte
+      while !eof?
+        yield getc
+      end
+    end
+  end
+GAME
+s = StringInput.new([0, 31, 254, 0x34, 0x12].pack('C*').b)
+s.instance_variable_set(:@pos, 1)
+check 'fgetb returns an Integer (gender rate 31)', s.fgetb, 31
+check 'fgetb 254', s.fgetb, 254
+check 'fgetw little-endian word', s.fgetw, 0x1234
+check 'isFemale comparison works', (5 <= StringInput.new([31].pack('C')).fgetb), true
+check 'getc itself unchanged (game text readers)', StringInput.new('AB').getc, 'A'
+eval("class StringInput2; def initialize(s) @s = s end; def each_byte; yield @s[0] end; def fgetb; @s[0] end; end; class StringInput < Object; end", TOPLEVEL_BINDING)
+AceCoreCompat::Ruby18Bytes.patch(StringInput2)
+check 'fgetb that returns getc directly', StringInput2.new([200].pack('C').b).fgetb, 200
+check 'logged', $stderr.string.include?('StringInput reads bytes as Integers'), true
+puts($fail ? 'SOME FAILED' : 'ALL PASSED')
+exit($fail ? 1 : 0)

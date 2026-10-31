@@ -105,7 +105,7 @@ jobs:
           # Development happens on branches, not only main: let pushes write the dependency/build cache too.
           cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Runtime helper tests (Ruby, mock Essentials / RPG Maker games)
-        run: ruby app/src/test/ruby/runtime_test.rb && ruby app/src/test/ruby/compat_test.rb && ruby app/src/test/ruby/wininet_test.rb && ruby app/src/test/ruby/tools_test.rb && ruby app/src/test/ruby/win32_test.rb && ruby app/src/test/ruby/ruby18_test.rb
+        run: ruby app/src/test/ruby/runtime_test.rb && ruby app/src/test/ruby/compat_test.rb && ruby app/src/test/ruby/wininet_test.rb && ruby app/src/test/ruby/tools_test.rb && ruby app/src/test/ruby/win32_test.rb && ruby app/src/test/ruby/ruby18_test.rb && ruby app/src/test/ruby/ruby18_bytes_test.rb
       - name: Compile
         run: chmod +x gradlew ci/run-gradle.sh && GRADLE_LOG=compile.log ci/run-gradle.sh compileDebugKotlin
       - name: Unit tests (JVM + Robolectric)
