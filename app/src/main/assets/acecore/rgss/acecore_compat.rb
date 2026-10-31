@@ -261,6 +261,11 @@ end
 #             GetCurrentThreadId / GetCurrentProcessId, GetTickCount, QueryPerformanceCounter/Frequency, Sleep
 #                                                  -> real values from the running engine
 #             GetPrivateProfileString(A)           -> reads the game's .ini file (as Windows does)
+#             LoadLibrary(A/W/Ex), GetProcAddress, FreeLibrary -> fail as for a DLL that isn't there (NULL,
+#                                                     GetLastError 126/127): Windows DLLs can't run on Android
+#             GetLastError / SetLastError          -> the error code the functions here set
+#   game DLLs (audio.dll, rubyscreen.dll...) -> reported absent to File.exist?/File.open, so Essentials' own
+#                                                     "no DLL" code path runs
 #   user32    FindWindow(Ex)(A), GetForegroundWindow/GetActiveWindow -> the game window (there is exactly one)
 #             GetWindowThreadProcessId             -> the engine's thread/process (matches GetCurrentThreadId)
 #             GetSystemMetrics(0/1)                -> the device screen size; GetClientRect/GetWindowRect -> game size
@@ -268,6 +273,10 @@ end
 #             SetWindowPos/MoveWindow/ShowWindow/SetWindowText/SetWindowLong... -> success, no effect: the game always
 #                                                     fills the Android screen, there is no desktop window to move
 #             MessageBox(A/W)                      -> shown as the engine's message box
+#             RegisterHotKey/UnregisterHotKey      -> fail (no global hotkeys); PeekMessage -> no message
+#   winhttp   WinHttpOpen/Connect/OpenRequest/SendRequest/WriteData/ReceiveResponse/QueryHeaders/
+#             QueryDataAvailable/ReadData/CloseHandle -> real HTTP(S) requests (any verb, headers, body), same TLS
+#                                                     checks as wininet; FALSE + GetLastError on failure
 #   any other Windows function: Win32API.new raises, as it does for a missing DLL on Windows, and the call is listed
 #   once in the engine log ("AceArcade: Windows function ... not available on Android"). Games guard optional calls
 #   with "rescue"; returning a fake 0 instead would read as success for HRESULT functions (SHGetKnownFolderPath) and
@@ -332,7 +341,7 @@ module AceCoreCompat
         Response.new(status, headers, body)
       end
 
-      def request(scheme, host, port, path)
+      def request(scheme, host, port, path, verb = 'GET', extra_headers = '', body = nil)
         require 'socket.so'
         tcp = TCPSocket.new(host, port, connect_timeout: TIMEOUT)
         io = tcp
@@ -347,9 +356,17 @@ module AceCoreCompat
           raise "certificate verification failed (#{io.verify_result})" unless io.verify_result == OpenSSL::X509::V_OK
           raise "certificate does not match #{host}" unless host_matches?(io.peer_cert, host)
         end
-        req = "GET #{path} HTTP/1.1\r\nHost: #{host}\r\nUser-Agent: Mozilla/5.0 (Android) AceArcade\r\n" \
-              "Accept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
-        write_all(io, req)
+        given = extra_headers.to_s.split(/\r?\n/).reject(&:empty?)
+        names = given.map { |l| l.split(':', 2)[0].to_s.strip.downcase }
+        default_port = scheme == 'https' ? 443 : 80
+        req = +"#{verb} #{path} HTTP/1.1\r\nHost: #{host}#{port == default_port ? '' : ":#{port}"}\r\n"
+        req << "User-Agent: Mozilla/5.0 (Android) AceArcade\r\n" unless names.include?('user-agent')
+        req << "Accept: */*\r\n" unless names.include?('accept')
+        given.each { |l| req << l << "\r\n" unless %w[host connection accept-encoding content-length].include?(l.split(':', 2)[0].to_s.strip.downcase) }
+        req << "Accept-Encoding: identity\r\nConnection: close\r\n"
+        req << "Content-Length: #{body.bytesize}\r\n" if body && (!body.empty? || verb != 'GET')
+        req << "\r\n"
+        write_all(io, req.b + (body || '').b)
         raw = read_all(io, tcp)
         parse(raw)
       ensure
@@ -456,6 +473,210 @@ module AceCoreCompat
     end
   end
 
+  # WinHTTP (winhttp.dll) on top of the same HTTP(S) client: Open -> Connect(host, port) -> OpenRequest(verb, path,
+  # WINHTTP_FLAG_SECURE) -> SendRequest(headers, body) [+ WriteData] -> ReceiveResponse -> QueryHeaders /
+  # QueryDataAvailable / ReadData -> CloseHandle. WinHTTP is Unicode-only, so text arguments are UTF-16LE strings.
+  # Failures return 0 (FALSE / NULL) and set GetLastError, as WinHTTP does; nothing pretends to have succeeded.
+  module WinHttp
+    FLAG_SECURE = 0x00800000
+    QUERY_FLAG_NUMBER = 0x20000000
+    ERROR_INVALID_HANDLE = 6
+    ERROR_INSUFFICIENT_BUFFER = 122
+    ERROR_CANNOT_CONNECT = 12029     # ERROR_WINHTTP_CANNOT_CONNECT
+    ERROR_INCORRECT_HANDLE_STATE = 12019
+    ERROR_HEADER_NOT_FOUND = 12150
+
+    Session = Struct.new(:agent)
+    Connection = Struct.new(:host, :port)
+    Request = Struct.new(:conn, :verb, :path, :secure, :headers, :body, :response, :pos)
+
+    module_function
+
+    # A wide (UTF-16LE) string argument up to its terminating NUL; nil for a NULL pointer.
+    def wide(arg, chars = -1)
+      return nil unless arg.is_a?(String)
+      bytes = arg.b
+      if chars.to_i >= 0 && chars.to_i < 0xFFFFFFFF
+        bytes = bytes.byteslice(0, chars.to_i * 2) || ''.b
+      else
+        stop = (0...bytes.bytesize).step(2).find { |i| bytes.getbyte(i).zero? && bytes.getbyte(i + 1).to_i.zero? }
+        bytes = bytes.byteslice(0, stop) if stop
+      end
+      bytes.force_encoding(Encoding::UTF_16LE).encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+    end
+
+    def failed(code)
+      Win32.last_error = code
+      0
+    end
+
+    def ok
+      Win32.last_error = 0
+      1
+    end
+
+    def put_dword(buf, value)
+      Win32.fill(buf, [value].pack('L')) if buf.is_a?(String) && buf.bytesize >= 4
+    end
+
+    def open_session(agent)
+      Win32.last_error = 0
+      WinInet.new_handle(Session.new(wide(agent)))
+    end
+
+    def connect(session, host, port)
+      return failed(ERROR_INVALID_HANDLE) unless WinInet.handle(session).is_a?(Session)
+      name = wide(host).to_s
+      return failed(87) if name.empty? # ERROR_INVALID_PARAMETER
+      Win32.last_error = 0
+      WinInet.new_handle(Connection.new(name, port.to_i))
+    end
+
+    def open_request(conn, verb, path, flags)
+      c = WinInet.handle(conn)
+      return failed(ERROR_INVALID_HANDLE) unless c.is_a?(Connection)
+      v = wide(verb).to_s
+      v = 'GET' if v.empty?
+      pth = wide(path).to_s
+      pth = "/#{pth}" unless pth.start_with?('/')
+      Win32.last_error = 0
+      WinInet.new_handle(Request.new(c, v.upcase, pth, (flags.to_i & FLAG_SECURE) != 0, +'', ''.b, nil, 0))
+    end
+
+    def request(h) = (r = WinInet.handle(h)).is_a?(Request) ? r : nil
+
+    def add_headers(h, headers, len)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      text = wide(headers, len).to_s
+      r.headers << text.sub(/\r?\n?\z/, "\r\n") unless text.empty?
+      ok
+    end
+
+    def send_request(h, headers, len, optional, optional_len)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      add_headers(h, headers, len) if headers.is_a?(String)
+      if optional.is_a?(String) && optional_len.to_i > 0
+        r.body << (optional.b.byteslice(0, optional_len.to_i) || ''.b)
+      end
+      ok
+    end
+
+    def write(h, data, len, written)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      chunk = data.is_a?(String) ? (data.b.byteslice(0, len.to_i) || ''.b) : ''.b
+      r.body << chunk
+      put_dword(written, chunk.bytesize)
+      ok
+    end
+
+    def receive(h)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      c = r.conn
+      scheme = r.secure ? 'https' : 'http'
+      port = c.port.zero? ? (r.secure ? 443 : 80) : c.port
+      status, headers, body = WinInet.request(scheme, c.host, port, r.path, r.verb, r.headers,
+                                              r.verb == 'GET' && r.body.empty? ? nil : r.body)
+      r.response = WinInet::Response.new(status, headers, body)
+      r.pos = 0
+      ok
+    rescue StandardError, ScriptError => e
+      WinInet.log("WinHTTP: #{r&.verb} #{scheme}://#{c&.host}:#{port}#{r&.path}: #{e.class}: #{e.message}")
+      failed(ERROR_CANNOT_CONNECT)
+    end
+
+    def query_headers(h, level, buf, len_buf)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      res = r.response or return failed(ERROR_INCORRECT_HANDLE_STATE)
+      value = case level.to_i & 0xFFFF
+              when 19 then res.status.to_s                                   # WINHTTP_QUERY_STATUS_CODE
+              when 5 then res.headers['content-length'] || res.body.bytesize.to_s # WINHTTP_QUERY_CONTENT_LENGTH
+              when 1 then res.headers['content-type']                        # WINHTTP_QUERY_CONTENT_TYPE
+              when 22 then "HTTP/1.1 #{res.status}\r\n" + res.headers.map { |k, v| "#{k}: #{v}\r\n" }.join + "\r\n"
+              end
+      return failed(ERROR_HEADER_NOT_FOUND) if value.nil?
+      if (level.to_i & QUERY_FLAG_NUMBER) != 0
+        return failed(ERROR_INSUFFICIENT_BUFFER) unless buf.is_a?(String) && buf.bytesize >= 4
+        put_dword(buf, value.to_i)
+        put_dword(len_buf, 4)
+        return ok
+      end
+      out = value.encode(Encoding::UTF_16LE).b
+      cap = len_buf.is_a?(String) && len_buf.bytesize >= 4 ? len_buf.b.unpack1('L') : (buf.is_a?(String) ? buf.bytesize : 0)
+      cap = [cap, buf.is_a?(String) ? buf.bytesize : 0].min
+      if out.bytesize + 2 > cap
+        put_dword(len_buf, out.bytesize + 2)
+        return failed(ERROR_INSUFFICIENT_BUFFER)
+      end
+      Win32.fill(buf, out + "\0\0".b)
+      put_dword(len_buf, out.bytesize)
+      ok
+    end
+
+    def available(h, out)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      res = r.response or return failed(ERROR_INCORRECT_HANDLE_STATE)
+      put_dword(out, [res.body.bytesize - r.pos, 0].max)
+      ok
+    end
+
+    def read(h, buf, size, read_out)
+      r = request(h) or return failed(ERROR_INVALID_HANDLE)
+      res = r.response or return failed(ERROR_INCORRECT_HANDLE_STATE)
+      want = [size.to_i, buf.is_a?(String) ? buf.bytesize : 0].min
+      chunk = res.body.byteslice(r.pos, [want, 0].max) || ''.b
+      r.pos += chunk.bytesize
+      Win32.fill(buf, chunk) unless chunk.empty?
+      put_dword(read_out, chunk.bytesize)
+      ok
+    end
+
+    def close(h) = WinInet.close(h) ? ok : failed(ERROR_INVALID_HANDLE)
+  end
+
+  # Windows DLLs that ship with a game (audio.dll, rubyscreen.dll, ...) are Windows machine code and can't be loaded
+  # on Android. Pokémon Essentials checks for them by opening the file (safeExists?) and only then binds their
+  # functions; reporting such a DLL as absent sends the game down its own documented no-DLL path (RGSS Audio etc.).
+  # Only paths ending in ".dll" are affected; every other file behaves exactly as before.
+  module HideWindowsDlls
+    def self.dll?(path)
+      path.is_a?(String) && path.match?(/\.dll\z/i)
+    end
+
+    def self.hide(path)
+      Win32.note_once("#{File.basename(path.to_s)} is a Windows DLL: reported absent so the game uses its non-DLL code path")
+    end
+
+    module FileClass
+      %i[exist? file? readable? size?].each do |m|
+        define_method(m) { |path, *rest| HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest) }
+      end
+
+      def open(path, *rest, **kw, &blk)
+        if HideWindowsDlls.dll?(path) && !(rest[0].is_a?(String) && rest[0].match?(/[wa+]/))
+          HideWindowsDlls.hide(path)
+          raise Errno::ENOENT, path
+        end
+        super
+      end
+
+      def new(path, *rest, **kw, &blk)
+        if HideWindowsDlls.dll?(path) && !(rest[0].is_a?(String) && rest[0].match?(/[wa+]/))
+          HideWindowsDlls.hide(path)
+          raise Errno::ENOENT, path
+        end
+        super
+      end
+    end
+
+    module FileTestModule
+      %i[exist? file? readable? size?].each do |m|
+        define_method(m) { |path, *rest| HideWindowsDlls.dll?(path) ? (HideWindowsDlls.hide(path); m == :size? ? nil : false) : super(path, *rest) }
+      end
+    end
+  end
+  File.singleton_class.prepend(HideWindowsDlls::FileClass)
+  FileTest.singleton_class.prepend(HideWindowsDlls::FileTestModule)
+
   # A Windows function implemented by AceArcade. Arguments arrive as Ruby values: 'p' buffers are the caller's own
   # String objects and are filled in place, as Windows fills the memory behind the pointer.
   class WinFunction
@@ -528,6 +749,29 @@ module AceCoreCompat
       i ? str.byteslice(0, i) : str
     end
 
+    @last_error = 0
+    class << self
+      attr_accessor :last_error
+    end
+    ERROR_MOD_NOT_FOUND = 126
+    ERROR_PROC_NOT_FOUND = 127
+    ERROR_CALL_NOT_IMPLEMENTED = 120
+
+    # LoadLibrary: Windows DLLs can't be loaded on Android, so the call fails exactly as Windows does for a DLL that
+    # isn't there (NULL, GetLastError = ERROR_MOD_NOT_FOUND). The DLLs AceArcade implements are reached through
+    # Win32API.new directly and need no handle.
+    def load_library(name)
+      note_once("LoadLibrary(#{c_string(name, -1).force_encoding(Encoding::UTF_8).scrub}) -> NULL (Windows DLLs can't be loaded on Android)") if name.is_a?(String)
+      self.last_error = ERROR_MOD_NOT_FOUND
+      0
+    end
+
+    def unsupported(what)
+      note_once("#{what} -> fails (not available on Android)")
+      self.last_error = ERROR_CALL_NOT_IMPLEMENTED
+      0
+    end
+
     @notes = {}
     def note_once(text)
       return if @notes[text]
@@ -563,6 +807,15 @@ module AceCoreCompat
         value.bytesize
       }),
       'getprivateprofilestringa' => gpps,
+      'loadlibrary' => (ll = proc { |name, *_| Win32.load_library(name) }),
+      'loadlibrarya' => ll, 'loadlibraryex' => ll, 'loadlibraryexa' => ll,
+      'loadlibraryw' => (llw = proc { |name, *_| Win32.load_library(name.is_a?(String) ? WinHttp.wide(name).b : name) }),
+      'loadlibraryexw' => llw,
+      # No library is ever loaded, so no handle is valid and no function address exists.
+      'getprocaddress' => proc { |*_| Win32.last_error = Win32::ERROR_PROC_NOT_FOUND; 0 },
+      'freelibrary' => proc { |*_| Win32.last_error = WinHttp::ERROR_INVALID_HANDLE; 0 },
+      'getlasterror' => proc { |*_| Win32.last_error },
+      'setlasterror' => proc { |code| Win32.last_error = code.to_i; 0 },
       'outputdebugstring' => (ods = proc { |text| ($stderr.puts(text.to_s) rescue nil); 0 }),
       'outputdebugstringa' => ods,
       # RtlMoveMemory(dest, src, len): copies between buffers the game passed as Strings, within both buffers'
@@ -632,6 +885,26 @@ module AceCoreCompat
       'getcursorpos' => proc { |buf| Win32.fill(buf, [(Input.mouse_x rescue 0), (Input.mouse_y rescue 0)].pack('l2')); 1 },
       'messagebox' => (mb = proc { |_hwnd, text, caption = nil, *_| (print(text.to_s) rescue nil); 1 }),
       'messageboxa' => mb, 'messageboxw' => mb,
+      # Global hotkeys are a Windows desktop feature; registration fails as it does when Windows refuses a hotkey,
+      # and no WM_HOTKEY message is ever queued (PeekMessage: no message). Keys still reach the game through Input.
+      'registerhotkey' => proc { |*_| Win32.unsupported('user32!RegisterHotKey') },
+      'unregisterhotkey' => proc { |*_| Win32.last_error = 1419; 0 }, # ERROR_HOTKEY_NOT_REGISTERED
+      'peekmessage' => (pm = proc { |*_| 0 }), 'peekmessagea' => pm, 'peekmessagew' => pm,
+    },
+    'winhttp' => {
+      'winhttpopen' => proc { |agent, *_| WinHttp.open_session(agent) },
+      'winhttpconnect' => proc { |s, host, port, *_| WinHttp.connect(s, host, port) },
+      'winhttpopenrequest' => proc { |c, verb, path, _ver = nil, _ref = nil, _acc = nil, flags = 0| WinHttp.open_request(c, verb, path, flags) },
+      'winhttpaddrequestheaders' => proc { |h, headers, len, *_| WinHttp.add_headers(h, headers, len) },
+      'winhttpsendrequest' => proc { |h, headers, len, opt = nil, opt_len = 0, *_| WinHttp.send_request(h, headers, len, opt, opt_len) },
+      'winhttpwritedata' => proc { |h, data, len, written = nil| WinHttp.write(h, data, len, written) },
+      'winhttpreceiveresponse' => proc { |h, *_| WinHttp.receive(h) },
+      'winhttpqueryheaders' => proc { |h, level, _name, buf, len_buf, *_| WinHttp.query_headers(h, level, buf, len_buf) },
+      'winhttpquerydataavailable' => proc { |h, out| WinHttp.available(h, out) },
+      'winhttpreaddata' => proc { |h, buf, size, out = nil| WinHttp.read(h, buf, size, out) },
+      'winhttpclosehandle' => proc { |h| WinHttp.close(h) },
+      # Options and timeouts are accepted; the client uses its own fixed timeout (WinInet::TIMEOUT).
+      'winhttpsetoption' => (wok = proc { |*_| WinHttp.ok }), 'winhttpsettimeouts' => wok,
     },
     'wininet' => {
       'internetopena' => proc { |*_| WinInet.new_handle(:session) },

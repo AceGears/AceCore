@@ -90,5 +90,31 @@ check 'unknown function logged once', $stderr.string.scan('shell32!SHGetKnownFol
 # Essentials pattern: optional calls guarded with "rescue nil" fall back to their non-Windows path.
 skgfp = (Win32API.new('shell32.dll', 'SHGetKnownFolderPath', 'pllp', 'i') rescue nil)
 check 'Essentials getKnownFolder falls back', skgfp, nil
+# Essentials "Audio" section (Pokémon Infinity / Z, 057:Audio:74): LoadLibrary/FreeLibrary bound at load time,
+# audio.dll used only if safeExists? (which opens the file) finds it.
+Dir.mktmpdir do |d|
+  Dir.chdir(d) do
+    File.binwrite('audio.dll', "MZ\x90\0")
+    File.binwrite('Game.ini', "[Game]\n")
+    def safeExists?(f) = (ret = false; File.open(f, 'rb') { ret = true } rescue nil; ret)
+    w32_LL = Win32API.new('kernel32.dll', 'LoadLibrary', 'p', 'l')
+    w32_FL = Win32API.new('kernel32.dll', 'FreeLibrary', 'p', 'l')
+    check 'Essentials AudioState: audio.dll reported absent', safeExists?('audio.dll'), false
+    check 'File.exist? on a Windows DLL', [File.exist?('audio.dll'), FileTest.exist?('./AUDIO.DLL')], [false, false]
+    check 'other files unaffected', [safeExists?('Game.ini'), File.exist?('Game.ini'), File.read('Game.ini')], [true, true, "[Game]\n"]
+    check 'LoadLibrary -> NULL, ERROR_MOD_NOT_FOUND',
+          [w32_LL.call('audio.dll'), Win32API.new('kernel32', 'GetLastError', '', 'l').call], [0, 126]
+    check 'LoadLibraryW -> NULL', Win32API.new('kernel32', 'LoadLibraryW', 'p', 'l').call("x.dll".encode('UTF-16LE').b + "\0\0"), 0
+    check 'GetProcAddress -> NULL', Win32API.new('kernel32', 'GetProcAddress', 'lp', 'l').call(0, 'AudioContextNew'), 0
+    check 'FreeLibrary(NULL) fails', w32_FL.call(0), 0
+    check 'DLL note logged', $stderr.string.include?('audio.dll is a Windows DLL'), true
+  end
+end
+# Sprite_Resizer (Reminiscencia): hotkeys are bound at load time and registration fails cleanly.
+rh = Win32API.new('user32', 'RegisterHotKey', 'liii', 'i')
+check 'RegisterHotKey fails (no global hotkeys on Android)', [rh.call(42, 1, 0, 0x74), Win32API.new('kernel32', 'GetLastError', '', 'l').call], [0, 120]
+check 'UnregisterHotKey fails', Win32API.new('user32', 'UnregisterHotKey', 'li', 'i').call(42, 1), 0
+check 'PeekMessage: no message', Win32API.new('user32', 'PeekMessage', 'plllll', 'i').call("\0" * 48, 0, 0, 0, 0, 1), 0
+check 'WinHttpOpen binds at load time (Xenoverse Sockets)', Win32API.new('winhttp', 'WinHttpOpen', 'plppl', 'l').call("G\0\0\0".b, 0, nil, nil, 0) > 0, true
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

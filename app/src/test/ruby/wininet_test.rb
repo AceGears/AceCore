@@ -65,6 +65,41 @@ client = <<~'RUBY'
   check 'unreachable host -> handle 0, empty body', fetch('https://localhost:1/x'), [0, '']
   File.rename('cacert.pem', 'other.pem'); ENV.delete('SSL_CERT_FILE'); AceCoreCompat::WinInet.instance_variable_set(:@store, nil)
   check 'untrusted certificate rejected', fetch('https://localhost:8443/version'), [0, '']
+  # WinHTTP, as RGSS online scripts call it (Unicode strings, DWORD out-parameters).
+  W = ->(t) { t.encode('UTF-16LE').b + "\0\0".b }
+  wh = ->(f, spec, ret = 'l') { Win32API.new('winhttp', f, spec, ret) }
+  # (back in the right folder for the trusted CA)
+  File.rename('other.pem', 'cacert.pem'); AceCoreCompat::WinInet.instance_variable_set(:@store, nil)
+  ses = wh['WinHttpOpen', 'plppl'].call(W['Game'], 0, nil, nil, 0)
+  check 'WinHttpOpen session', ses > 0, true
+  con = wh['WinHttpConnect', 'lpll'].call(ses, W['localhost'], 8443, 0)
+  req = wh['WinHttpOpenRequest', 'lppppll'].call(con, W['POST'], W['/echo'], nil, nil, nil, 0x00800000)
+  hdr = "X-Game: Xenoverse\r\nContent-Type: text/plain"
+  sent = wh['WinHttpSendRequest', 'lplplll', 'i'].call(req, W[hdr], -1, 'trainer=1', 9, 9, 0)
+  check 'WinHttpSendRequest', sent, 1
+  check 'WinHttpReceiveResponse', wh['WinHttpReceiveResponse', 'll', 'i'].call(req, 0), 1
+  st = [0].pack('L'); len = [4].pack('L')
+  wh['WinHttpQueryHeaders', 'llpppp', 'i'].call(req, 19 | 0x20000000, nil, st, len, nil)
+  check 'WinHttpQueryHeaders status (number)', st.unpack1('L'), 201
+  small = "\0" * 4; len = [4].pack('L')
+  r = wh['WinHttpQueryHeaders', 'llpppp', 'i'].call(req, 1, nil, small, len, nil)
+  check 'WinHttpQueryHeaders too-small buffer', [r, Win32API.new('kernel32', 'GetLastError', '', 'l').call, len.unpack1('L')], [0, 122, 22]
+  ct = "\0" * 22; wh['WinHttpQueryHeaders', 'llpppp', 'i'].call(req, 1, nil, ct, len, nil)
+  check 'WinHttpQueryHeaders content type (UTF-16)', ct.force_encoding('UTF-16LE').encode('UTF-8').delete("\0"), 'text/plain'
+  out = +''
+  loop do
+    avail = [0].pack('L'); wh['WinHttpQueryDataAvailable', 'lp', 'i'].call(req, avail)
+    n = avail.unpack1('L'); break if n.zero?
+    buf = "\0" * [n, 4].min; got = [0].pack('L')
+    wh['WinHttpReadData', 'lplp', 'i'].call(req, buf, buf.bytesize, got)
+    out << buf[0, got.unpack1('L')]
+  end
+  check 'WinHttp POST body and headers reach the server', out, 'POST Xenoverse trainer=1'
+  check 'WinHttpCloseHandle', [req, con, ses].map { |h| wh['WinHttpCloseHandle', 'l', 'i'].call(h) }, [1, 1, 1]
+  bad = wh['WinHttpOpenRequest', 'lppppll'].call(wh['WinHttpConnect', 'lpll'].call(ses2 = wh['WinHttpOpen', 'plppl'].call(W['G'], 0, nil, nil, 0), W['localhost'], 1, 0), W['GET'], W['/'], nil, nil, nil, 0)
+  wh['WinHttpSendRequest', 'lplplll', 'i'].call(bad, nil, 0, nil, 0, 0, 0)
+  check 'WinHttp unreachable server -> FALSE + ERROR_WINHTTP_CANNOT_CONNECT',
+        [wh['WinHttpReceiveResponse', 'll', 'i'].call(bad, 0), Win32API.new('kernel32', 'GetLastError', '', 'l').call], [0, 12029]
   begin
     Win32API.new('gdi32', 'CreateFontA', 'iiiiiiiiiiiiip', 'l'); check 'unknown Windows call', :none, :error
   rescue RuntimeError => e
