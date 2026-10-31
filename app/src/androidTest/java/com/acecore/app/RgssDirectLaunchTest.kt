@@ -155,7 +155,8 @@ class RgssDirectLaunchTest {
         val realSeconds = (android.os.SystemClock.uptimeMillis() - t0) / 1000.0
         val ffRate = (ffAfter[0].toInt() - ffBefore[0].toInt()) / realSeconds
         report("fast_forward", "normal=%.2f steps/s, 3x=%.2f steps/s (before=%s after=%s)".format(normalRate, ffRate, ffBefore.joinToString(" "), ffAfter.joinToString(" ")))
-        assertTrue("Fast-forward 3× should walk clearly faster: normal=$normalRate/s ff=$ffRate/s", ffRate >= normalRate * 1.8)
+        assertTrue("Fast-forward 3× should walk clearly faster: normal=$normalRate/s ff=$ffRate/s " +
+            "before=${ffBefore.joinToString(" ")} after=${ffAfter.joinToString(" ")} " + diagnostics(helper), ffRate >= normalRate * 1.8)
         assertTrue("Direction must clear on release: ${released.joinToString(" ")}", released[1] == "0")
         assertTrue("Character must stop after release: $released / $later", later[0] == released[0])
     }
@@ -188,7 +189,7 @@ class RgssDirectLaunchTest {
         return cond()
     }
 
-    private fun diagnostics(helper: File): String = listOf("test_error", "error", "log", "test_started", "stack_probe").joinToString(" | ") { n ->
+    private fun diagnostics(helper: File): String = listOf("test_error", "error", "log", "test_started", "stack_probe", "speed").joinToString(" | ") { n ->
         "$n=" + (File(helper, n).takeIf { it.exists() }?.readText()?.take(400) ?: "-")
     } + " | engine_output=" + (File(helper, "engine_output.txt").takeIf { it.exists() }?.readText()
         ?.let { o -> o.substring(maxOf(0, o.indexOf("[BUG]") - 200)).take(1500) } ?: "-")
