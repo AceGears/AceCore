@@ -84,7 +84,7 @@ private enum class Mode { AUTO, MANUAL }
 
 /**
  * Launch-file selection: Automatic (AceCore's detected entry) or Manual (browse the game folder and pick any file).
- * Every file can be selected; files that can't start a game get a clear explanation instead of a Save button.
+ * Every file can be selected; for files no runtime can start yet, the reason is shown and the choice can still be kept.
  * The choice is stored in the library and reused on every launch.
  */
 @Composable
@@ -173,7 +173,9 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                             Breadcrumbs(stack.map { it.third }) { idx -> while (stack.size > idx + 1) stack.removeAt(stack.lastIndex) }
                             Box(Modifier.weight(1f)) {
                                 when {
-                                    loadError != null -> Text(loadError!!, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
+                                    loadError != null -> com.acecore.app.feature.details.FolderUnavailableCard(
+                                        game, loadError, Modifier.padding(16.dp), onRelinked = onDismiss,
+                                    )
                                     listing == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                                     // LazyColumn builds its rows later (during layout), when `listing` may already be null again
                                     // (a folder was just opened) and the folder stack may have shrunk (Up was tapped): use snapshots.
@@ -211,7 +213,7 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                                     }
                                 }
                             }
-                            selected?.let { sel ->
+                            if (loadError == null) selected?.let { sel ->
                                 when (val ev = evaluation) {
                                     is LaunchEvaluation.Supported -> ResultCard(
                                         ok = true, title = "Selected file: ${sel.substringAfterLast('/')}",
@@ -222,7 +224,11 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                                         },
                                         body = ev.explanation, modifier = Modifier.padding(12.dp),
                                     )
-                                    is LaunchEvaluation.Unsupported -> ResultCard(false, "Can't start the game with ${sel.substringAfterLast('/')}", emptyList(), ev.reason, Modifier.padding(12.dp))
+                                    is LaunchEvaluation.Unsupported -> ResultCard(
+                                        false, "No runtime for ${sel.substringAfterLast('/')} yet", emptyList(),
+                                        ev.reason + " You can still keep this file as the launch file; the game page will say what is missing when you press Play.",
+                                        Modifier.padding(12.dp),
+                                    )
                                     null -> Unit
                                 }
                             }
@@ -230,18 +236,22 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
                     }
                 }
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.End) {
-                    val canSave = !saving && (mode == Mode.AUTO && (autoCandidate != null || detection?.entry != null) || (mode == Mode.MANUAL && evaluation is LaunchEvaluation.Supported))
+                    // Any file can be chosen by hand; an unsupported one is kept as the user's choice ("Use anyway").
+                    val canSave = !saving && loadError == null && (mode == Mode.AUTO && (autoCandidate != null || detection?.entry != null) || (mode == Mode.MANUAL && evaluation != null))
                     Button(enabled = canSave, onClick = {
                         saving = true
                         scope.launch {
                             runCatching {
-                                if (mode == Mode.AUTO) repo.useAutomaticLaunch(game)
-                                else repo.useManualLaunch(game, selected!!, evaluation as LaunchEvaluation.Supported)
+                                when {
+                                    mode == Mode.AUTO -> repo.useAutomaticLaunch(game)
+                                    evaluation is LaunchEvaluation.Supported -> repo.useManualLaunch(game, selected!!, evaluation)
+                                    else -> repo.useManualLaunchAsIs(game, selected!!)
+                                }
                             }.onSuccess { onSaved(); onDismiss() }
                                 .onFailure { Toast.makeText(ctx, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
                             saving = false
                         }
-                    }) { Text(if (mode == Mode.AUTO) "Use automatic detection" else "Use this file") }
+                    }) { Text(when { mode == Mode.AUTO -> "Use automatic detection"; evaluation is LaunchEvaluation.Supported -> "Use this file"; else -> "Use anyway" }) }
                 }
             }
         }

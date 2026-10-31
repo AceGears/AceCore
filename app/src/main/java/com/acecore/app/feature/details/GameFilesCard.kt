@@ -158,7 +158,7 @@ fun GameFilesCard(g: GameEntity) {
                         when {
                             direct && i?.directReadable == true -> "Nothing is copied. Launches go straight to the engine."
                             direct && i?.directPath == null -> "Its storage provider has no ordinary file path, so AceArcade uses a private copy instead."
-                            direct && access -> "Nothing is at ${i?.directPath?.absolutePath}. If you moved the game, remove it and add it again."
+                            direct && access -> "Nothing is at ${i?.directPath?.absolutePath}. If you moved or renamed it, use “Locate folder” below."
                             direct -> "Allow \"All files access\" so the engine can read the game where it is."
                             i?.copyInstalled == true -> "${formatBytes(i.copyBytes)} in AceArcade's storage" + if (i.copyOutdated) " · updates on next launch (the game was rescanned)" else " · up to date"
                             else -> "The first launch copies the game into AceArcade's storage."
@@ -171,8 +171,10 @@ fun GameFilesCard(g: GameEntity) {
             KeyValue("Launch file", g.launchFile ?: g.entry ?: "None")
             KeyValue("Runtime", com.acecore.app.runtime.RuntimeRegistry.info(engine).id.displayName)
             KeyValue("File access", if (access) "All files access granted" else "Not granted (folder permission only)")
+            val locate = rememberLocateFolder(g) { refresh++ }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (direct && i != null && i.directPath != null && !access) FilledTonalButton(onClick = { requestAccess() }) { Text("Allow file access") }
+                if (direct && access && i != null && i.directPath != null && !i.directReadable) FilledTonalButton(onClick = locate) { Text("Locate folder") }
                 if (direct) OutlinedButton(onClick = { setMode("copy") }) { Text("Use a private copy") }
                 else OutlinedButton(onClick = { setMode("direct") }) { Text("Play directly instead") }
                 TextButton(enabled = !rescanning, onClick = {

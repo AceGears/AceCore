@@ -234,6 +234,46 @@ class GameRepository(
         updated
     }
 
+    /**
+     * The user's own launch file, kept even when AceArcade knows no runtime that can start it: the game page then
+     * explains what is missing at launch instead of refusing the choice.
+     */
+    suspend fun useManualLaunchAsIs(game: GameEntity, path: String) = withContext(Dispatchers.IO) {
+        val updated = (dao.get(game.id) ?: return@withContext).copy(
+            launchFile = path, entry = path, launchMode = GameEntity.LAUNCH_MANUAL, lastError = null,
+        )
+        dao.update(updated.copy(status = runtimeStatus(updated).name))
+        pathIndexFile(game.id).delete()
+        Unit
+    }
+
+    /**
+     * Points a game whose folder was moved or renamed at the folder the user picked. The library entry (and with it
+     * settings, statistics, cheats, covers, AceArcade's saves and save backups, which all hang off the game's id) is
+     * kept; only the folder reference changes, then the folder is rescanned. A manually chosen launch file is kept
+     * when it exists in the new folder.
+     */
+    suspend fun relink(game: GameEntity, treeUri: Uri): GameEntity = withContext(Dispatchers.IO) {
+        takePermission(treeUri)
+        val tree = SafTree(resolver, treeUri)
+        val rootId = tree.rootDocId
+        val name = SafTree.displayName(resolver, tree.documentUri(rootId)) ?: game.folderLabel
+        val c = scanFolder(tree, rootId, name, depth = 4)
+        require(c.detection.engine != Engine.UNKNOWN) { "No game files AceArcade recognises were found in “$name”." }
+        val other = dao.findByLocation(treeUri.toString(), rootId)
+        require(other == null || other.id == game.id) { "“$name” is already in your library as “${other!!.title}”." }
+        val oldTree = game.treeUri
+        val fresh = dao.get(game.id) ?: game
+        dao.update(fresh.copy(treeUri = treeUri.toString(), rootDocId = rootId, folderLabel = name, lastError = null, lastLaunchOk = null))
+        pathIndexFile(game.id).delete()
+        val updated = rescan(dao.get(game.id) ?: fresh)
+        if (oldTree != treeUri.toString()) {
+            val stillUsed = dao.getAll().any { it.treeUri == oldTree } || categoryDao.allDirs().any { it.treeUri == oldTree }
+            if (!stillUsed) revokeFolder(Uri.parse(oldTree))
+        }
+        updated
+    }
+
     /** Automatic launch file: AceCore's detected choice (the first playable candidate). */
     suspend fun useAutomaticLaunch(game: GameEntity) = withContext(Dispatchers.IO) {
         val d = decodeDetection(game)

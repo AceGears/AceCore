@@ -182,7 +182,7 @@ class LaunchCoordinator(
             val dir = withContext(Dispatchers.IO) { GameLocations.directGameDir(context, game) }
             if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
                 game.id, "Game folder not found",
-                "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
+                "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, use “Locate folder” on the game's page.",
             )
             val iniName = GameLocations.rgssIniName(game.entry)
             if (withContext(Dispatchers.IO) { DirectStorage.findChild(dir, iniName) } == null) {
@@ -229,7 +229,7 @@ class LaunchCoordinator(
         val dir = withContext(Dispatchers.IO) { if (sub.isEmpty()) root else DirectStorage.resolveRelative(root, sub) }
         if (dir == null || !withContext(Dispatchers.IO) { DirectStorage.canList(dir) }) return LaunchPreparation.Blocked(
             game.id, "Game folder not found",
-            "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, remove the game and add it again.",
+            "AceArcade can't open ${root.absolutePath}. If you moved or renamed the game folder, use “Locate folder” on the game's page.",
         )
         val entryName = game.entry?.replace('\\', '/')?.substringAfterLast('/')
         return when (val check = withContext(Dispatchers.IO) { com.acecore.app.runtime.godot.GodotPack.check(dir, entryName) }) {
