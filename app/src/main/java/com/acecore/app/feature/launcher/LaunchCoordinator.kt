@@ -453,7 +453,11 @@ class LaunchCoordinator(
             }
             javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
             rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }
+            // AceArcade's own notes from the engine (Windows calls a game needed, scripts adapted, ...), always kept.
+            engineOutputFull?.lineSequence()?.filter { it.startsWith("AceArcade:") }?.distinct()?.take(80)?.toList()
+                ?.takeIf { it.isNotEmpty() }?.let { appendLine(); appendLine("== AceArcade notes =="); it.forEach(::appendLine) }
             engineOutput?.let { appendLine(); appendLine("== Engine output (stdout/stderr) =="); appendLine(it) }
+            File(helperDir, "screen").takeIf { it.isFile }?.readText()?.trim()?.let { appendLine(); appendLine("Game resolution: $it") }
             // The game's own engine settings explain many start-up differences between games.
             gameMkxpJson(game)?.let { appendLine(); appendLine("== Game's mkxp.json =="); appendLine(it) }
             appendLine(); append(com.acecore.app.runtime.rgss.GameDiagnostics.summary(helperDir))
