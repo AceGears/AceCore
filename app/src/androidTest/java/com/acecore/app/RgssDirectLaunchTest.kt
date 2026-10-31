@@ -129,7 +129,6 @@ class RgssDirectLaunchTest {
         Thread.sleep(1000)
         val later = walk(helper)
         report("walk_after_release", later.joinToString(" "))
-        File(helper, "walk_done").writeText("1")
         // walk = steps, dir4, facing, frames skipped by the "delta > 0.25 s" rule, frames, uptime class, frames with
         // Down held, seconds in the walk phase
         report("touch_at", "$x,$y pad=${pad.joinToString(",")}")
@@ -151,6 +150,9 @@ class RgssDirectLaunchTest {
         touch(t0, android.view.MotionEvent.ACTION_DOWN, x, y)
         try { Thread.sleep(2500) } finally { touch(t0, android.view.MotionEvent.ACTION_UP, x, y + 1) }
         val ffAfter = walk(helper)
+        // Ends the game's walking phase. (It used to be written before the fast-forward part, so the game had
+        // already stopped walking and fast-forward always measured 0 steps.)
+        File(helper, "walk_done").writeText("1")
         File(helper, "speed").writeText("speed=1\naudio=quiet\n")
         val realSeconds = (android.os.SystemClock.uptimeMillis() - t0) / 1000.0
         val ffRate = (ffAfter[0].toInt() - ffBefore[0].toInt()) / realSeconds
