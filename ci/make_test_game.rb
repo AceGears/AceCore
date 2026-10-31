@@ -43,6 +43,21 @@ script = <<~'RUBY'
     nested = (1..2000).inject(0) { |acc, _| [acc] }
     marshal_ok = begin; Marshal.load(Marshal.dump(nested)).flatten == [0]; rescue SystemStackError; false; end
     mark.call("stack_probe", "#{depth} #{marshal_ok} env=#{ENV["SDL_THREAD_STACK_SIZE"]}")
+    # Ruby 1.8 (RGSS1) behaviours real XP games rely on: a class variable used from a top-level method, and the
+    # Windows API calls the Essentials "Win32API" section makes while loading.
+    cvar = begin
+      eval("def acearcade_tl_cvar; @@acearcade_tl = 7; @@acearcade_tl; end; acearcade_tl_cvar", TOPLEVEL_BINDING)
+    rescue Exception => e
+      "#{e.class}: #{e.message}"
+    end
+    win = begin
+      tid = Win32API.new('kernel32', 'GetCurrentThreadId', '', 'l').call
+      hwnd = Win32API.new('user32', 'FindWindowEx', 'llpp', 'l').call(0, 0, 'RGSS Player', 0)
+      "#{tid > 0 && hwnd != 0}"
+    rescue Exception => e
+      "#{e.class}: #{e.message}"
+    end
+    mark.call("rgss1", "cvar=#{cvar} win32=#{win}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")

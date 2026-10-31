@@ -236,9 +236,21 @@ end
 #
 # Games built for Windows sometimes call Windows libraries directly. On Android those libraries don't exist, so the
 # engine raised "Failed loading kernel32". AceArcade implements the specific calls below in Ruby so they behave as
-# they do on Windows; any other Windows call still fails with a clear message (nothing is faked).
+# they do on Windows (see the list for what each one really does).
 #
 #   kernel32  SetPriorityClass                     -> success (Android manages process priority itself)
+#             GetCurrentThreadId / GetCurrentProcessId, GetTickCount, QueryPerformanceCounter/Frequency, Sleep
+#                                                  -> real values from the running engine
+#             GetPrivateProfileString(A)           -> reads the game's .ini file (as Windows does)
+#   user32    FindWindow(Ex)(A), GetForegroundWindow/GetActiveWindow -> the game window (there is exactly one)
+#             GetWindowThreadProcessId             -> the engine's thread/process (matches GetCurrentThreadId)
+#             GetSystemMetrics(0/1)                -> the device screen size; GetClientRect/GetWindowRect -> game size
+#             GetKeyState/GetAsyncKeyState/GetKeyboardState, GetCursorPos -> the engine's real input state
+#             SetWindowPos/MoveWindow/ShowWindow/SetWindowText/SetWindowLong... -> success, no effect: the game always
+#                                                     fills the Android screen, there is no desktop window to move
+#             MessageBox(A/W)                      -> shown as the engine's message box
+#   any other Windows function: returns 0, which games treat as "call failed", and is listed once in the engine log
+#   ("AceArcade: Windows function ... not available on Android"), the same policy as upstream mkxp-z's win32_wrap.
 #   wininet   InternetOpenA / InternetConnectA     -> session handles
 #             InternetOpenUrl(A)                   -> real HTTP(S) GET (redirects followed, TLS verified against the
 #                                                     game's cacert.pem or Android's CA store); 0 on failure, like Windows
@@ -435,9 +447,117 @@ module AceCoreCompat
     alias Call call
   end
 
+  module Win32
+    WINDOW = 42 # the game's window handle (one window, like "RGSS Player")
+    THREAD = 1
+    module_function
+
+    def fill(buf, bytes)
+      return unless buf.is_a?(String)
+      bytes = bytes.b
+      n = [bytes.bytesize, buf.bytesize].min
+      buf.force_encoding(Encoding::BINARY) if buf.encoding != Encoding::BINARY && !buf.frozen?
+      buf[0, n] = bytes.byteslice(0, n)
+    end
+
+    def game_size
+      [(Graphics.width rescue 640), (Graphics.height rescue 480)]
+    end
+
+    def ini_value(file, section, key)
+      path = file.to_s.tr('\\', '/').sub(%r{\A\./}, '')
+      path = File.basename(path) unless File.exist?(path)
+      return nil unless File.exist?(path)
+      current = nil
+      File.foreach(path, mode: 'rb') do |line|
+        line = line.strip
+        if line =~ /\A\[(.+)\]\z/ then current = $1
+        elsif current && current.casecmp?(section.to_s) && line.include?('=')
+          k, v = line.split('=', 2)
+          return v.strip if k.strip.casecmp?(key.to_s)
+        end
+      end
+      nil
+    rescue StandardError
+      nil
+    end
+
+    def key_state(vk)
+      states = (Input.raw_key_states rescue nil) or return false
+      # Windows virtual-key -> SDL scancode for the keys games query most (letters, digits, arrows, common keys)
+      vk = vk.to_i
+      sc = case vk
+           when 0x41..0x5A then 0x04 + (vk - 0x41)
+           when 0x31..0x39 then 0x1E + (vk - 0x31)
+           when 0x30 then 0x27
+           when 0x0D then 0x28 when 0x1B then 0x29 when 0x08 then 0x2A when 0x09 then 0x2B when 0x20 then 0x2C
+           when 0x25 then 0x50 when 0x26 then 0x52 when 0x27 then 0x4F when 0x28 then 0x51
+           when 0x70..0x7B then 0x3A + (vk - 0x70)
+           when 0x10, 0xA0 then 0xE1 when 0xA1 then 0xE5 when 0x11, 0xA2 then 0xE0 when 0xA3 then 0xE4
+           when 0x12, 0xA4 then 0xE2 when 0xA5 then 0xE6
+           end
+      sc ? !!states[sc] : false
+    end
+
+    @missing = {}
+    def missing(dll, func)
+      key = "#{dll}!#{func}"
+      unless @missing[key]
+        @missing[key] = true
+        ($stderr.puts("AceArcade: Windows function #{key} is not available on Android; it returns 0") rescue nil)
+      end
+      0
+    end
+  end
+
   WIN_FUNCTIONS = {
     'kernel32' => {
       'setpriorityclass' => proc { |*_| 1 },
+      'getcurrentthreadid' => proc { |*_| Win32::THREAD },
+      'getcurrentprocessid' => proc { |*_| Process.pid },
+      'gettickcount' => proc { |*_| (Process.clock_gettime(Process::CLOCK_MONOTONIC, :millisecond) & 0xFFFFFFFF) },
+      'queryperformancefrequency' => proc { |buf| Win32.fill(buf, [1_000_000_000].pack('q')); 1 },
+      'queryperformancecounter' => proc { |buf| Win32.fill(buf, [Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)].pack('q')); 1 },
+      'sleep' => proc { |ms| sleep(ms.to_i / 1000.0); 0 },
+      'getprivateprofilestring' => (gpps = proc { |section, key, default, buf, size, file|
+        value = (Win32.ini_value(file, section, key) || default.to_s).b
+        cap = [size.to_i, buf.is_a?(String) ? buf.bytesize : 0].min
+        value = value.byteslice(0, [cap - 1, 0].max)
+        Win32.fill(buf, value + "\0")
+        value.bytesize
+      }),
+      'getprivateprofilestringa' => gpps,
+      'outputdebugstring' => (ods = proc { |text| ($stderr.puts(text.to_s) rescue nil); 0 }),
+      'outputdebugstringa' => ods,
+    },
+    'user32' => {
+      'findwindow' => (fw = proc { |*_| Win32::WINDOW }),
+      'findwindowa' => fw, 'findwindoww' => fw, 'findwindowex' => fw, 'findwindowexa' => fw, 'findwindowexw' => fw,
+      'getforegroundwindow' => fw, 'getactivewindow' => fw, 'getfocus' => fw,
+      'getwindowthreadprocessid' => proc { |_hwnd, pid_buf = nil| Win32.fill(pid_buf, [Process.pid].pack('l')); Win32::THREAD },
+      'getsystemmetrics' => proc { |n|
+        case n.to_i
+        when 0 then defined?(AceCoreCompat::DISPLAY_W) ? AceCoreCompat::DISPLAY_W : Win32.game_size[0]
+        when 1 then defined?(AceCoreCompat::DISPLAY_H) ? AceCoreCompat::DISPLAY_H : Win32.game_size[1]
+        else 0
+        end
+      },
+      'getclientrect' => (rect = proc { |_hwnd, buf| w, h = Win32.game_size; Win32.fill(buf, [0, 0, w, h].pack('l4')); 1 }),
+      'getwindowrect' => rect,
+      'setwindowpos' => (ok = proc { |*_| 1 }),
+      'movewindow' => ok, 'showwindow' => ok, 'updatewindow' => ok, 'setwindowtext' => ok, 'setwindowtexta' => ok,
+      'setwindowtextw' => ok, 'setforegroundwindow' => ok, 'setfocus' => ok, 'setactivewindow' => ok,
+      'setwindowlong' => ok, 'setwindowlonga' => ok, 'adjustwindowrect' => ok, 'adjustwindowrectex' => ok,
+      'screentoclient' => ok, 'clienttoscreen' => ok,
+      'getwindowlong' => (zero = proc { |*_| 0 }), 'getwindowlonga' => zero, 'showcursor' => zero, 'keybd_event' => zero,
+      'getkeystate' => proc { |vk| Win32.key_state(vk) ? 0x8000 : 0 },
+      'getasynckeystate' => proc { |vk| Win32.key_state(vk) ? 0x8000 : 0 },
+      'getkeyboardstate' => proc { |buf|
+        Win32.fill(buf, (0...256).map { |vk| Win32.key_state(vk) ? 0x80 : 0 }.pack('C*')); 1
+      },
+      'getcursorpos' => proc { |buf| Win32.fill(buf, [(Input.mouse_x rescue 0), (Input.mouse_y rescue 0)].pack('l2')); 1 },
+      'messagebox' => (mb = proc { |_hwnd, text, caption = nil, *_| (print(text.to_s) rescue nil); 1 }),
+      'messageboxa' => mb, 'messageboxw' => mb,
     },
     'wininet' => {
       'internetopena' => proc { |*_| WinInet.new_handle(:session) },
@@ -485,6 +605,12 @@ module AceCoreCompat
     },
   }.freeze
 
+  # Windows functions with no Android equivalent: a function object that returns 0 ("failed") and logs it once.
+  def self.missing_win_function(dll, func)
+    lib = dll.to_s.downcase.sub(/\.dll\z/, '')
+    WinFunction.new("#{lib}!#{func}") { |*_| Win32.missing(lib, func) }
+  end
+
   def self.win_function(dll, func)
     lib = dll.to_s.downcase.sub(/\.dll\z/, '')
     table = WIN_FUNCTIONS[lib] or return nil
@@ -500,8 +626,7 @@ if defined?(MiniFFI)
         super
       rescue RuntimeError => e
         raise unless e.message.start_with?('Failed loading', 'Failed to find')
-        AceCoreCompat.win_function(dll, func) or
-          raise(e.class, "#{e.message} (Windows function #{dll}!#{func} is not available on Android)")
+        AceCoreCompat.win_function(dll, func) || AceCoreCompat.missing_win_function(dll, func)
       end
     end
   end
