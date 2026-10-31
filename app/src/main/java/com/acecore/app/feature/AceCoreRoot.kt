@@ -56,6 +56,7 @@ import com.acecore.app.feature.launcher.LaunchOptions
 import com.acecore.app.feature.launcher.LaunchPreparation
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -446,44 +447,46 @@ private fun LaunchFailureDialog(f: com.acecore.app.runtime.LaunchFailure, onRetr
         Fix.PRIVATE_COPY -> if (f.wasDirect) LaunchOptions(forceCopy = true) else null
         Fix.NONE -> null
     }
+    val copy = {
+        (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+            .setPrimaryClip(android.content.ClipData.newPlainText("AceArcade crash report", f.report))
+        android.widget.Toast.makeText(ctx, "Report copied", android.widget.Toast.LENGTH_SHORT).show()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Unable to start ${f.title}") },
+        title = {
+            Column {
+                Text(f.title, style = MaterialTheme.typography.titleLarge, maxLines = 2)
+                Text("Launch failed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+            }
+        },
         text = {
-            Column(Modifier.androidx_verticalScroll(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Detected issue", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Column(Modifier.androidx_verticalScroll(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(d.issue.ifEmpty { f.cause }, style = MaterialTheme.typography.bodyMedium)
                 if (d.recommendation.isNotEmpty()) {
-                    Text("Recommended", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    Text(d.recommendation, style = MaterialTheme.typography.bodyMedium)
+                    Text(d.recommendation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(
-                    "AceArcade itself kept running (games run in their own process). A report was saved in Settings › Advanced › Crash reports.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (recommended != null) Button(onClick = { onRetry(recommended) }) {
+                if (recommended != null) Button(onClick = { onRetry(recommended) }, modifier = Modifier.padding(top = 4.dp)) {
                     Text(when (d.fix) { Fix.NO_HELPER -> "Try without the game helper"; Fix.PRIVATE_COPY -> "Try from a private copy"; else -> "Try again" })
                 }
-                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "View details") }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = copy) { Text("Copy report") }
+                    TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
+                    TextButton(onClick = { troubleshooting = !troubleshooting }) { Text("Troubleshoot") }
+                }
                 if (details) {
                     Text("Stage: ${f.stage}", style = MaterialTheme.typography.bodySmall)
-                    Text(f.cause, style = MaterialTheme.typography.bodySmall)
                     Text(f.report.take(6000), style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                    TextButton(onClick = {
-                        (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                            .setPrimaryClip(android.content.ClipData.newPlainText("AceArcade crash report", f.report))
-                        android.widget.Toast.makeText(ctx, "Report copied", android.widget.Toast.LENGTH_SHORT).show()
-                    }) { Text("Copy full report") }
                 }
-                TextButton(onClick = { troubleshooting = !troubleshooting }) { Text(if (troubleshooting) "Hide troubleshooting" else "Troubleshooting") }
                 if (troubleshooting) {
                     TextButton(onClick = { onRetry(LaunchOptions()) }) { Text("Retry") }
                     if (f.helperUsed) TextButton(onClick = { onRetry(LaunchOptions(disableHelper = true)) }) { Text("Retry without AceArcade's game helper") }
                     if (f.wasDirect) TextButton(onClick = { onRetry(LaunchOptions(forceCopy = true)) }) { Text("Retry from a private copy") }
                 }
+                Text("Saved in Settings › Advanced › Crash reports.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Return to library") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 

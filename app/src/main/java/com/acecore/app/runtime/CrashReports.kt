@@ -37,6 +37,30 @@ object LaunchDiagnosis {
     enum class Fix { NONE, RETRY, NO_HELPER, PRIVATE_COPY }
     data class Result(val issue: String, val recommendation: String, val fix: Fix)
 
+    /** The game script frame an error came from (not AceArcade's compatibility layer), e.g. "119_PScreen_Load.rb:624". */
+    fun gameFrame(ruby: String): String? = ruby.lines().drop(1).map { it.trim() }
+        .firstOrNull { it.isNotEmpty() && !it.contains("acecore_") && !it.startsWith("-e:") && Regex(":\\d+").containsMatchIn(it) }
+        ?.substringBefore(":in ")
+
+    /** Names the actual cause of a game script error instead of a generic message. */
+    fun scriptError(ruby: String): Result {
+        val first = ruby.lineSequence().first().trim()
+        val where = gameFrame(ruby)?.let { " (in $it)" } ?: ""
+        Regex("Windows function ([^ !]+)!(\\S+) is not available").find(first)?.let { m ->
+            return Result(
+                "The game calls the Windows function ${m.groupValues[2]} (${m.groupValues[1]})$where, which AceArcade doesn't provide yet.",
+                "Retrying won't change it. Send the report: each Windows function a game needs is added with the behaviour it has on Windows.", Fix.NONE)
+        }
+        if (first.startsWith("SyntaxError")) {
+            return Result(
+                "A game script uses Ruby syntax the engine doesn't accept: ${first.removePrefix("SyntaxError: ").take(160)}",
+                "Retrying won't change it. Send the report: older Ruby syntax is adapted when the game loads, case by case.", Fix.NONE)
+        }
+        return Result(
+            "A game script stopped$where: ${first.take(200)}",
+            "Retrying won't change it. The full report has the script, line and backtrace.", Fix.NONE)
+    }
+
     fun classify(cause: String, rubyError: String?, engineCrash: String?, nativeCrash: Boolean, helperUsed: Boolean, wasDirect: Boolean): Result {
         val ruby = rubyError.orEmpty()
         val bug = engineCrash.orEmpty()
@@ -55,9 +79,7 @@ object LaunchDiagnosis {
             bug.isNotEmpty() -> Result(
                 "The Ruby engine inside AceArcade crashed while starting the game's scripts.",
                 "Retry once. If it happens again, the game uses something this engine version can't run yet; the report shows where.", Fix.RETRY)
-            ruby.isNotEmpty() -> Result(
-                "The game's own scripts stopped with an error.",
-                "This usually means the game needs a feature AceArcade's engine doesn't provide yet. Retrying won't change it; the report shows the script and line.", Fix.NONE)
+            ruby.isNotEmpty() -> scriptError(ruby)
             nativeCrash -> Result(
                 "The game engine crashed (native code).",
                 "Retry once. If it happens again, the report names the crashing library.", Fix.RETRY)

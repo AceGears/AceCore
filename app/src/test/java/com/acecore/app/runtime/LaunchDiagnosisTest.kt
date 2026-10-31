@@ -67,6 +67,20 @@ class LaunchDiagnosisTest {
         assertFalse(r.issue.contains("[BUG]"))
     }
 
+    @Test fun missingWindowsFunctionIsNamedWithTheGameScript() {
+        val ruby = "RuntimeError: Failed loading gdi32: dlopen failed (Windows function gdi32!AddFontResource is not available on Android)\n" +
+            "<app-data>/files/gamedata/game_23/acecore_compat.rb:1096:in `rescue in new'\n" +
+            "119_PScreen_Load.rb:624:in `<module:FontInstaller>'\n-e:in `eval'"
+        val r = LaunchDiagnosis.classify("x", ruby, null, false, true, true)
+        assertTrue(r.issue, r.issue.contains("AddFontResource (gdi32)") && r.issue.contains("119_PScreen_Load.rb:624"))
+        assertEquals(Fix.NONE, r.fix)
+    }
+
+    @Test fun syntaxErrorsShowTheMessage() {
+        val r = LaunchDiagnosis.classify("x", "SyntaxError: 126:PScreen_Load:544: Invalid retry\n:26:PScreen_Load", null, false, true, true)
+        assertTrue(r.issue, r.issue.contains("126:PScreen_Load:544: Invalid retry"))
+    }
+
     @Test fun gameScriptErrorsAreNotRetriedBlindly() {
         assertEquals(Fix.NONE, LaunchDiagnosis.classify("x", "NameError: uninitialized constant Foo", null, false, true, true).fix)
     }
