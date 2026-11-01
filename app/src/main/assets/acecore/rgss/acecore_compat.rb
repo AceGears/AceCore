@@ -738,6 +738,9 @@ module AceCoreCompat
           HideWindowsDlls.hide(path)
           raise Errno::ENOENT, path
         end
+        # Windows can't open a folder as a file (Errno::EACCES, which Essentials' pbGetFileChar rescues); Linux opens
+        # it and only the read fails (EISDIR, not rescued: Xenoverse "Graphics/Autotiles/" for an empty autotile).
+        raise Errno::EACCES, path.to_s if path.is_a?(String) && !HideWindowsDlls.writing?(rest[0] || kw[:mode]) && File.directory?(path)
         super(path, *rest, **kw, &blk)
       end
 
@@ -747,6 +750,9 @@ module AceCoreCompat
           HideWindowsDlls.hide(path)
           raise Errno::ENOENT, path
         end
+        # Windows can't open a folder as a file (Errno::EACCES, which Essentials' pbGetFileChar rescues); Linux opens
+        # it and only the read fails (EISDIR, not rescued: Xenoverse "Graphics/Autotiles/" for an empty autotile).
+        raise Errno::EACCES, path.to_s if path.is_a?(String) && !HideWindowsDlls.writing?(rest[0] || kw[:mode]) && File.directory?(path)
         super(path, *rest, **kw, &blk)
       end
 
@@ -2433,15 +2439,9 @@ module AceCoreCompat
 
       def decide(scripts)
         return false unless defined?(RPG::Cache) && scripts.is_a?(Array) # RPG Maker XP (RGSS1) only
-        # A game that ships its own mkxp.json / mkxp.conf was made for mkxp(-z), which runs a current Ruby, so it
-        # expects Ruby 3 strings. Pokémon Flux (mkxp.json, scripts loaded from Data/Script_NNN.rb files, so the
-        # "mkxp-z" check below can't see them) crashed in Ruby 1.8 mode.
-        if %w[mkxp.json mkxp.conf].any? { |f| File.file?(f) }
-          ($stderr.puts("AceArcade: game made for mkxp-z (has its own mkxp.json): Ruby 3 string behaviour") rescue nil)
-          return(@active = false)
-        end
         # Written for mkxp-z / Ruby 3: mentions mkxp-z, or Pokémon Essentials v19+ (module Essentials, VERSION "19"...),
         # the first Essentials versions that run on mkxp-z instead of the RPG Maker XP player.
+        # (A bundled mkxp.json is no sign: Pokémon Z and Xenoverse ship one and are Ruby 1.8 games.)
         modern = scripts.any? do |e|
           e.is_a?(Array) && e[3].is_a?(String) &&
             (e[3].match?(/MKXPZ|mkxp-z|mkxp_z/i) || e[3].match?(/^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m))

@@ -77,15 +77,24 @@ S
 check 'str[/re/] sets $~ for the game (trainer distance)', [pbTrainerDistance('Trainer(4)'), pbTrainerDistance('Bob')], [4, nil]
 check 'str[/re/] sets $~ for the game (event size)', pbEventSize('Door size(2,3)'), [2, 3]
 check '$~.pre_match after str[/re/]', pbPreMatch('ab<b>c'), 'ab'
-# A game made for mkxp-z (its own mkxp.json; Pokémon Flux) keeps Ruby 3 strings even without "mkxp-z" in Scripts.rxdata.
+# A bundled mkxp.json doesn't switch Ruby 1.8 strings off (Pokémon Z / Xenoverse ship one).
+require 'rbconfig'
+probe = lambda do |files|
+  Dir.mktmpdir do |d|
+    File.write(File.join(d, 'mkxp.json'), '{}')
+    Dir.mkdir(File.join(d, 'Data'))
+    files.each { |n, t| File.write(File.join(d, 'Data', n), t) }
+    code = "module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end; module RPG; module Cache; end; end\n" \
+           "$RGSS_SCRIPTS = [[1, 'Main', '', 'Dir[\"Data/Script_*.rb\"].each { |f| eval(File.read(f)) }']]; $stderr = File.open(File::NULL, 'w')\n" \
+           "Dir.chdir(#{d.inspect}) { load #{COMPAT.inspect} }\nprint AceCoreCompat::Ruby18Strings.active.inspect"
+    IO.popen([RbConfig.ruby, '-e', code], err: File::NULL, &:read)
+  end
+end
+check 'bundled mkxp.json: still Ruby 1.8 strings', probe.call('Script_001.rb' => 'def a = 1'), 'true'
+# Windows can't open a folder as a file (EACCES, rescued by Essentials' pbGetFileChar); Linux would raise EISDIR on read.
 Dir.mktmpdir do |d|
-  File.write(File.join(d, 'mkxp.json'), '{}')
-  probe = "module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end; module RPG; module Cache; end; end\n" \
-          "$RGSS_SCRIPTS = [[1, 'Main', '', 'load_scripts_from_file']]; $stderr = File.open(File::NULL, 'w')\n" \
-          "Dir.chdir(#{d.inspect}) { load #{COMPAT.inspect} }\nprint AceCoreCompat::Ruby18Strings.active.inspect, ' ', 'AB'[0].inspect"
-  require 'rbconfig'
-  out = IO.popen([RbConfig.ruby, '-e', probe], err: File::NULL, &:read)
-  check 'mkxp.json game: no Ruby 1.8 strings', out, 'false "A"'
+  r = begin; File.open(d + '/', 'rb') { |f| f.read(1) }; rescue Errno::EACCES, Errno::ENOENT, Errno::EINVAL; :rescued; rescue SystemCallError => e; e.class; end
+  check 'opening a folder as a file fails like Windows (EACCES)', r, :rescued
 end
 check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
