@@ -83,6 +83,7 @@ class RgssDirectLaunchTest {
         assertTrue("Ruby 1.8 'when x:' scripts must be adapted: '$rgss1'", rgss1.startsWith("r18=ok "))
         assertTrue("Top-level class variables (RGSS1 / Ruby 1.8) must work: '$rgss1'", rgss1.contains(" cvar=7 "))
         assertTrue("Ruby 1.8 strings (\"A\"[0] == 65) must work in an RPG Maker XP game: '$rgss1'", rgss1.contains(" s18=ok "))
+        assertTrue("Marshal.load from a reader returning more than asked must load intact (Pokémon Flux): '$rgss1'", rgss1.contains("marshal=ok"))
         assertTrue("Essentials Win32API start-up calls must work: '$rgss1'", rgss1.endsWith("win32=true"))
         assertTrue("Deep recursion through C methods must reach 3000 levels: '$probe' " + diagnostics(helper), probe.startsWith("3000 "))
         assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.split(" ").getOrNull(1) == "true")

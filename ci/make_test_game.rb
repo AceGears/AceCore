@@ -67,7 +67,23 @@ script = <<~'RUBY'
           else
             "missing"
           end
-    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win}")
+    # Marshal.load from a reader whose read(n) returns more than n bytes (Essentials StringInput on UTF-8 text,
+    # Pokémon Flux): the engine's Ruby must load it intact instead of overrunning its buffer
+    # (ci/patches/ruby/marshal_read_overflow.py).
+    marshal = begin
+      greedy = Class.new do
+        def initialize(s) = (@s = s.b; @pos = 0)
+        def getbyte = (c = @s.getbyte(@pos); @pos += 1; c)
+        def read(n) = (r = @s.byteslice(@pos, n * 4); @pos += r.bytesize; r)
+      end
+      data = Array.new(20000) { |i| "Pok\u00e9mon Center #{i}" }
+      ok = (1..5).all? { Marshal.load(greedy.new(Marshal.dump(data))) == data }
+      GC.start
+      ok ? "ok" : "wrong"
+    rescue Exception => e
+      "#{e.class}"
+    end
+    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
