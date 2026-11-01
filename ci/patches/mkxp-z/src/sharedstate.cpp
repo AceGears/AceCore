@@ -23,6 +23,7 @@
 ** along with mkxp.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <stdlib.h>
 #include "sharedstate.h"
 
 #include "util.h"
@@ -145,13 +146,21 @@ struct SharedStatePrivate
 
 		{
 			auto t0 = std::chrono::steady_clock::now();
-			if (config.pathCache)
-				fileSystem.createPathCache();
+			/* AceArcade: reuse the saved file index (ACEARCADE_FILE_INDEX, set by AceArcade) when the folder is unchanged. */
+			const char *aceIndex = getenv("ACEARCADE_FILE_INDEX");
+			bool aceIndexLoaded = false;
+			if (config.pathCache) {
+				aceIndexLoaded = aceIndex && *aceIndex && fileSystem.loadPathCache(aceIndex);
+				if (!aceIndexLoaded) {
+					fileSystem.createPathCache();
+					if (aceIndex && *aceIndex) fileSystem.savePathCache(aceIndex);
+				}
+			}
 			auto t1 = std::chrono::steady_clock::now();
 			fileSystem.initFontSets(fontState);
 			auto t2 = std::chrono::steady_clock::now();
 			Debug() << "AceArcade timing: file index" << (int)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << "ms"
-			        << (config.pathCache ? "" : "(off)");
+			        << (config.pathCache ? (aceIndexLoaded ? "(saved index)" : "") : "(off)");
 			Debug() << "AceArcade timing: font scan" << (int)std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << "ms";
 		}
 

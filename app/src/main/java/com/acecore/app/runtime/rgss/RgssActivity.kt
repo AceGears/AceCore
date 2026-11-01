@@ -240,6 +240,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             // desktop main thread). Large script sets (Pokémon Essentials games: deep Marshal.load of Scripts/Data, deep
             // recursion in plugin loaders) overflow it and Ruby aborts with a [BUG] dump. SDL_CreateThread reads this.
             runCatching { android.system.Os.setenv("SDL_THREAD_STACK_SIZE", (16 * 1024 * 1024).toString(), true) }
+            // Saved file index (AceArcade's engine patch, src/filesystem/filesystem.cpp): the game folder is walked once and
+            // the list reused on later launches while nothing in the folder has changed.
+            runCatching { android.system.Os.setenv("ACEARCADE_FILE_INDEX", File(s.dataPath, FILE_INDEX_NAME).absolutePath, true) }
             dataDir = File(s.dataPath).apply { mkdirs() }
             com.acecore.app.runtime.LaunchTimeline.mark(RgssRuntime.helperDir(File(s.dataPath)), "Game process started")
             buttonMap = ButtonMap.decode(s.config[ConfigKey.BUTTON_MAP.id], ButtonMap.RGSS_DEFAULT)
@@ -1386,6 +1389,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     }
 
 }
+
+/** The engine's saved file index for a game (in the game's private data folder). */
+const val FILE_INDEX_NAME = "file_index.acx"
 
 private fun fitLabel(fit: String) = when (fit) {
     DisplayPrefs.COVER -> "Fill"
