@@ -1,0 +1,53 @@
+# Tests Ruby 1.8 string behaviour for RPG Maker XP games (acecore_compat.rb › Ruby18Strings).
+# Run: ruby app/src/test/ruby/ruby18_strings_test.rb
+require 'stringio'
+require 'tmpdir'
+COMPAT = File.expand_path('../../main/assets/acecore/rgss/acecore_compat.rb', __dir__)
+module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end
+module RPG; module Cache; end; end # RPG Maker XP
+# Game scripts as the engine leaves them for preload scripts: [id, name, compressed, source].
+audio = <<~'S'
+  def getOggPage(file)
+    hdrbodysize = (file.read(1)[0] rescue 0)
+    bodysize = 0
+    hdrbodysize.times { bodysize += (file.read(1)[0] rescue 0) }
+    [hdrbodysize, bodysize]
+  end
+  def pbComment?(line) = line[0] == ?#
+  def pbNewline?(c) = c == ?\n
+  def pbTernary(x) = x ? 1 : 2
+  def pbQuestion = "what?a"
+  def pbSetByte(s) = (s[0] = 66; s)
+  def pbLines(s) = (r = []; s.each { |l| r << l }; r)
+S
+$RGSS_SCRIPTS = [[1, 'AudioUtilities', '', audio.dup]]
+$stderr = StringIO.new
+load COMPAT
+$fail = false
+def check(n, got, want) = (got == want ? puts("ok   #{n}") : (puts("FAIL #{n}: #{got.inspect[0, 120]} != #{want.inspect[0, 120]}"); $fail = true))
+eval($RGSS_SCRIPTS[0][3], TOPLEVEL_BINDING, '001:AudioUtilities')
+check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
+check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]
+check '?\n literal', pbNewline?(10), true
+check 'ternary untouched', [pbTernary(true), pbTernary(nil)], [1, 2]
+check '"?" in strings untouched', pbQuestion, "what?a"
+check 'str[i] = byte (Ruby 1.8)', pbSetByte(+"Ax"), "Bx"
+check 'String#each iterates lines', pbLines("a\nb\n"), ["a\n", "b\n"]
+check 'logged', $stderr.string.include?('Ruby 1.8 string behaviour for game scripts'), true
+# AceArcade's own code (acecore_ files) keeps Ruby 3 behaviour.
+eval("def acecore_probe(s) = s[0]", TOPLEVEL_BINDING, '/data/x/acecore_compat.rb')
+check "AceArcade's code keeps Ruby 3 str[i]", acecore_probe("hi"), "h"
+check 'two-argument and range forms unchanged', ["hello"[1, 2], "hello"[1..2], "hello"["ell"]], ["el", "el", "ell"]
+# Script files a game's Main loads from a folder get the same adaptations (Xenoverse, Reminiscencia).
+Dir.mktmpdir do |d|
+  path = File.join(d, '0240 Folder_Script.rb')
+  File.write(path, "def pbFolderA(s) = s[0] == ?A\ndef pbFolderW(x)\n  case x\n  when 1: :one\n  end\nend\n")
+  eval(File.read(path), TOPLEVEL_BINDING, '0240 Folder_Script.rb')
+  check 'folder script via File.read: ?x and "when x:" adapted', [pbFolderA("Abc"), pbFolderW(1)], [true, :one]
+  File.write(path, "def pbFolderB(s) = s[1] == ?b\n")
+  eval(File.open(path, 'r') { |f| f.read }, TOPLEVEL_BINDING, '0240 Folder_Script.rb')
+  check 'folder script via File#read', pbFolderB("ab"), true
+  check 'file on disk unchanged', File.read(path, mode: 'rb'), "def pbFolderB(s) = s[1] == ?b\n"
+end
+puts($fail ? 'SOME FAILED' : 'ALL PASSED')
+exit($fail ? 1 : 0)

@@ -2227,6 +2227,25 @@ module AceCoreCompat
       nil
     end
 
+    # Every adaptation above for one script's source, plus ?x literals for Ruby 1.8 string mode. Used for script
+    # files a game loads itself from a folder (its Main reads "Data/Scripts/*.rb" and evals them).
+    def adapt_all(src, name)
+      return src unless src.is_a?(String) && defined?(RubyVM::InstructionSequence)
+      out = src
+      notes = []
+      if (f = adapt(out, name)) then out = f; notes << '"when ...:"' end
+      if (r = adapt_regexp_bytes(out, name)) then out = r[0]; notes << 'byte escapes in a regexp' end
+      if (r = adapt_retry(out, name)) then out = r[0]; notes << '"retry" in an iterator' end
+      if defined?(AceCoreCompat::Ruby18Strings) && AceCoreCompat::Ruby18Strings.active &&
+         (r = AceCoreCompat::Ruby18Strings.char_literals(out, name))
+        out = r[0]; notes << '?x character literals'
+      end
+      ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{notes.join(', ')})") rescue nil) unless notes.empty?
+      out
+    rescue StandardError
+      src
+    end
+
     def apply(scripts)
       return unless scripts.is_a?(Array) && defined?(RubyVM::InstructionSequence)
       scripts.each_with_index do |entry, i|
@@ -2252,6 +2271,144 @@ module AceCoreCompat
   end
 end
 AceCoreCompat::Ruby18Syntax.apply($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
+
+#===============================================================================
+# Ruby 1.8 strings for games written for the original RPG Maker XP player
+#
+# RPG Maker XP's player runs Ruby 1.8, where a String is bytes: str[i] is the byte at i as an Integer, str[i] = n
+# stores a byte, ?a is the Integer 97 and String#each iterates lines. Ruby 1.9 changed all of these (str[i] became
+# a one-character String), so XP-era scripts fail on reads such as file.read(1)[0].times (Pokémon Z, Ogg length
+# in AudioUtilities) or "b <= genderRate" with a gender byte read from the Pokédex data (Pokémon Xenoverse).
+#
+# For an XP game whose scripts were not written for mkxp-z (no "MKXPZ" / "mkxp-z" in them; those target Ruby 3),
+# game code gets the Ruby 1.8 behaviour of exactly these operations; AceArcade's own code and the engine keep
+# Ruby 3's (calls are told apart by the calling script). ?x character literals in the game's scripts become their
+# byte values, so comparisons like str[0] == ?# keep working.
+#===============================================================================
+module AceCoreCompat
+  module Ruby18Strings
+    @active = false
+    class << self
+      attr_reader :active
+
+      def decide(scripts)
+        return false unless defined?(RPG::Cache) && scripts.is_a?(Array) # RPG Maker XP (RGSS1) only
+        modern = scripts.any? { |e| e.is_a?(Array) && e[3].is_a?(String) && e[3].match?(/MKXPZ|mkxp-z|mkxp_z/i) }
+        @active = !modern
+        ($stderr.puts("AceArcade: Ruby 1.8 string behaviour for game scripts (RPG Maker XP game)") rescue nil) if @active
+        @active
+      rescue StandardError
+        false
+      end
+
+      # True when the String method was called from the game's code (not AceArcade's scripts).
+      def game_caller?
+        loc = caller_locations(2, 1)&.first or return false
+        !loc.path.include?('acecore_')
+      end
+
+      # ?x literals -> their byte value, found through the parser (not text search), so "?" in strings, regexps and
+      # a ? b : c are untouched. Line numbers stay the same.
+      def char_literals(src, name)
+        return nil unless src.include?('?') && defined?(RubyVM::AbstractSyntaxTree)
+        ast = RubyVM::AbstractSyntaxTree.parse(src)
+        lines = src.lines.map(&:b)
+        found = []
+        walk = lambda do |n|
+          next unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
+          if n.type == :STR && n.first_lineno == n.last_lineno && n.children[0].is_a?(String) && n.children[0].bytesize == 1
+            line = lines[n.first_lineno - 1]
+            found << [n.first_lineno - 1, n.first_column, n.last_column, n.children[0].getbyte(0)] if line && line.getbyte(n.first_column) == 63 # '?'
+          end
+          n.children.each { |c| walk.call(c) }
+        end
+        walk.call(ast)
+        return nil if found.empty?
+        found.sort_by { |l, c, _, _| [-l, -c] }.each do |l, c, e, byte|
+          line = lines[l]
+          lines[l] = line.byteslice(0, c) + byte.to_s.b + line.byteslice(e..)
+        end
+        fixed = lines.join.force_encoding(Encoding::UTF_8)
+        Ruby18Syntax.compiles?(fixed, name) ? [fixed, found.size] : nil
+      rescue StandardError, SyntaxError
+        nil
+      end
+
+      def apply(scripts)
+        return unless decide(scripts)
+        scripts.each_with_index do |entry, i|
+          next unless entry.is_a?(Array) && entry[3].is_a?(String)
+          name = format('%03d:%s', i, entry[1].to_s)
+          r = char_literals(entry[3], name) or next
+          entry[3] = r[0]
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} ?x character literals)") rescue nil)
+        end
+      end
+    end
+
+    module StringMethods
+      def [](*args)
+        if args.size == 1 && args[0].is_a?(Integer) && Ruby18Strings.game_caller?
+          i = args[0]
+          return getbyte(i < 0 ? bytesize + i : i)
+        end
+        super
+      end
+
+      def []=(*args)
+        if args.size == 2 && args[0].is_a?(Integer) && args[1].is_a?(Integer) && Ruby18Strings.game_caller?
+          i = args[0]
+          setbyte(i < 0 ? bytesize + i : i, args[1] & 0xFF)
+          return args[1]
+        end
+        super
+      end
+
+      def each(*args, &blk)
+        return super if defined?(super)
+        each_line(*args, &blk)
+      end
+    end
+  end
+end
+# Script files a game reads itself (File.read / File#read of a .rb file in the game folder) get the same Ruby 1.8
+# adaptations as Scripts.rxdata. Only whole-file reads by the game's code; the file on disk is never changed.
+module AceCoreCompat
+  module ScriptFiles
+    def self.script?(path) = path.is_a?(String) && path.match?(/\.rb\z/i)
+
+    def self.game_caller?
+      loc = caller_locations(2, 1)&.first
+      loc && !loc.path.include?('acecore_')
+    end
+
+    def self.adapt(src, path)
+      return src unless src.is_a?(String) && !src.empty?
+      Ruby18Syntax.adapt_all(src.dup.force_encoding(Encoding::UTF_8), File.basename(path.to_s))
+    end
+
+    module ClassRead
+      def read(path, *rest, **kw)
+        src = super
+        rest.empty? && kw.empty? && ScriptFiles.script?(path) && ScriptFiles.game_caller? ? ScriptFiles.adapt(src, path) : src
+      end
+    end
+
+    module InstanceRead
+      def read(*args)
+        src = super
+        args.empty? && is_a?(File) && ScriptFiles.script?(path) && ScriptFiles.game_caller? ? ScriptFiles.adapt(src, path) : src
+      end
+    end
+  end
+end
+File.singleton_class.prepend(AceCoreCompat::ScriptFiles::ClassRead)
+File.prepend(AceCoreCompat::ScriptFiles::InstanceRead)
+
+if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
+  AceCoreCompat::Ruby18Strings.apply($RGSS_SCRIPTS)
+  String.prepend(AceCoreCompat::Ruby18Strings::StringMethods) if AceCoreCompat::Ruby18Strings.active
+end
 
 #===============================================================================
 # Thread.critical (Ruby 1.8; removed in 1.9)
