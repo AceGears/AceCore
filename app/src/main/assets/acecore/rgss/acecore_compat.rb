@@ -1021,7 +1021,7 @@ module AceCoreCompat
       LANGIDS[parts.first(2).join('-')] || LANGIDS[parts.first] || 0x0409
     end
 
- AceArcade provides the part every Windows installation has and
+    # ---- Registry. Android has no Windows registry. AceArcade provides the part every Windows installation has and
     # games read: the user's shell folders (Documents, Saved Games, AppData, Fonts...), pointing at this game's own
     # Windows folders (see USERPROFILE / SystemRoot at the top). Every other key is absent, as on a Windows install
     # where nothing was written there: opening it fails with ERROR_FILE_NOT_FOUND and games use their defaults
