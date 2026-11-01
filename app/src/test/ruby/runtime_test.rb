@@ -57,6 +57,7 @@ ENVS["essentials_v20"] = <<~'RUBY'
       DATA = {}
       def initialize(id, name, pocket, ball) @id, @name, @pocket, @ball = id, name, pocket, ball end
       def is_poke_ball?; @ball; end
+      def is_key_item?; @pocket == 8; end
       def self.add(*a) DATA[a[0]] = new(*a) end
       def self.exists?(id) DATA.key?(id) end
       def self.get(id) DATA.fetch(id) end
@@ -65,6 +66,7 @@ ENVS["essentials_v20"] = <<~'RUBY'
     Item.add(:POTION, "Potion", 2, false)
     Item.add(:POKEBALL, "Poké Ball", 3, true)
     Item.add(:MASTERBALL, "Master Ball", 3, true)
+    Item.add(:BICYCLE, "Bicycle", 8, false)
     class Nature
       attr_reader :id, :name
       DATA = {}
@@ -145,11 +147,12 @@ RUBY
 ENVS["essentials_v18"] = <<~'RUBY'
   ESSENTIALS_VERSION = "18.1"
   MAX_MONEY = 999_999
-  module PBItems; POTION = 1; POKEBALL = 4; def self.getName(i) { 1 => "Potion", 4 => "Poké Ball" }[i] end end
+  module PBItems; POTION = 1; POKEBALL = 4; BICYCLE = 9; def self.getName(i) { 1 => "Potion", 4 => "Poké Ball", 9 => "Bicycle" }[i] end end
   module PBSpecies; PIKACHU = 25; def self.getName(i) { 25 => "Pikachu" }[i] end; def self.maxValue; 25; end end
   module PBNatures; HARDY = 0; ADAMANT = 3; def self.getName(i) %w[Hardy Lonely Brave Adamant][i] end; def self.getCount; 4; end end
   module PBAbilities; def self.getName(i) "Ability#{i}" end end
-  def pbGetPocket(id) id == 4 ? 3 : 2 end
+  def pbGetPocket(id) id == 4 ? 3 : (id == 9 ? 8 : 2) end
+  def pbIsKeyItem?(id) id == 9 end
   def pbIsPokeBall?(id) id == 4 end
   class PokeBattle_Pokemon
     attr_accessor :name, :happiness, :exp, :iv, :ev
@@ -240,6 +243,10 @@ SCENARIOS["essentials_v20"] = <<~'RUBY'
   cmd(DIR, "7\titems")
   items = File.read(File.join(DIR, "items"), encoding: "UTF-8").lines.map { |l| l.chomp.split("\t") }
   check("item list includes balls flag", items.find { |i| i[0] == "POKEBALL" }[3] == "1")
+  $bag.items.clear; $bag.items[:POTION] = 3
+  r = cmd(DIR, "8\titems_all\t10")
+  check("add all items: every regular item, existing quantity kept and added to", $bag.items[:POTION] == 13 && $bag.items[:MASTERBALL] == 10 && $bag.items[:POKEBALL] == 10)
+  check("add all items: key items left out", !$bag.items.key?(:BICYCLE) && r[0][1] == "ok" && r[0][2].include?("key items left out"))
 
   pk = $player.party[0]
   cmd(DIR, "8\tpkmn\t0\tlevel\t55")
@@ -328,6 +335,8 @@ SCENARIOS["essentials_v18"] = <<~'RUBY'
   check("v18 money", $Trainer.money == 1234)
   cmd(DIR, "3\titem\tPOKEBALL\t7")
   check("v18 item by constant name via pbStoreItem", $PokemonBag.stored[4] == 7)
+  r = cmd(DIR, "3b\titems_all\t99")
+  check("v18 add all items without key items", $PokemonBag.stored[1] == 99 && $PokemonBag.stored[4] == 99 && !$PokemonBag.stored.key?(9) && r[0][1] == "ok")
   pk = $Trainer.party[0]
   cmd(DIR, "4\tpkmn\t0\tiv\t3\t31")
   check("v18 Sp. Atk IV maps to PBStats index 4", pk.iv[4] == 31 && pk.iv[3] == 13)

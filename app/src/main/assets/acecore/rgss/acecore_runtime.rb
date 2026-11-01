@@ -398,6 +398,7 @@ module AceCore
         when "money" then cheat_money(a)
         when "item" then give_item(a[0], int(a[1], 1, 999))
         when "items" then list_items
+        when "items_all" then give_all_items(int(a[0], 1, 999))
         when "party_heal" then heal_party
         when "pkmn" then edit_pkmn(int(a[0], 0), a[1].to_s, a[2..-1] || [])
         when "pkmn_add" then add_pkmn(a[0], int(a[1], 1, max_level), (a[2] || "party").to_s)
@@ -446,6 +447,41 @@ module AceCore
         ok = b.respond_to?(:add) ? b.add(item, qty) : b.pbStoreItem(item, qty)
         raise "The bag is full" unless ok
         "Added #{qty} × #{item_name(item)}"
+      end
+
+      # Every item in the game's own item database except key items, [qty] of each (capped by what the bag can
+      # hold; existing quantities are kept and added to). Key items are told apart by the game's data: v19+
+      # GameData::Item#is_key_item?, older pbIsKeyItem? / the key items pocket.
+      def give_all_items(qty)
+        need("items")
+        b = bag
+        ids = []
+        if new_api?
+          ::GameData::Item.each do |it|
+            next if it.respond_to?(:is_key_item?) && it.is_key_item?
+            next if it.name.to_s.strip.empty?
+            ids << it.id
+          end
+        elsif defined?(::PBItems)
+          key_pocket = 8
+          ::PBItems.constants.each do |c|
+            id = ::PBItems.const_get(c)
+            next unless id.is_a?(Integer) && id > 0
+            name = (::PBItems.getName(id) rescue nil)
+            next if name.nil? || name.strip.empty?
+            next if defined?(pbIsKeyItem?) && pbIsKeyItem?(id)
+            next if !defined?(pbIsKeyItem?) && defined?(pbGetPocket) && pbGetPocket(id) == key_pocket
+            ids << id
+          end
+        end
+        raise "This game's item list couldn't be read" if ids.empty?
+        added = 0
+        full = 0
+        ids.uniq.each do |id|
+          ok = (b.respond_to?(:add) ? b.add(id, qty) : b.pbStoreItem(id, qty)) rescue false
+          ok ? added += 1 : full += 1
+        end
+        "Added #{qty} × #{added} items" + (full > 0 ? " (#{full} didn't fit in the bag)" : "") + "; key items left out"
       end
 
       def item_name(item)

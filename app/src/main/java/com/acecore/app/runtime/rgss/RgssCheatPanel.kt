@@ -187,6 +187,9 @@ fun RgssCheatPanel(spec: RgssLaunchSpec, appContext: Context, accent: Color, onC
                         if (s.has("items")) Chip("Give item", accent) {
                             pending = Pending.Pick("Give item", "items", "items", { true }, withQuantity = true, maxQty = 999) { id, q -> arrayOf("item", id, q.toString()) }
                         }
+                        if (s.has("items")) Chip("Add all items", accent) {
+                            pending = Pending.Number("Add all items: quantity of each", "1 – 999 (key items are left out)", "99", 1, 999) { arrayOf("items_all", it.toString()) }
+                        }
                         if (s.has("balls")) Chip("Give Poké Balls", accent) {
                             pending = Pending.Pick("Give Poké Balls", "items", "items", { it.getOrNull(3) == "1" }, withQuantity = true, maxQty = 999) { id, q -> arrayOf("item", id, q.toString()) }
                         }
