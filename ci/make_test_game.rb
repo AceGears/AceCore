@@ -78,6 +78,18 @@ script = <<~'RUBY'
       end
       data = Array.new(20000) { |i| "Pok\u00e9mon Center #{i}" }
       ok = (1..5).all? { Marshal.load(greedy.new(Marshal.dump(data))) == data }
+      # A port whose to_str returns a new String (Flux's StringInput: "alias to_str read"): that String must stay
+      # alive for the whole load, also when the garbage collector runs during it (GC.stress: on every allocation).
+      tostr = Class.new do
+        def initialize(s) = (@s = s)
+        def getbyte = nil
+        def read(*) = nil
+        def to_str = (+"").concat(@s)
+      end
+      small = Array.new(300) { |i| "Pok\u00e9mon Center #{i}" }
+      GC.stress = true
+      ok &&= Marshal.load(tostr.new(Marshal.dump(small))) == small
+      GC.stress = false
       GC.start
       ok ? "ok" : "wrong"
     rescue Exception => e

@@ -12,6 +12,14 @@ The buffer now grows to hold everything read() returned. The extra bytes are the
 (the reader advanced past them), so keeping them loads the file correctly instead of crashing or losing data.
 Readers that return at most n bytes behave exactly as before. An empty read is reported as "marshal data too short"
 instead of underflowing the buffer length.
+
+Second fix, same function family: Marshal.load(port) first asks the port for a String (to_str). Pokémon Flux's
+StringInput has "alias to_str read", which returns a new String holding the whole file; that String is then the data
+Marshal reads from, but nothing kept it alive: struct load_arg's mark function didn't mark src (or proc), and the
+local variable was dead after "arg->src = port". A garbage collection during a large load (Flux's 2.5 MB message file)
+freed it and Marshal went on reading from a recycled object, then called a method on garbage built from the message
+text ("mon Cent", from "Pokémon Center": the crash address in Flux's reports). src and proc are now marked while a
+load runs, and port/proc are kept on the stack until it ends.
 """
 import sys
 
@@ -78,6 +86,29 @@ sub('''    if (NIL_P(v))
 	arg->buf = 0;
 	arg->bufsize = 0;
     }''')
+
+sub('''static void
+mark_load_arg(void *ptr)
+{
+    struct load_arg *p = ptr;
+    if (!p->symbols)
+        return;''', '''static void
+mark_load_arg(void *ptr)
+{
+    struct load_arg *p = ptr;
+    if (!p->symbols)
+        return;
+    /* AceArcade: the source (possibly a String made by port.to_str, referenced nowhere else) and the proc */
+    rb_gc_mark(p->src);
+    if (p->proc) rb_gc_mark(p->proc);''')
+
+sub('''    v = r_object(arg);
+    clear_load_arg(arg);
+    RB_GC_GUARD(wrapper);''', '''    v = r_object(arg);
+    clear_load_arg(arg);
+    RB_GC_GUARD(wrapper);
+    RB_GC_GUARD(port); /* AceArcade */
+    RB_GC_GUARD(proc);''')
 
 open(path, "w", encoding="utf-8").write(s)
 print("patched", path)
