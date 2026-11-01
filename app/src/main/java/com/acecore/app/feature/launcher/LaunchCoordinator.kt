@@ -395,8 +395,15 @@ class LaunchCoordinator(
         if (reached) settings.markRuntimeVerified(RuntimeRegistry.runtimeFor(game.effectiveEngine))
         // A game that drew its first frame and then stopped with a script error (a splash screen, then a crash) is a
         // failure too: say so instead of returning to the library silently.
-        if ((reached && rubyError == null) || !rgss) return null
-        val failure = withContext(Dispatchers.IO) { investigate(game, requestedAt ?: 0L, helperDir, helperUsed, markers, rubyError, data, resultCode) }
+        // A game that drew its first frame and then closed by itself within seconds, with no script error and not
+        // through AceArcade's Exit (Pokémon Flux "exits on launch"): also investigated, so the engine's output and
+        // Android's exit record are shown instead of a silent return to the library.
+        val earlyExit = rgss && reached && rubyError == null && resultCode != Activity.RESULT_OK && ms in 0 until 20_000
+        if ((reached && rubyError == null && !earlyExit) || !rgss) return null
+        val failure = withContext(Dispatchers.IO) {
+            investigate(game, requestedAt ?: 0L, helperDir, helperUsed, markers, rubyError, data, resultCode,
+                closedAfterMs = if (earlyExit) ms else null)
+        }
         // The game's own failure screen already showed this (user chose Retry or Return to library): report saved, no second dialog.
         return if (resultCode == Activity.RESULT_FIRST_USER) null else failure
     }
@@ -404,7 +411,7 @@ class LaunchCoordinator(
     /** Collects every piece of evidence about a game process that ended before reaching the game, and saves a report. */
     private fun investigate(
         game: GameEntity, since: Long, helperDir: File, helperUsed: Boolean, markers: Triple<Boolean, String?, Boolean>?,
-        rubyError: String?, data: Intent?, resultCode: Int,
+        rubyError: String?, data: Intent?, resultCode: Int, closedAfterMs: Long? = null,
     ): com.acecore.app.runtime.LaunchFailure {
         val cr = com.acecore.app.runtime.CrashReports
         val stage = when {
@@ -440,6 +447,7 @@ class LaunchCoordinator(
             activityError != null -> activityError to true
             engineCrash != null -> "Ruby crashed: ${engineCrash.first.substringAfter("[BUG]").trim().take(200)}" to true
             engineOutput != null -> "The engine stopped and printed: ${engineOutput.lineSequence().filter { it.isNotBlank() }.lastOrNull()?.take(300)}" to true
+            closedAfterMs != null -> "The game closed by itself ${closedAfterMs / 1000} s after starting, without an error message." to false
             else -> "The game process ended without reporting an error. The cause hasn't been identified yet." to false
         }
         val report = cr.redact(buildString {
@@ -456,6 +464,9 @@ class LaunchCoordinator(
             }
             javaCrash?.let { appendLine(); appendLine("== Java/Kotlin stack =="); appendLine(it) }
             rubyError?.let { appendLine(); appendLine("== Ruby error =="); appendLine(it) }
+            File(helperDir, "exit_called").takeIf { it.isFile && it.lastModified() >= since }?.readText()?.trim()?.let {
+                appendLine(); appendLine("== The game called exit =="); appendLine(it)
+            }
             // AceArcade's own notes from the engine (Windows calls a game needed, scripts adapted, ...), always kept.
             engineOutputFull?.lineSequence()?.filter { it.startsWith("AceArcade:") }?.distinct()?.take(80)?.toList()
                 ?.takeIf { it.isNotEmpty() }?.let { appendLine(); appendLine("== AceArcade notes =="); it.forEach(::appendLine) }

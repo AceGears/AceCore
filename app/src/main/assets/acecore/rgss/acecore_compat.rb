@@ -1927,6 +1927,11 @@ module AceCoreCompat
     def run_pending(scene = nil)
       return false unless @pending
       id, action = @pending
+      unless flavor
+        @pending = nil
+        reply(id, "error", "Quick save isn't available for this game: its save system isn't one AceArcade recognises.")
+        return false
+      end
       if busy?
         @pending_since ||= Time.now
         return false if Time.now - @pending_since < 3     # give a step or message a moment to finish
@@ -1957,6 +1962,8 @@ module AceCoreCompat
     def flavor
       if defined?(::SaveData) && ::SaveData.respond_to?(:compile_save_hash) && defined?(::Game) && ::Game.respond_to?(:load_map)
         :essentials
+      elsif old_essentials_saves
+        :essentials_old
       elsif defined?(::DataManager) && ::DataManager.respond_to?(:make_save_contents)
         :ace
       elsif defined?(::Scene_File) && ::Scene_File.method_defined?(:write_save_data)
@@ -1966,11 +1973,97 @@ module AceCoreCompat
       end
     end
 
+    # ---- Pokémon Essentials up to v18 (Pokémon Z, Xenoverse, Reminiscencia...): no SaveData module. The game's own
+    # pbSave writes a fixed sequence of objects with Marshal.dump(<expression>, f) and its load screen reads them back
+    # in the same order. Which objects a game saves differs between versions and games, so the list is read from that
+    # game's pbSave itself (through the parser): the quick save stores exactly what the game's save stores, as
+    # [expression, value] pairs, without calling pbSave (which writes the game's real save file and changes counters).
+    # Loading assigns the saved globals ($Trainer, $PokemonGlobal, $MapFactory, ...) and Graphics.frame_count, then
+    # restarts the map scene the way the load screen does.
+    def old_essentials_saves
+      return @old_saves if defined?(@old_saves)
+      @old_saves = nil
+      return nil unless respond_to?(:pbSave, true) && defined?(::PokemonGlobalMetadata) && !defined?(::SaveData)
+      path, line = method(:pbSave).source_location
+      src = path && script_source(path) or return nil
+      src = AceCoreCompat::Ruby18Syntax.adapt_all(src, path) unless path.match?(/\A\d+:/)
+      lines = src.lines
+      ast = RubyVM::AbstractSyntaxTree.parse(src)
+      defn = nil
+      find = lambda do |n|
+        next unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
+        defn = n if n.type == :DEFN && n.children[0] == :pbSave && n.first_lineno == line
+        n.children.each { |c| find.call(c) } unless defn
+      end
+      find.call(ast)
+      return nil unless defn
+      exprs = []
+      walk = lambda do |n|
+        next unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
+        if n.type == :CALL && n.children[1] == :dump && (r = n.children[0]).is_a?(RubyVM::AbstractSyntaxTree::Node) &&
+           r.type == :CONST && r.children[0] == :Marshal && (args = n.children[2]).is_a?(RubyVM::AbstractSyntaxTree::Node)
+          e = args.children[0]
+          if e.is_a?(RubyVM::AbstractSyntaxTree::Node) && e.first_lineno == e.last_lineno
+            exprs << lines[e.first_lineno - 1].byteslice(e.first_column...e.last_column).force_encoding(Encoding::UTF_8)
+          end
+        end
+        n.children.each { |c| walk.call(c) }
+      end
+      walk.call(defn)
+      @old_saves = exprs.include?("$MapFactory") && exprs.include?("$Trainer") ? exprs.uniq : nil
+    rescue StandardError, SyntaxError
+      @old_saves = nil
+    end
+
+    # A game script's source by the name Ruby reports for it: "NNN:Name" for Scripts.rxdata entries, or the file name
+    # of a script the game loads from its folder.
+    def script_source(path)
+      if (m = path.match(/\A(\d+):/)) && defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS.is_a?(Array)
+        entry = $RGSS_SCRIPTS[m[1].to_i]
+        return entry[3].dup.force_encoding(Encoding::UTF_8) if entry.is_a?(Array) && entry[3].is_a?(String)
+      end
+      file = File.file?(path) ? path : Dir.glob("**/#{path.tr('[]{}*?', '')}").first
+      file && File.binread(file).force_encoding(Encoding::UTF_8)
+    rescue StandardError
+      nil
+    end
+
+    def old_essentials_values
+      old_essentials_saves.map { |e| [e, Kernel.eval(e, TOPLEVEL_BINDING)] }
+    end
+
+    OLD_ASSIGNABLE = /\A(\$\w+|Graphics\.frame_count)\z/
+
+    def old_essentials_load(pairs)
+      raise "the quick save is damaged" unless pairs.is_a?(Array) && pairs.all? { |p| p.is_a?(Array) && p.size == 2 }
+      pairs.each do |expr, value|
+        next unless expr.is_a?(String) && expr.match?(OLD_ASSIGNABLE)
+        @load_value = value
+        Kernel.eval("#{expr} = ::AceCoreCompat::Tools.load_value", TOPLEVEL_BINDING)
+      end
+      @load_value = nil
+      # The rest is what the load screen does after reading a save.
+      $game_map = $MapFactory.map
+      # Following Pokémon / dependent events are rebuilt from the loaded $PokemonGlobal.
+      $PokemonTemp.instance_variable_set(:@dependentEvents, nil) if $PokemonTemp && $PokemonTemp.instance_variable_defined?(:@dependentEvents)
+      if defined?(::PokemonEncounters)
+        $PokemonEncounters = ::PokemonEncounters.new
+        $PokemonEncounters.setup($game_map.map_id) if $PokemonEncounters.respond_to?(:setup)
+      end
+      pbAutoplayOnSave if respond_to?(:pbAutoplayOnSave, true)
+      $game_map.need_refresh = true if $game_map.respond_to?(:need_refresh=)
+      $game_map.update
+      $PokemonMap.updateMap if $PokemonMap.respond_to?(:updateMap)
+      $scene = ::Scene_Map.new
+    end
+
+    def load_value = @load_value
+
     def busy?
       return true if $game_player.respond_to?(:moving?) && $game_player.moving?
       return true if $game_temp.respond_to?(:player_transferring) && $game_temp.player_transferring
       case flavor
-      when :essentials
+      when :essentials, :essentials_old
         (respond_to?(:pbMapInterpreterRunning?, true) && pbMapInterpreterRunning?) || $game_temp.message_window_showing ? true : false
       when :ace
         $game_map.interpreter.running? || $game_message.busy?
@@ -1993,6 +2086,7 @@ module AceCoreCompat
       kind = flavor or raise "this game's save system isn't recognised"
       payload = case kind
                 when :essentials then Marshal.dump(::SaveData.compile_save_hash)
+                when :essentials_old then Marshal.dump(old_essentials_values)
                 when :ace then Marshal.dump([::DataManager.make_save_header, ::DataManager.make_save_contents])
                 else
                   body = File.join(dir, "quicksave.body.tmp")
@@ -2077,6 +2171,8 @@ module AceCoreCompat
         else
           $scene = ::Scene_Map.new
         end
+      when :essentials_old
+        old_essentials_load(Marshal.load(payload))
       when :ace
         _header, contents = Marshal.load(payload)
         ::DataManager.extract_save_contents(contents)

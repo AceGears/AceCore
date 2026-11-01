@@ -186,6 +186,9 @@ module AceCore
 
     def on_exit
       e = $!
+      # The game ended itself with exit (a version / file check, a "quit" in its own menu): where it did so goes into
+      # the report when the game closed by itself right after starting.
+      write("exit_called", "status #{e.status}\n#{(e.backtrace || []).reject { |f| f.include?('acecore_') }.first(8).join("\n")}") if e.is_a?(SystemExit)
       if e && !e.is_a?(SystemExit)
         # The first frames: where the game script failed, not only the compatibility layer's line.
         where = (e.backtrace || []).first(12).join("\n")
