@@ -122,8 +122,8 @@ enum class ConfigKey(
     GAMEPAD_OPACITY("gamepadOpacity", "Controls opacity", "Transparency of on-screen buttons.", ConfigType.INT, "55", range = 15..100, section = "Controls", appliesTo = WITH_CONTROLS),
     GAMEPAD_SCALE("gamepadScale", "Controls size", "Size of on-screen buttons (%).", ConfigType.INT, "100", range = 60..160, section = "Controls", appliesTo = WITH_CONTROLS),
     CHEAT_SHORTCUT(
-        "cheatShortcut", "Floating cheat button", "A small button over the game that opens the cheat menu directly. " +
-            "Drag it to move it; its place is remembered. Shown only when cheats are on for the game.",
+        "cheatShortcut", "Cheats button", "An on-screen button next to FF / QS / QL that opens the cheat menu directly, " +
+            "with the same look, size and opacity. Move it with ☰ › Move on-screen controls. Shown only when cheats are on for the game.",
         ConfigType.BOOL, "true", section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
     ),
     HAPTICS("haptics", "Haptic feedback", "Vibrate briefly when on-screen buttons are pressed.", ConfigType.BOOL, "true", section = "Controls", appliesTo = WITH_CONTROLS),

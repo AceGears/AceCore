@@ -99,6 +99,7 @@ data class DisplayPrefs(
             ConfigKey.SCREEN_OFFSET_Y.id, ConfigKey.SCREEN_FILTER.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
             ConfigKey.FF_SPEED.id, ConfigKey.FF_MODE.id, ConfigKey.FF_AUDIO.id, ConfigKey.PAD_FF.id, ConfigKey.PAD_QS.id,
             ConfigKey.PAD_QL.id, ConfigKey.TOOLS_SCALE.id, ConfigKey.TOOLS_OPACITY.id, ConfigKey.GAMEPAD_OPACITY.id,
+            ConfigKey.CHEAT_SHORTCUT.id,
         )
 
         fun file(dataDir: File) = File(RgssRuntime.helperDir(dataDir), FILE_NAME)

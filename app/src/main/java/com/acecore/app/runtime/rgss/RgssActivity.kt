@@ -181,6 +181,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var padQl by mutableStateOf(true)
     private var toolsScale by mutableStateOf(1f)
     private var toolsOpacity by mutableStateOf(0.7f)
+    /** Opacity of the on-screen controller (D-pad, buttons); ☰ › Controls › On-screen buttons, saved for the game. */
+    private var gamepadOpacity by mutableStateOf(0.55f)
+    private var padCheats by mutableStateOf(true)
     private var toolsOpen by mutableStateOf(false)
     /** Short confirmation shown at the top ("Quick save created"…). */
     private var notice by mutableStateOf<String?>(null)
@@ -258,6 +261,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             padQl = ConfigKey.PAD_QL.bool(s.config[ConfigKey.PAD_QL.id] ?: "true")
             toolsScale = ConfigKey.TOOLS_SCALE.int(s.config[ConfigKey.TOOLS_SCALE.id] ?: "100") / 100f
             toolsOpacity = ConfigKey.TOOLS_OPACITY.int(s.config[ConfigKey.TOOLS_OPACITY.id] ?: "70") / 100f
+            gamepadOpacity = ConfigKey.GAMEPAD_OPACITY.int(s.config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55") / 100f
+            padCheats = ConfigKey.CHEAT_SHORTCUT.bool(s.config[ConfigKey.CHEAT_SHORTCUT.id] ?: "true")
             display = DisplayPrefs.from(s.config)
         } else {
             buttonMap = ButtonMap.RGSS_DEFAULT
@@ -585,6 +590,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         ConfigKey.FF_AUDIO.id to if (ffQuiet) "quiet" else "normal", ConfigKey.PAD_FF.id to padFf.toString(),
         ConfigKey.PAD_QS.id to padQs.toString(), ConfigKey.PAD_QL.id to padQl.toString(),
         ConfigKey.TOOLS_SCALE.id to (toolsScale * 100).toInt().toString(), ConfigKey.TOOLS_OPACITY.id to (toolsOpacity * 100).toInt().toString(),
+        ConfigKey.GAMEPAD_OPACITY.id to (gamepadOpacity * 100).toInt().toString(), ConfigKey.CHEAT_SHORTCUT.id to padCheats.toString(),
     ))
 
     private var lastDpadBounds: android.graphics.Rect? = null
@@ -754,7 +760,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if ((gamepadVisible || editingLayout) && !menuOpen) {
                 VirtualGamepad(
                     store = store,
-                    opacity = ConfigKey.GAMEPAD_OPACITY.int(cfg[ConfigKey.GAMEPAD_OPACITY.id] ?: "55") / 100f,
+                    opacity = gamepadOpacity,
                     scale = ConfigKey.GAMEPAD_SCALE.int(cfg[ConfigKey.GAMEPAD_SCALE.id] ?: "100") / 100f,
                     haptics = haptics,
                     accent = accent,
@@ -769,12 +775,11 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                         fastForwardActive = ffOn, speedLabel = speedLabel(ffSpeed), scale = toolsScale, opacity = toolsOpacity,
                         onFastForward = ::onFastForwardButton,
                         onQuickSave = { quickAction("quicksave") }, onQuickLoad = { quickAction("quickload") },
+                        showCheats = s.cheatsEnabled && padCheats,
+                        onCheats = { cheatsOpen = true },
                     ),
                 )
             }
-            if (s.cheatsEnabled && ConfigKey.CHEAT_SHORTCUT.bool(cfg[ConfigKey.CHEAT_SHORTCUT.id] ?: "true") &&
-                !menuOpen && !cheatsOpen && !editingLayout && failure == null && !starting
-            ) CheatShortcut(accent) { cheatsOpen = true }
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
             if (menuOpen) RgssMenu(s, accent)
             if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
@@ -791,45 +796,6 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (stalled && !menuOpen && failure == null) StallBanner(s, accent, Modifier.align(Alignment.TopCenter))
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
-        }
-    }
-
-    /**
-     * Floating cheat button: opens the cheat menu without going through ☰. Drag to move; the position is kept as a
-     * fraction of the screen (per orientation), so it stays in the same place on any screen size.
-     */
-    @Composable
-    private fun CheatShortcut(accent: Color, onOpen: () -> Unit) {
-        val prefs = remember { getSharedPreferences("cheat_shortcut", MODE_PRIVATE) }
-        val land = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
-        val key = if (land) "land" else "port"
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            val sizePx = with(density) { 46.dp.toPx() }
-            val wPx = with(density) { maxWidth.toPx() } - sizePx
-            val hPx = with(density) { maxHeight.toPx() } - sizePx
-            var fx by remember(key) { mutableStateOf(prefs.getFloat("$key.x", 0.5f)) }
-            var fy by remember(key) { mutableStateOf(prefs.getFloat("$key.y", 0.04f)) }
-            Box(
-                Modifier
-                    .offset { androidx.compose.ui.unit.IntOffset((fx * wPx).roundToInt(), (fy * hPx).roundToInt()) }
-                    .size(46.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), androidx.compose.foundation.shape.CircleShape)
-                    .border(1.5.dp, accent, androidx.compose.foundation.shape.CircleShape)
-                    .pointerInput(key) {
-                        detectDragGestures(
-                            onDragEnd = { prefs.edit().putFloat("$key.x", fx).putFloat("$key.y", fy).apply() },
-                        ) { change, drag ->
-                            change.consume()
-                            if (wPx > 0) fx = (fx + drag.x / wPx).coerceIn(0f, 1f)
-                            if (hPx > 0) fy = (fy + drag.y / hPx).coerceIn(0f, 1f)
-                        }
-                    }
-                    .clickable(onClickLabel = "Open cheats") { onOpen() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(androidx.compose.material.icons.Icons.Rounded.AutoFixHigh, "Cheats", tint = accent, modifier = Modifier.size(24.dp))
-            }
         }
     }
 
@@ -1090,7 +1056,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                                 if (!gamepadVisible) { gamepadMode = "always"; refreshGamepadVisibility() }
                             }
                             MenuItem(Icons.Rounded.Edit, "Move on-screen controls", accent) { editingLayout = true; menuOpen = false }
-                            MenuItem(Icons.Rounded.FastForward, "Gameplay buttons (FF / QS / QL)", accent, subtitle = "Show, hide, size and fast-forward options") {
+                            MenuItem(Icons.Rounded.FastForward, "On-screen buttons", accent, subtitle = "Controller opacity, FF / QS / QL / Cheats size and opacity, fast-forward") {
                                 toolsOpen = true; menuOpen = false
                             }
                             MenuItem(Icons.Rounded.Keyboard, "Keyboard", accent, subtitle = "For name entry and keyboard shortcuts") { keyboardOpen = true; menuOpen = false }
@@ -1166,12 +1132,18 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     .verticalScroll(rememberScrollState()).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Gameplay buttons", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                Text("FF = fast-forward, QS = quick save, QL = quick load. Drag them with ☰ › Move on-screen controls.",
+                Text("On-screen buttons", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                Text("Controller opacity ${(gamepadOpacity * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                androidx.compose.material3.Slider(value = gamepadOpacity, valueRange = 0.15f..1f, onValueChange = { gamepadOpacity = it },
+                    colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+                Text("D-pad, A/B/X/Y, L/R, Select/Start. Saved for this game.", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+                Text("Gameplay buttons", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("FF = fast-forward, QS = quick save, QL = quick load, Cheats = cheat menu (when cheats are on). Drag them with ☰ › Move on-screen controls.",
                     color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                 ToggleRow("FF button", padFf, accent) { padFf = it }
                 ToggleRow("QS button", padQs, accent) { padQs = it }
                 ToggleRow("QL button", padQl, accent) { padQl = it }
+                ToggleRow("Cheats button" + if (spec?.cheatsEnabled == true) "" else " (cheats are off for this game)", padCheats, accent) { padCheats = it }
                 Text("Size ${(toolsScale * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
                 androidx.compose.material3.Slider(value = toolsScale, valueRange = 0.6f..1.6f, onValueChange = { toolsScale = it },
                     colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))

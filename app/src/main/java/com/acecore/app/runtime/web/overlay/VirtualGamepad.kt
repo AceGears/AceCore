@@ -49,7 +49,7 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-enum class PadGroup { DPAD, FACE, LEFT_SHOULDER, RIGHT_SHOULDER, CENTER, TOOLS }
+enum class PadGroup { DPAD, FACE, LEFT_SHOULDER, RIGHT_SHOULDER, CENTER, TOOLS, CHEATS }
 
 /**
  * Fast-forward / quick save / quick load buttons (FF, QS, QL). Only runtimes that implement these features pass
@@ -70,6 +70,9 @@ data class GamepadTools(
     val onFastForward: (Boolean) -> Unit,
     val onQuickSave: () -> Unit,
     val onQuickLoad: () -> Unit,
+    /** Cheat button (shown when cheats are on for the game): same look, size and opacity as FF/QS/QL, moved on its own. */
+    val showCheats: Boolean = false,
+    val onCheats: () -> Unit = {},
 )
 
 /** Stores per-orientation group offsets. Used only inside the game process (plain SharedPreferences). */
@@ -158,6 +161,16 @@ fun VirtualGamepad(
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 PadKey("SELECT", PadButton.SELECT, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
                 PadKey("START", PadButton.START, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
+            }
+        }
+        if (tools != null && tools.showCheats) {
+            // Right after the FF / QS / QL row by default; its own group, so "Move on-screen controls" can place it anywhere.
+            val w = (50 * tools.scale).dp
+            val shown = listOf(tools.showFastForward, tools.showQuickSave, tools.showQuickLoad).count { it }
+            Group(PadGroup.CHEATS, Alignment.TopStart, alpha = tools.opacity) {
+                Box(Modifier.padding(start = (84 * scale).dp + (w + 8.dp) * shown)) {
+                    ToolKey("Cheats", w * 1.4f, (34 * tools.scale).dp, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onCheats)
+                }
             }
         }
         if (tools != null && (tools.showFastForward || tools.showQuickSave || tools.showQuickLoad)) {
