@@ -393,7 +393,9 @@ class LaunchCoordinator(
             latencyMs = latency, error = error,
         )
         if (reached) settings.markRuntimeVerified(RuntimeRegistry.runtimeFor(game.effectiveEngine))
-        if (reached || !rgss) return null
+        // A game that drew its first frame and then stopped with a script error (a splash screen, then a crash) is a
+        // failure too: say so instead of returning to the library silently.
+        if ((reached && rubyError == null) || !rgss) return null
         val failure = withContext(Dispatchers.IO) { investigate(game, requestedAt ?: 0L, helperDir, helperUsed, markers, rubyError, data, resultCode) }
         // The game's own failure screen already showed this (user chose Retry or Return to library): report saved, no second dialog.
         return if (resultCode == Activity.RESULT_FIRST_USER) null else failure
@@ -485,5 +487,16 @@ class LaunchCoordinator(
     }
 
     /** Runtime that a game needs, for UI that wants to show it. */
+    /**
+     * The game asked to be restarted (it started its own exe and closed, e.g. to apply a screen-size change; see
+     * acecore_compat.rb › Commands). Consumes the request; true when it was made during the session that just ended.
+     */
+    suspend fun consumeRestartRequest(gameId: Long): Boolean = withContext(Dispatchers.IO) {
+        val f = File(RgssRuntime.helperDir(GameStorage.dataDir(context, gameId)), "restart")
+        val fresh = f.isFile && System.currentTimeMillis() - f.lastModified() < 120_000
+        f.delete()
+        fresh
+    }
+
     fun runtimeOf(game: GameEntity): RuntimeId = RuntimeRegistry.runtimeFor(game.effectiveEngine)
 }

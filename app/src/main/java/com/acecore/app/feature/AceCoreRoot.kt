@@ -160,9 +160,11 @@ private fun LaunchHost(nav: NavHostController, content: @Composable () -> Unit) 
         val id = runningGameId
         runningGameId = -1L
         if (id > 0) scope.launch {
-            coordinator.onResult(id, result.resultCode, result.data)?.let { launchFailure = it }
-            // "Retry" on the game's start-up failure screen: start it again.
-            if (result.data?.getBooleanExtra(com.acecore.app.runtime.rgss.RgssActivity.EXTRA_RETRY, false) == true) {
+            val failure = coordinator.onResult(id, result.resultCode, result.data)
+            failure?.let { launchFailure = it }
+            val restart = coordinator.consumeRestartRequest(id)
+            // "Retry" on the game's start-up failure screen, or the game restarting itself: start it again.
+            if (result.data?.getBooleanExtra(com.acecore.app.runtime.rgss.RgssActivity.EXTRA_RETRY, false) == true || (restart && failure == null)) {
                 ctx.container.games.get(id)?.let { launcherRef.get()?.launch(it) }
             }
         }

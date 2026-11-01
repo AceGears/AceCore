@@ -33,6 +33,16 @@ if defined?(AceCoreCompat::DATA_DIR) && AceCoreCompat::DATA_DIR
       [File.dirname(File.dirname(v)), File.dirname(v), v].each { |d| Dir.mkdir(d) rescue nil }
       ENV[k] = v
     end
+    # The rest of a Windows user environment that scripts combine into paths (%HOMEDRIVE%%HOMEPATH% = the profile).
+    { 'HOMEDRIVE' => '', 'HOMEPATH' => home, 'TEMP' => File.join(home, 'AppData', 'Local', 'Temp'),
+      'TMP' => File.join(home, 'AppData', 'Local', 'Temp'), 'USERNAME' => 'Player',
+      'ALLUSERSPROFILE' => File.join(AceCoreCompat::DATA_DIR, 'ProgramData'),
+      'PROGRAMDATA' => File.join(AceCoreCompat::DATA_DIR, 'ProgramData'),
+      'PUBLIC' => File.join(AceCoreCompat::DATA_DIR, 'Public') }.each do |k, v|
+      next if ENV.key?(k)
+      (Dir.mkdir(v) rescue nil) unless v.empty? || k == 'USERNAME' || k == 'HOMEPATH'
+      ENV[k] = v
+    end
     # %SystemRoot% / %windir%: a Windows folder of this game's own, so scripts that look for system fonts
     # (Essentials FontInstaller) find a real folder. The engine already loads the game's Fonts folder itself.
     win = File.join(AceCoreCompat::DATA_DIR, 'Windows')
@@ -750,6 +760,57 @@ module AceCoreCompat
   FileTest.singleton_class.prepend(HideWindowsDlls::FileTestModule)
   Dir.singleton_class.prepend(HideWindowsDlls::DirClass)
 
+  # Programs a game starts. Android can't run Windows programs, except one: the game itself. Games restart
+  # themselves to apply settings (screen size, language) by starting Game.exe and exiting; AceArcade then starts the
+  # game again once it has closed ("restart" in the helper folder, read by the launcher). Every command is logged.
+  module Commands
+    module_function
+
+    def dir
+      defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE ? File.dirname(AceCoreCompat::DISPLAY_FILE) : nil
+    end
+
+    def program(cmd)
+      cmd = cmd.to_s.strip
+      first = cmd.start_with?('"') ? cmd[1..].split('"', 2)[0].to_s : cmd.split(/\s+/, 2)[0].to_s
+      File.basename(first.tr('\\', '/'))
+    end
+
+    # The game's own executable: an .exe in the game folder whose name matches (Game.exe or the game's renamed exe).
+    def own_exe?(cmd)
+      name = program(cmd)
+      return false unless name.match?(/\.exe\z/i) || name.casecmp?('game')
+      name = "#{name}.exe" unless name.match?(/\.exe\z/i)
+      (Dir.children('.') rescue []).any? { |f| f.casecmp?(name) }
+    end
+
+    def request_restart(cmd)
+      d = dir or return false
+      File.binwrite(File.join(d, 'restart'), "#{Time.now.to_i}\n#{cmd}\n")
+      Win32.note_once("game restarts itself (#{program(cmd)}): AceArcade starts it again when it closes")
+      true
+    rescue StandardError
+      false
+    end
+
+    def note(cmd)
+      Win32.note_once("game ran a program: #{cmd.to_s[0, 120]} (Windows programs can't run on Android)")
+    end
+
+    def shell_execute(file)
+      file = file.is_a?(String) ? Win32.c_string(file, -1).force_encoding(Encoding::UTF_8).scrub : ''
+      return 42 if own_exe?(file) && request_restart(file) # > 32: success
+      note(file)
+      2
+    end
+
+    def command(args)
+      args = args.dup
+      args.shift if args.first.is_a?(Hash) # environment
+      args.reject { |a| a.is_a?(Hash) }.flatten.map(&:to_s).join(' ')
+    end
+  end
+
   # A Windows function implemented by AceArcade. Arguments arrive as Ruby values: 'p' buffers are the caller's own
   # String objects and are filled in place, as Windows fills the memory behind the pointer.
   class WinFunction
@@ -777,6 +838,35 @@ module AceCoreCompat
 
     def game_size
       [(Graphics.width rescue 640), (Graphics.height rescue 480)]
+    end
+
+    # The game's screen as the engine started it (640x480 for RPG Maker XP): the largest area a game can show.
+    def base_size
+      @base_size ||= game_size
+    end
+
+    # SetWindowPos / MoveWindow with a size. RPG Maker XP always renders 640x480; Pokémon Essentials for XP shows a
+    # smaller screen (512x384) by resizing the game window, which on Windows shows only the top-left part of the
+    # 640x480 image, at 1x, 2x or 0.5x zoom. Here the zoom is AceArcade's display setting, so the requested window
+    # size is brought back to 1x (halved or doubled until it fits the engine's screen) and becomes the engine's
+    # screen size (Graphics.resize_screen): the same visible area as on Windows, centred and scaled on the phone.
+    def resize_client(w, h)
+      w, h = w.to_i, h.to_i
+      return 1 if w <= 0 || h <= 0 || !Graphics.respond_to?(:resize_screen)
+      bw, bh = base_size
+      while (w > bw || h > bh) && w.even? && h.even? && w > 1
+        w /= 2; h /= 2
+      end
+      while w * 2 <= bw && h * 2 <= bh
+        w *= 2; h *= 2
+      end
+      return 1 if w > bw || h > bh || [w, h] == game_size
+      Graphics.resize_screen(w, h)
+      note_once("window resized by the game: screen #{w}x#{h} (was #{bw}x#{bh})")
+      1
+    rescue StandardError => e
+      note_once("window resize to #{w}x#{h} not applied: #{e.message}")
+      1
     end
 
     def ini_value(file, section, key)
@@ -1140,8 +1230,11 @@ module AceCoreCompat
       },
       'getclientrect' => (rect = proc { |_hwnd, buf| w, h = Win32.game_size; Win32.fill(buf, [0, 0, w, h].pack('l4')); 1 }),
       'getwindowrect' => rect,
-      'setwindowpos' => (ok = proc { |*_| 1 }),
-      'movewindow' => ok, 'showwindow' => ok, 'updatewindow' => ok, 'setwindowtext' => ok, 'setwindowtexta' => ok,
+      'setwindowpos' => proc { |_hwnd, _after = 0, _x = 0, _y = 0, cx = 0, cy = 0, flags = 0|
+        (flags.to_i & 0x1) != 0 ? 1 : Win32.resize_client(cx, cy) # SWP_NOSIZE: position only
+      },
+      'movewindow' => proc { |_hwnd, _x = 0, _y = 0, w = 0, h = 0, *_| Win32.resize_client(w, h) },
+      'showwindow' => (ok = proc { |*_| 1 }), 'updatewindow' => ok, 'setwindowtext' => ok, 'setwindowtexta' => ok,
       'setwindowtextw' => ok, 'setforegroundwindow' => ok, 'setfocus' => ok, 'setactivewindow' => ok,
       'setwindowlong' => ok, 'setwindowlonga' => ok, 'adjustwindowrect' => ok, 'adjustwindowrectex' => ok,
       'screentoclient' => ok, 'clienttoscreen' => ok,
@@ -1175,6 +1268,12 @@ module AceCoreCompat
       'setcapture' => proc { |_hwnd| prev = Win32.captured ? Win32::WINDOW : 0; Win32.captured = true; prev },
       'releasecapture' => proc { |*_| Win32.captured = false; 1 },
       'getcapture' => proc { |*_| Win32.captured ? Win32::WINDOW : 0 },
+    },
+    'shell32' => {
+      # ShellExecute(hwnd, verb, file, params, dir, show): starting the game's own exe (a game restarting itself to
+      # apply settings) restarts the game in AceArcade; anything else can't be run on Android (SE_ERR_FNF = 2).
+      'shellexecute' => (se = proc { |_h, _verb, file, *_| Commands.shell_execute(file) }), 'shellexecutea' => se,
+      'shellexecutew' => proc { |_h, _verb, file, *_| Commands.shell_execute(file.is_a?(String) ? WinHttp.wide(file) : file) },
     },
     'gdi32' => {
       'addfontresource' => (afr = proc { |path, *_| Win32.add_font(path) }),
@@ -1358,6 +1457,37 @@ if defined?(MiniFFI)
     end
   end
   MiniFFI.singleton_class.prepend(AceCoreCompat::MiniFFINew)
+end
+(AceCoreCompat::Win32.base_size rescue nil) # the engine's screen before any game resizes it
+
+# Kernel#system / exec / ` (see AceCoreCompat::Commands): the game's own exe means "restart"; other programs keep
+# Ruby's normal result for a program that can't be started (system -> nil, ` -> Errno::ENOENT) and are logged.
+module Kernel
+  alias_method :__acearcade_system, :system
+  alias_method :__acearcade_exec, :exec
+  alias_method :__acearcade_backtick, :`
+
+  private
+
+  def system(*args, **kw)
+    cmd = AceCoreCompat::Commands.command(args)
+    return true if AceCoreCompat::Commands.own_exe?(cmd) && AceCoreCompat::Commands.request_restart(cmd)
+    AceCoreCompat::Commands.note(cmd)
+    __acearcade_system(*args, **kw)
+  end
+
+  def exec(*args, **kw)
+    cmd = AceCoreCompat::Commands.command(args)
+    exit if AceCoreCompat::Commands.own_exe?(cmd) && AceCoreCompat::Commands.request_restart(cmd) # replaces this process
+    AceCoreCompat::Commands.note(cmd)
+    __acearcade_exec(*args, **kw)
+  end
+
+  def `(cmd)
+    return '' if AceCoreCompat::Commands.own_exe?(cmd) && AceCoreCompat::Commands.request_restart(cmd)
+    AceCoreCompat::Commands.note(cmd)
+    __acearcade_backtick(cmd)
+  end
 end
 
 #===============================================================================
@@ -2028,6 +2158,36 @@ module AceCoreCompat
       lines.join.force_encoding(Encoding::UTF_8)
     end
 
+    # ---- Byte escapes above \x7F in a regexp ("[\x7f-\x9f]"): Ruby 1.8 regexps worked on bytes; since 1.9 a UTF-8
+    # regexp can't contain a lone byte ("invalid multibyte escape"). Such ranges name Latin-1 characters (control
+    # characters 0x80-0x9F, accented letters 0xA0-0xFF), so the escape becomes that character's code point (\u0080).
+    BYTE_ESCAPE = /\\x([89a-fA-F][0-9a-fA-F])/
+
+    def adapt_regexp_bytes(src, name)
+      return nil unless src.is_a?(String) && src.match?(BYTE_ESCAPE)
+      count = 0
+      50.times do
+        err = compile_error(src, name)
+        return(count > 0 ? [src, count] : nil) if err.nil?
+        line_no = err.message[/:(\d+): invalid multibyte escape/, 1]&.to_i or return nil
+        lines = src.lines
+        line = lines[line_no - 1] or return nil
+        re = err.message[/invalid multibyte escape: (\/.*\/)/, 1]
+        fixed = if re && line.include?(re)
+                  line.sub(re) { |r| r.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" } }
+                else
+                  line.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" }
+                end
+        return nil if fixed == line
+        lines[line_no - 1] = fixed
+        src = lines.join
+        count += 1
+      end
+      nil
+    rescue StandardError
+      nil
+    end
+
     def apply(scripts)
       return unless scripts.is_a?(Array) && defined?(RubyVM::InstructionSequence)
       scripts.each_with_index do |entry, i|
@@ -2037,6 +2197,10 @@ module AceCoreCompat
           n = entry[3].scan(WHEN_COLON).size
           entry[3] = fixed
           ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{n} \"when ...:\")") rescue nil)
+        end
+        if (r = adapt_regexp_bytes(entry[3], name))
+          entry[3] = r[0]
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} byte escapes in a regexp)") rescue nil)
         end
         if (r = adapt_retry(entry[3], name))
           entry[3] = r[0]

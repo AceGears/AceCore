@@ -94,12 +94,35 @@ module AceCore
       s.to_s.dup.force_encoding("UTF-8").scrub("?").gsub(/[\t\r\n]+/, " ")
     end
 
+    # The game's code at the failing line (first frame in a game script), so a report shows the expression itself.
+    def source_line(e)
+      (e.backtrace || []).each do |f|
+        next if f.include?("acecore_")
+        m = f.match(/\A(.+?):(\d+)(?::in |\z)/) or next
+        path, line = m[1], m[2].to_i
+        src = nil
+        if (n = path.match(/\A(\d+):/)) && defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS.is_a?(Array)
+          entry = $RGSS_SCRIPTS[n[1].to_i]
+          src = entry[3] if entry.is_a?(Array) && entry[3].is_a?(String)
+        end
+        src ||= AceCoreCompat::MissingFunction.source(path) if defined?(AceCoreCompat::MissingFunction)
+        next unless src
+        lines = src.dup.force_encoding("UTF-8").scrub("?").lines
+        from = [line - 3, 0].max
+        ctx = (from...[line + 2, lines.size].min).map { |i| format("%s%5d  %s", i + 1 == line ? ">" : " ", i + 1, lines[i].chomp) }
+        return "Source (#{path}:#{line}):\n#{ctx.join("\n")}\n"
+      end
+      ""
+    rescue StandardError
+      ""
+    end
+
     def on_exit
       e = $!
       if e && !e.is_a?(SystemExit)
         # The first frames: where the game script failed, not only the compatibility layer's line.
         where = (e.backtrace || []).first(12).join("\n")
-        write("error", "#{e.class}: #{e.message}\n#{where}\n")
+        write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}")
       end
     rescue Exception
       nil

@@ -59,8 +59,14 @@ retry_src = <<~'S'
     r
   end
 S
+# Ruby 1.8 byte-range regexp (Pokémon Z, PSystem_Utilities: JSON strings without control characters).
+bytes_src = <<~'S'
+  def pbJsonString?(s)
+    !!(s =~ /\A"[^"\\\n\r\x00-\x1f\x7f-\x9f]*"\z/)
+  end
+S
 $RGSS_SCRIPTS = [[1, 'AudioUtilities', '', audio.dup], [2, 'Broken', '', broken.dup], [3, 'Modern', '', modern.dup],
-                 [4, 'PScreen_Load', '', retry_src.dup]]
+                 [4, 'PScreen_Load', '', retry_src.dup], [5, 'PSystem_Utilities', '', bytes_src.dup]]
 $stderr = StringIO.new
 load COMPAT
 $fail = false
@@ -77,6 +83,8 @@ check 'retry in rescue unchanged', pbRescueRetry, 2
 check 'retry in for restarts the loop', pbForRetry, [0, 1, 0, 1, 2]
 check "game's rescue => e does not catch the restart", pbNoCatch, [:in, :in]
 check 'line numbers kept', $RGSS_SCRIPTS[3][3].lines.size, retry_src.lines.size
+eval($RGSS_SCRIPTS[4][3])
+check 'byte-range regexp compiles and keeps its meaning', [pbJsonString?('"abc é"'), pbJsonString?("\"a\u0085b\""), pbJsonString?("\"a\nb\"")], [true, false, false]
 check 'logged', $stderr.string.include?('003:PScreen_Load (4 "retry" in an iterator)'), true
 check 'adaptation is logged', $stderr.string.include?('001:AudioUtilities') || $stderr.string.include?('000:AudioUtilities'), true
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')

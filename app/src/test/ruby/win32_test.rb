@@ -7,7 +7,7 @@ class MiniFFI
 end
 Win32API = MiniFFI
 module AceCoreCompat; DISPLAY_W = 2400; DISPLAY_H = 1080; end
-module Graphics; def self.width = 512; def self.height = 384; def self.update; end; end
+module Graphics; @w = 640; @h = 480; def self.width = @w; def self.height = @h; def self.update; end; def self.resize_screen(w, h) = (@w, @h = w, h); end
 module Input
   def self.raw_key_states = (s = Array.new(256, false); s[0x04] = true; s[0x51] = true; s) # A and Down held
   def self.mouse_x = 10
@@ -39,7 +39,7 @@ check 'Essentials pbRgssWindow finds the game window', Win32API.pbRgssWindow, 42
 check 'GetSystemMetrics screen width', api['user32', 'GetSystemMetrics', 'i', 'i'].call(0), 2400
 check 'GetSystemMetrics screen height', api['user32', 'GetSystemMetrics', 'i', 'i'].call(1), 1080
 r = [0, 0, 0, 0].pack('l4'); api['user32', 'GetClientRect', 'lp', 'i'].call(42, r)
-check 'GetClientRect = game size', r.unpack('l4'), [0, 0, 512, 384]
+check 'GetClientRect = game size', r.unpack('l4'), [0, 0, 640, 480]
 check 'SetWindowPos succeeds (no desktop window on Android)', api['user32', 'SetWindowPos', 'liiiiip', 'i'].call(42, 0, 0, 0, 640, 480, 0), 1
 check 'GetAsyncKeyState(Down) pressed', api['user32', 'GetAsyncKeyState', 'i', 'i'].call(0x28) & 0x8000, 0x8000
 check 'GetKeyState(Up) released', api['user32', 'GetKeyState', 'i', 'i'].call(0x26), 0
@@ -232,5 +232,30 @@ Dir.mktmpdir do |d|
 end
 check 'GetCurrentProcess pseudo-handle', Win32API.new('kernel32.dll', 'GetCurrentProcess', '', 'l').call, -1
 check 'GetDC fails (no GDI surface)', Win32API.new('user32', 'GetDC', 'l', 'l').call(42), 0
+# Essentials (XP) screen size: Win32API.SetWindowPos(w, h) resizes the window to the client size it wants.
+swp = Win32API.new('user32', 'SetWindowPos', %w(l i i i i i i), 'i')
+swp.call(42, 0, 0, 0, 512, 384, 0)
+check 'SetWindowPos 512x384 -> engine screen 512x384', [Graphics.width, Graphics.height], [512, 384]
+swp.call(42, 0, 0, 0, 1024, 768, 0)
+check 'SetWindowPos 2x (1024x768) -> same visible area', [Graphics.width, Graphics.height], [512, 384]
+swp.call(42, 0, 100, 100, 9999, 9999, 0x1)
+check 'SWP_NOSIZE leaves the size', [Graphics.width, Graphics.height], [512, 384]
+Win32API.new('user32', 'MoveWindow', %w(l i i i i i), 'i').call(42, 0, 0, 640, 480, 1)
+check 'MoveWindow back to 640x480', [Graphics.width, Graphics.height], [640, 480]
+check 'GetClientRect follows', (r = [0, 0, 0, 0].pack('l4'); Win32API.new('user32', 'GetClientRect', %w(l p), 'i').call(42, r); r.unpack('l4')), [0, 0, 640, 480]
+# A game restarting itself to apply settings (starts its own exe, then exits).
+Dir.mktmpdir do |d|
+  helper = File.join(d, 'helper'); Dir.mkdir(helper)
+  AceCoreCompat.const_set(:DISPLAY_FILE, File.join(helper, 'settings.json')) unless defined?(AceCoreCompat::DISPLAY_FILE)
+  Dir.chdir(d) do
+    File.binwrite('Game.exe', 'MZ')
+    se = Win32API.new('shell32', 'ShellExecute', %w(l p p p p i), 'l')
+    check 'ShellExecute of Game.exe -> success, restart requested', [se.call(42, 'open', 'Game.exe', nil, nil, 1), File.exist?(File.join(helper, 'restart'))], [42, true]
+    File.delete(File.join(helper, 'restart'))
+    check 'system("Game.exe") -> true, restart requested', [system('"Game.exe"'), File.exist?(File.join(helper, 'restart'))], [true, true]
+    check 'ShellExecute of another program fails', se.call(42, 'open', 'notepad.exe', nil, nil, 1), 2
+    check 'system of another program: Ruby\'s normal nil', system('notepad.exe'), nil
+  end
+end
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)
