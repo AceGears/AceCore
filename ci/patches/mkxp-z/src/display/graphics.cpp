@@ -1424,8 +1424,11 @@ void Graphics::resizeScreen(int width, int height) {
     
     p->screen.setResolution(width, height);
     
-    if (p->integerScaleActive)
+    // AceArcade: the integer scale factor depends on the resolution, so find it again for the new size.
+    if (p->integerScaleActive) {
+        p->findHighestIntegerScale();
         p->rebuildIntegerScaleBuffer();
+    }
     
     TEXFBO::allocEmpty(p->frozenScene, width, height);
     
@@ -1433,6 +1436,16 @@ void Graphics::resizeScreen(int width, int height) {
     p->screenQuad.setTexPosRect(screenRect, screenRect);
     
     glState.scissorBox.set(IntRect(0, 0, p->scRes.x, p->scRes.y));
+    
+    // AceArcade: lay the new resolution out in the window now. Upstream waits for the window to change size after
+    // requestWindowResize, but an Android window is always the full screen and never changes, so the old layout
+    // (scale and offset of the previous resolution) stayed: a 512x384 game drawn in the top-left of its 640x480
+    // frame instead of centred (Pokémon Essentials for XP, which resizes the screen at start-up).
+    glState.viewport.refresh();
+    p->recalculateScreenSize(p->threadData->config.fixedAspectRatio);
+    p->updateScreenResoRatio(p->threadData);
+    SDL_Rect screen = {p->scOffset.x, p->scOffset.y, p->scSize.x, p->scSize.y};
+    p->threadData->ethread->notifyGameScreenChange(screen);
     
     shState->eThread().requestWindowResize(width, height);
 }
