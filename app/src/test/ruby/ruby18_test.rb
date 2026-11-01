@@ -115,5 +115,22 @@ Thread.critical = false
 check 'and gets it once released', other.value, :got
 check 'logged', $stderr.string.include?('003:PScreen_Load (4 "retry" in an iterator)'), true
 check 'adaptation is logged', $stderr.string.include?('001:AudioUtilities') || $stderr.string.include?('000:AudioUtilities'), true
+# A finalizer (Essentials' BitmapCache WeakRef) runs in trap context, where Mutex#lock isn't allowed (Pokémon Z:
+# "lock: can't be called from trap context").
+trap_result = nil
+Signal.trap('USR2') do
+  trap_result = begin
+    old = Thread.critical
+    Thread.critical = true
+    Thread.critical = old
+    :ok
+  rescue ThreadError => e
+    e.message
+  end
+end
+Process.kill('USR2', Process.pid)
+sleep 0.2
+check 'Thread.critical in trap context (finalizer)', trap_result, :ok
+check 'lock free after the trap', Thread.critical, false
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

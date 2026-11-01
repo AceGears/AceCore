@@ -22,6 +22,52 @@ module AceCore
   @flags = AceCoreBoot::FLAGS.dup
   @hooks_installed = false
 
+  # The values the failing game code was working with: for "undefined method `id' for nil" the report then shows
+  # which variable was nil and what the object around it held, not only the line. Recorded when an exception is
+  # raised in game code (a TracePoint on :raise; only the latest one is kept) and written only for the exception
+  # that ended the game.
+  module RaiseState
+    @last = nil
+    class << self
+      attr_reader :last
+
+      def start
+        @tp ||= TracePoint.new(:raise) do |tp|
+          path = tp.path.to_s
+          next if path.include?("acecore_") || path.start_with?("<internal")
+          @last = [tp.raised_exception, (tp.binding rescue nil), path, tp.lineno]
+        end
+        @tp.enable
+      rescue StandardError
+        nil
+      end
+
+      def describe(v)
+        case v
+        when nil, true, false, Numeric, Symbol then v.inspect
+        when String then v.size > 60 ? v[0, 60].inspect + "... (#{v.size} characters)" : v.inspect
+        when Array then "#{v.class} (#{v.size} items)"
+        when Hash then "#{v.class} (#{v.size} entries)"
+        else "#<#{v.class}>"
+        end
+      rescue StandardError
+        "?"
+      end
+
+      def report(e)
+        exc, b, path, line = @last
+        return "" unless exc.equal?(e) && b
+        me = b.receiver
+        out = +"State at #{path}:#{line} (self: #<#{me.class}>):\n"
+        b.local_variables.first(20).each { |n| out << "  #{n} = #{describe(b.local_variable_get(n))}\n" }
+        me.instance_variables.first(30).each { |n| out << "  #{n} = #{describe(me.instance_variable_get(n))}\n" }
+        out
+      rescue StandardError
+        ""
+      end
+    end
+  end
+
   class << self
     attr_reader :flags
 
@@ -141,7 +187,7 @@ module AceCore
       if e && !e.is_a?(SystemExit)
         # The first frames: where the game script failed, not only the compatibility layer's line.
         where = (e.backtrace || []).first(12).join("\n")
-        write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}#{causes(e)}")
+        write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}#{RaiseState.report(e)}#{causes(e)}")
       end
     rescue Exception
       nil
@@ -783,4 +829,5 @@ class << Graphics
   end
 end
 
+AceCore::RaiseState.start
 at_exit { AceCore.on_exit }

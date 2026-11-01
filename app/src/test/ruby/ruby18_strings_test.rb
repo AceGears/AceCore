@@ -20,12 +20,43 @@ audio = <<~'S'
   def pbSetByte(s) = (s[0] = 66; s)
   def pbLines(s) = (r = []; s.each { |l| r << l }; r)
 S
-$RGSS_SCRIPTS = [[1, 'AudioUtilities', '', audio.dup]]
+# Pokémon Z, PField_RoamingPokemon: a top-level proc with "return" (Ruby 1.8: Kernel#proc was a lambda).
+roaming = <<~'S'
+  $roam_log = []
+  class EventHandler
+    def initialize = (@cb = [])
+    def +(p) = (@cb << p; self)
+    def trigger(*arg) = @cb.each { |c| c.call(arg[0], arg[1, arg.length]) }
+  end
+  $on_map_change = EventHandler.new
+  $on_map_change += proc { |sender, e|
+    return if e[0] > 5
+    $roam_log << e[0]
+  }
+  $on_map_change += proc do |sender, e|
+    [1, 2].each { |x| return if x == e[0] }
+    $roam_log << :inner_kept
+  end
+  $value_proc = proc { |a| return a * 2 }
+  $plain = proc { |a, b| [a, b] }
+  def pbMethodProc = proc { return 1 }.call + 1
+S
+$RGSS_SCRIPTS = [[1, 'AudioUtilities', '', audio.dup], [2, 'PField_RoamingPokemon', '', roaming.dup]]
 $stderr = StringIO.new
 load COMPAT
 $fail = false
 def check(n, got, want) = (got == want ? puts("ok   #{n}") : (puts("FAIL #{n}: #{got.inspect[0, 120]} != #{want.inspect[0, 120]}"); $fail = true))
 eval($RGSS_SCRIPTS[0][3], TOPLEVEL_BINDING, '001:AudioUtilities')
+eval($RGSS_SCRIPTS[1][3], TOPLEVEL_BINDING, '002:PField_RoamingPokemon')
+$on_map_change.trigger(nil, 9)
+$on_map_change.trigger(nil, 3)
+$on_map_change.trigger(nil, 1)
+check 'return in a top-level proc leaves only the proc (no LocalJumpError)', $roam_log, [:inner_kept, 3, :inner_kept, 1]
+check 'return value of the proc', $value_proc.call(4), 8
+check 'proc argument handling unchanged (lenient)', $plain.call(1), [1, nil]
+check 'proc in a method: return leaves only the proc (Ruby 1.8)', pbMethodProc, 2
+check 'line numbers unchanged', $RGSS_SCRIPTS[1][3].lines.size, roaming.lines.size
+check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
 check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]
 check '?\n literal', pbNewline?(10), true

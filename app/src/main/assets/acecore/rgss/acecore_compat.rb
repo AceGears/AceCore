@@ -2277,6 +2277,10 @@ module AceCoreCompat
          (r = AceCoreCompat::Ruby18Strings.char_literals(out, name))
         out = r[0]; notes << '?x character literals'
       end
+      if defined?(AceCoreCompat::Ruby18Strings) && AceCoreCompat::Ruby18Strings.active &&
+         (r = AceCoreCompat::Ruby18Strings.proc_returns(out, name))
+        out = r[0]; notes << '"return" in proc'
+      end
       ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{notes.join(', ')})") rescue nil) unless notes.empty?
       out
     rescue StandardError
@@ -2388,14 +2392,76 @@ module AceCoreCompat
         nil
       end
 
+      # ---- "return" inside proc { } (Ruby 1.8: Kernel#proc made a lambda, so "return" left the proc and the code that
+      # called it carried on; since 1.9 proc is Proc.new and the same "return" leaves the method that created the
+      # proc, or raises LocalJumpError when that was top-level script code: Pokémon Z, PField_RoamingPokemon:
+      # "Events.onMapChange += proc { |sender, e| return if ... }"). Only procs whose body has a "return" of their own
+      # are changed: that body runs inside a lambda ("proc { |a| ::Kernel.lambda do; ...; end.call }"), so return,
+      # next and break leave just the proc, as in 1.8, also from blocks nested inside it; the proc's own argument
+      # handling stays as it is. Found through the parser; Proc.new and lambda are untouched (same in 1.8 and 3).
+      # Inserted on the existing lines, so line numbers stay the game's own.
+      STOP = %i[DEFN DEFS CLASS MODULE SCLASS LAMBDA].freeze
+
+      def proc_call?(n)
+        n.is_a?(RubyVM::AbstractSyntaxTree::Node) && n.type == :ITER &&
+          (c = n.children[0]).is_a?(RubyVM::AbstractSyntaxTree::Node) &&
+          ((c.type == :FCALL && c.children[0] == :proc && c.children[1].nil?) || (c.type == :VCALL && c.children[0] == :proc))
+      end
+
+      def own_return?(n)
+        return false unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
+        return true if n.type == :RETURN
+        return false if STOP.include?(n.type)
+        if n.type == :ITER
+          call = n.children[0]
+          return false if proc_call?(n) # its returns are its own
+          return false if call.is_a?(RubyVM::AbstractSyntaxTree::Node) && %i[FCALL VCALL].include?(call.type) && call.children[0] == :lambda
+        end
+        n.children.any? { |c| own_return?(c) }
+      end
+
+      def proc_returns(src, name)
+        return nil unless src.include?('proc') && src.include?('return') && defined?(RubyVM::AbstractSyntaxTree)
+        ast = RubyVM::AbstractSyntaxTree.parse(src)
+        bodies = []
+        walk = lambda do |n|
+          next unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
+          if proc_call?(n)
+            scope = n.children[1]
+            body = scope.children[2] if scope.is_a?(RubyVM::AbstractSyntaxTree::Node) && scope.type == :SCOPE
+            bodies << body if body.is_a?(RubyVM::AbstractSyntaxTree::Node) && own_return?(body)
+          end
+          n.children.each { |c| walk.call(c) }
+        end
+        walk.call(ast)
+        return nil if bodies.empty?
+        inserts = bodies.flat_map do |b|
+          [[b.first_lineno - 1, b.first_column, '::Kernel.lambda do;'], [b.last_lineno - 1, b.last_column, ';end.call']]
+        end
+        lines = src.lines.map(&:b)
+        inserts.sort_by { |l, c, _| [-l, -c] }.each do |l, c, text|
+          line = lines[l]
+          lines[l] = line.byteslice(0, c) + text.b + line.byteslice(c..)
+        end
+        fixed = lines.join.force_encoding(Encoding::UTF_8)
+        Ruby18Syntax.compiles?(fixed, name) ? [fixed, bodies.size] : nil
+      rescue StandardError, SyntaxError
+        nil
+      end
+
       def apply(scripts)
         return unless decide(scripts)
         scripts.each_with_index do |entry, i|
           next unless entry.is_a?(Array) && entry[3].is_a?(String)
           name = format('%03d:%s', i, entry[1].to_s)
-          r = char_literals(entry[3], name) or next
-          entry[3] = r[0]
-          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} ?x character literals)") rescue nil)
+          if (r = char_literals(entry[3], name))
+            entry[3] = r[0]
+            ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} ?x character literals)") rescue nil)
+          end
+          if (r = proc_returns(entry[3], name))
+            entry[3] = r[0]
+            ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} \"return\" in proc)") rescue nil)
+          end
         end
       end
     end
@@ -2514,8 +2580,15 @@ unless Thread.respond_to?(:critical)
         def set(on)
           if on
             unless held?
-              @lock.lock
-              @owner = Thread.current
+              begin
+                @lock.lock
+                @owner = Thread.current
+              rescue ThreadError
+                # Trap context (a finalizer, e.g. Essentials' BitmapCache WeakRef, running between two operations of
+                # this thread): Ruby doesn't allow blocking there. Take the lock if it is free; otherwise the
+                # interrupted code on this thread holds it and the finalizer runs inside that same exclusive section.
+                @owner = Thread.current if @lock.try_lock
+              end
             end
           elsif held?
             @owner = nil

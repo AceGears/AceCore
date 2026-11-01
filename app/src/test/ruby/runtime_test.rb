@@ -393,6 +393,23 @@ SCENARIOS["error_capture"] = <<~'RUBY'
 RUBY
 ENVS["error_capture"] = ""
 
+# Pokémon Xenoverse, 172_Ombra.rb:75 (undefined method `id' for nil): the report names the nil variable.
+SCENARIOS["nil_state"] = <<~'RUBY'
+  frames(1)
+  eval(<<~'S', TOPLEVEL_BINDING, "172_Ombra.rb")
+    class Sprite_Shadow
+      def initialize(event) = (@event = event; @map = nil; @name = "shadow"; update)
+      def update
+        visible = true
+        visible = !(@map.id == 1)
+      end
+    end
+  S
+  begin; Integer("x"); rescue ArgumentError; end # an earlier, rescued exception isn't reported
+  Sprite_Shadow.new([1, 2])
+RUBY
+ENVS["nil_state"] = ""
+
 SCENARIOS["cheats_off"] = <<~'RUBY'
   $player = Player.new; $bag = Bag.new
   frames(1)
@@ -414,7 +431,7 @@ SCENARIOS.each do |name, body|
     header = "module AceCoreBoot; DIR = #{dir.inspect}; LAUNCH_AT = 0; RGSS = #{rgss}; CHEATS = #{cheats}; " \
              "FLAGS = { \"walk_speed\" => \"0\", \"no_encounters\" => \"0\" }; end\n"
     script = COMMON + ENVS[name] + header + File.read(RUNTIME, encoding: "UTF-8") + "\nDIR = #{dir.inspect}\n" + body +
-             "\n$stdout.flush; exit!($failures == 0 ? 0 : 1) unless #{name == 'error_capture'}\n"
+             "\n$stdout.flush; exit!($failures == 0 ? 0 : 1) unless #{%w[error_capture nil_state].include?(name)}\n"
     path = File.join(dir, "test.rb")
     File.write(path, script, encoding: "UTF-8")
     puts "== #{name}"
@@ -424,6 +441,13 @@ SCENARIOS.each do |name, body|
       err = File.exist?(File.join(dir, "error")) ? File.read(File.join(dir, "error")) : ""
       good = !ok && err.start_with?("NameError: uninitialized constant Win32API")
       puts(good ? "  ok   game exception recorded in 'error'" : "  FAIL error capture (#{err.inspect})")
+      total_fail += 1 unless good
+    elsif name == "nil_state"
+      err = File.exist?(File.join(dir, "error")) ? File.read(File.join(dir, "error")) : ""
+      good = !ok && err.include?("undefined method `id' for nil") &&
+             err.include?("State at 172_Ombra.rb:5 (self: #<Sprite_Shadow>)") && err.include?("  @map = nil\n") &&
+             err.include?("  @event = Array (2 items)\n") && err.include?('  @name = "shadow"') && err.include?("  visible = true\n")
+      puts(good ? "  ok   the report shows the variables at the failing line (@map = nil)" : "  FAIL raise state (#{err.inspect})")
       total_fail += 1 unless good
     else
       puts out
