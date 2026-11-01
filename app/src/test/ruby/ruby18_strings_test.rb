@@ -56,6 +56,17 @@ check 'return value of the proc', $value_proc.call(4), 8
 check 'proc argument handling unchanged (lenient)', $plain.call(1), [1, nil]
 check 'proc in a method: return leaves only the proc (Ruby 1.8)', pbMethodProc, 2
 check 'line numbers unchanged', $RGSS_SCRIPTS[1][3].lines.size, roaming.lines.size
+# Pokémon Xenoverse 172_Ombra.rb:75 (Overworld Shadows by KleinStudio): the player's shadow has @map = nil.
+eval(<<~'S', TOPLEVEL_BINDING, '172_Ombra.rb')
+  class ShadowProbe
+    def initialize(map) = (@map = map)
+    def same_map?(game_map) = (@map.id == game_map.id)
+  end
+  class MapWithId; def id = 7; end
+S
+check 'nil.id is an id, not an error (Ruby 1.8 Object#id)', ShadowProbe.new(nil).same_map?(Object.new), false
+check "a class's own id is kept", MapWithId.new.id, 7
+check 'Object#type is the class (Ruby 1.8)', "x".type, String
 check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
 check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]

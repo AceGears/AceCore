@@ -2472,6 +2472,14 @@ module AceCoreCompat
     def self.install
       return if @installed
       @installed = true
+      # Object#id and Object#type (Ruby 1.8: the object's id and its class; removed in 1.9). Classes that define
+      # their own id/type (Game_Event, RPG::Map, ...) keep them. Pokémon Xenoverse's overworld shadows compare
+      # "@map.id == $game_map.id" with @map nil for the player's shadow; in Ruby 1.8 that was nil's id, not an error.
+      Object.class_eval do
+        define_method(:id) { object_id } unless method_defined?(:id)
+        define_method(:type) { self.class } unless method_defined?(:type)
+      end
+      ($stderr.puts("AceArcade: Ruby 1.8 Object#id / Object#type for game scripts") rescue nil)
       String.class_eval do
         alias_method :__acearcade_aref, :[]
         alias_method :__acearcade_aset, :[]=
