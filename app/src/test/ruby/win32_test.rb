@@ -243,6 +243,11 @@ check 'SWP_NOSIZE leaves the size', [Graphics.width, Graphics.height], [512, 384
 Win32API.new('user32', 'MoveWindow', %w(l i i i i i), 'i').call(42, 0, 0, 640, 480, 1)
 check 'MoveWindow back to 640x480', [Graphics.width, Graphics.height], [640, 480]
 check 'GetClientRect follows', (r = [0, 0, 0, 0].pack('l4'); Win32API.new('user32', 'GetClientRect', %w(l p), 'i').call(42, r); r.unpack('l4')), [0, 0, 640, 480]
+# Essentials (XP) defines its own Graphics.width/height = 512x384; the engine is still at 640x480 and must resize.
+module Graphics; class << self; alias_method :__engine_w, :width; alias_method :__engine_h, :height; def width = 512; def height = 384; end; end
+swp.call(42, 0, 0, 0, 512, 384, 0)
+check "SetWindowPos resizes although the game's Graphics.width already says 512", [Graphics.__engine_w, Graphics.__engine_h], [512, 384]
+module Graphics; class << self; alias_method :width, :__engine_w; alias_method :height, :__engine_h; end; end
 # A game restarting itself to apply settings (starts its own exe, then exits).
 Dir.mktmpdir do |d|
   helper = File.join(d, 'helper'); Dir.mkdir(helper)

@@ -851,8 +851,12 @@ module AceCoreCompat
       buf[0, n] = bytes.byteslice(0, n)
     end
 
+    # The engine's real screen size. Pokémon Essentials for XP defines its own Graphics.width/height (512x384, the
+    # size it wants), so the engine's methods are kept from before the game's scripts run.
+    ENGINE_WIDTH = (Graphics.method(:width) rescue nil)
+    ENGINE_HEIGHT = (Graphics.method(:height) rescue nil)
     def game_size
-      [(Graphics.width rescue 640), (Graphics.height rescue 480)]
+      [(ENGINE_WIDTH ? ENGINE_WIDTH.call : Graphics.width rescue 640), (ENGINE_HEIGHT ? ENGINE_HEIGHT.call : Graphics.height rescue 480)]
     end
 
     # The game's screen as the engine started it (640x480 for RPG Maker XP): the largest area a game can show.
@@ -1594,7 +1598,7 @@ module AceCoreCompat
 
     def self.report_resolution
       d = dir or return
-      res = "#{Graphics.width} #{Graphics.height}"
+      res = AceCoreCompat::Win32.game_size.join(' ')
       return if res == @reported
       @reported = res
       File.write(File.join(d, 'screen'), res + "\n")
