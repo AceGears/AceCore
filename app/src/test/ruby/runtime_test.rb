@@ -406,7 +406,11 @@ SCENARIOS["nil_state"] = <<~'RUBY'
     end
   S
   begin; Integer("x"); rescue ArgumentError; end # an earlier, rescued exception isn't reported
-  Sprite_Shadow.new([1, 2])
+  begin
+    Sprite_Shadow.new([1, 2])
+  rescue NoMethodError => e
+    raise e # games' main loops re-raise (Xenoverse 000:Main:16): the report keeps the original line
+  end
 RUBY
 ENVS["nil_state"] = ""
 

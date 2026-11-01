@@ -2,6 +2,7 @@
 # Run: ruby app/src/test/ruby/ruby18_strings_test.rb
 require 'stringio'
 require 'tmpdir'
+require_relative 'engine_ruby18'
 COMPAT = File.expand_path('../../main/assets/acecore/rgss/acecore_compat.rb', __dir__)
 module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end
 module RPG; module Cache; end; end # RPG Maker XP
@@ -67,6 +68,15 @@ S
 check 'nil.id is an id, not an error (Ruby 1.8 Object#id)', ShadowProbe.new(nil).same_map?(Object.new), false
 check "a class's own id is kept", MapWithId.new.id, 7
 check 'Object#type is the class (Ruby 1.8)', "x".type, String
+# $~ after str[/regexp/] in game code (Xenoverse Game_Player:151, Pokémon Z "Event Size":69, Reminiscencia DrawText).
+eval(<<~'S', TOPLEVEL_BINDING, '020_Game_Player.rb')
+  def pbTrainerDistance(name) = (name[/^Trainer\((\d+)\)$/] ? $~[1].to_i : nil)
+  def pbEventSize(name) = (name[/size\((\d+),(\d+)\)/i] ? [$~[1].to_i, $~[2].to_i] : nil)
+  def pbPreMatch(text) = (text[/<b>/] ; $~ && $~.pre_match)
+S
+check 'str[/re/] sets $~ for the game (trainer distance)', [pbTrainerDistance('Trainer(4)'), pbTrainerDistance('Bob')], [4, nil]
+check 'str[/re/] sets $~ for the game (event size)', pbEventSize('Door size(2,3)'), [2, 3]
+check '$~.pre_match after str[/re/]', pbPreMatch('ab<b>c'), 'ab'
 check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
 check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]

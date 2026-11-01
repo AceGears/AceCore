@@ -104,6 +104,10 @@ jobs:
         with:
           # Development happens on branches, not only main: let pushes write the dependency/build cache too.
           cache-read-only: ${{ github.event_name == 'pull_request' }}
+      # Ruby 3.1 (the engine's Ruby) with headers: ruby18_strings_test compiles the engine's C String#[] for Ruby 1.8
+      # game scripts (ci/patches/mkxp-z/binding/acearcade-ruby18.h) as an extension and tests that same code.
+      - uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+        with: { ruby-version: '3.1' }
       - name: Runtime helper tests (Ruby, mock Essentials / RPG Maker games)
         run: ruby app/src/test/ruby/runtime_test.rb && ruby app/src/test/ruby/compat_test.rb && ruby app/src/test/ruby/wininet_test.rb && ruby app/src/test/ruby/tools_test.rb && ruby app/src/test/ruby/win32_test.rb && ruby app/src/test/ruby/ruby18_test.rb && ruby app/src/test/ruby/ruby18_bytes_test.rb && ruby app/src/test/ruby/ruby18_strings_test.rb
       - name: Compile

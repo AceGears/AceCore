@@ -61,7 +61,9 @@ script = <<~'RUBY'
     # mechanism is switched on here directly): with the engine's Ruby, "AB"[0] must then be the byte 65.
     s18 = if defined?(AceCoreCompat::Ruby18Strings)
             AceCoreCompat::Ruby18Strings.install
-            ("AB"[0] == 65 && "AB"[1] == 66 && "AB"[0, 1] == "A") ? "ok" : "AB"[0].inspect
+            # and str[/re/] must still set $~ for the game (Xenoverse "Trainer(4)", Pokémon Z "size(2,3)").
+            m = ("Trainer(4)"[/\((\d)\)/] && $~ && $~[1])
+            ("AB"[0] == 65 && "AB"[1] == 66 && "AB"[0, 1] == "A" && m == "4") ? "ok" : ["AB"[0], m].inspect
           else
             "missing"
           end

@@ -56,6 +56,7 @@ extern "C" {
 
 #if RAPI_FULL >= 190
 #include <ruby/encoding.h>
+#include "acearcade-ruby18.h"
 #endif
 }
 
@@ -213,6 +214,8 @@ static void mriBindingInit()
 #endif
 
 	httpBindingInit();
+
+	aa18_define(); // AceArcade: Ruby 1.8 String#[] for RPG Maker XP games (acearcade-ruby18.h)
 
 	if (rgssVer >= 3) {
 		_rb_define_module_function(rb_mKernel, "rgss_main", mriRgssMain);

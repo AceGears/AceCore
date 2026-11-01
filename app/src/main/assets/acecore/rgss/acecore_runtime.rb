@@ -35,7 +35,9 @@ module AceCore
         @tp ||= TracePoint.new(:raise) do |tp|
           path = tp.path.to_s
           next if path.include?("acecore_") || path.start_with?("<internal")
-          @last = [tp.raised_exception, (tp.binding rescue nil), path, tp.lineno]
+          exc = tp.raised_exception
+          next if @last && @last[0].equal?(exc) # re-raised by a handler (raise e): keep where it first happened
+          @last = [exc, (tp.binding rescue nil), path, tp.lineno]
         end
         @tp.enable
       rescue StandardError

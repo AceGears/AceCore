@@ -2337,7 +2337,12 @@ module AceCoreCompat
 
       def decide(scripts)
         return false unless defined?(RPG::Cache) && scripts.is_a?(Array) # RPG Maker XP (RGSS1) only
-        modern = scripts.any? { |e| e.is_a?(Array) && e[3].is_a?(String) && e[3].match?(/MKXPZ|mkxp-z|mkxp_z/i) }
+        # Written for mkxp-z / Ruby 3: mentions mkxp-z, or Pokémon Essentials v19+ (module Essentials, VERSION "19"...),
+        # the first Essentials versions that run on mkxp-z instead of the RPG Maker XP player.
+        modern = scripts.any? do |e|
+          e.is_a?(Array) && e[3].is_a?(String) &&
+            (e[3].match?(/MKXPZ|mkxp-z|mkxp_z/i) || e[3].match?(/^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m))
+        end
         @active = !modern
         ($stderr.puts("AceArcade: Ruby 1.8 string behaviour for game scripts (RPG Maker XP game)") rescue nil) if @active
         @active
@@ -2363,7 +2368,7 @@ module AceCoreCompat
       end
 
       def count! = (@conversions += 1)
-      attr_reader :conversions
+      def conversions = @conversions + (respond_to?(:__acearcade_ruby18_conversions, true) ? __acearcade_ruby18_conversions : 0)
 
       # ?x literals -> their byte value, found through the parser (not text search), so "?" in strings, regexps and
       # a ? b : c are untouched. Line numbers stay the same.
@@ -2480,27 +2485,15 @@ module AceCoreCompat
         define_method(:type) { self.class } unless method_defined?(:type)
       end
       ($stderr.puts("AceArcade: Ruby 1.8 Object#id / Object#type for game scripts") rescue nil)
+      # str[i] / str[i] = n: C methods from the engine (ci/patches/mkxp-z/binding/acearcade-ruby18.h). They can't be
+      # Ruby methods: String#[] with a Regexp sets $~ in the caller's frame, and a Ruby replacement would keep it in
+      # its own frame, leaving the game's $~ nil (Xenoverse Game_Player:151, Pokémon Z "Event Size":69).
+      if respond_to?(:__acearcade_ruby18_strings, true)
+        __acearcade_ruby18_strings
+      else
+        ($stderr.puts("AceArcade: this engine build has no Ruby 1.8 str[i]; game scripts get Ruby 3 behaviour") rescue nil)
+      end
       String.class_eval do
-        alias_method :__acearcade_aref, :[]
-        alias_method :__acearcade_aset, :[]=
-        def [](*args)
-          if args.size == 1 && Integer === args[0] && AceCoreCompat::Ruby18Strings.game_caller?
-            i = args[0]
-            AceCoreCompat::Ruby18Strings.count!
-            return AceCoreCompat::Bytes.get(self, i < 0 ? AceCoreCompat::Bytes.size(self) + i : i)
-          end
-          __acearcade_aref(*args)
-        end
-
-        def []=(*args)
-          if args.size == 2 && Integer === args[0] && Integer === args[1] && AceCoreCompat::Ruby18Strings.game_caller?
-            i = args[0]
-            AceCoreCompat::Bytes.set(self, i < 0 ? AceCoreCompat::Bytes.size(self) + i : i, args[1] & 0xFF)
-            return args[1]
-          end
-          __acearcade_aset(*args)
-        end
-
         unless method_defined?(:each)
           def each(*args, &blk) = each_line(*args, &blk)
         end
