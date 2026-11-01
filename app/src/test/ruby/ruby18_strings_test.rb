@@ -46,6 +46,24 @@ Dir.mktmpdir do |d|
   check "AceArcade's code still gets a String from getc", File.open(f, 'rb') { |io| eval("io.getc", binding, '/x/acecore_runtime.rb') }, "\x7F".b
 end
 check 'byte reads counted and logged', AceCoreCompat::Ruby18Strings.conversions > 0 && $stderr.string.include?('Ruby 1.8 strings used for calls from'), true
+# A game patching String the Ruby 1.8 way after AceArcade (seen in Pokémon Z / Xenoverse: String#getbyte answered
+# through []): AceArcade's byte reads must still give Integers, and so must the game's own reads.
+eval(<<~'S', TOPLEVEL_BINDING, '003:Win32_Compat')
+  module Win32; end
+  class String
+    include Win32
+    alias getbyte []
+  end
+  class StringInput
+    def initialize(s) = (@string = s; @pos = 0)
+    def getc = (@pos += 1; @string[@pos - 1])
+    def each_byte = (yield getc while @pos < @string.size)
+    def fgetb = (ret = 0; each_byte { |i| ret = i || 0; break }; ret)
+  end
+S
+check 'after a game aliases getbyte to []: file.read(1)[0] still a byte', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
+check "after the alias: the game's own getbyte gives the byte", "AB".getbyte(1), 66
+check 'Essentials StringInput fgetb (Xenoverse gender byte) gives an Integer', StringInput.new("\x7F\x01".b).fgetb, 127
 # Script files a game's Main loads from a folder get the same adaptations (Xenoverse, Reminiscencia).
 Dir.mktmpdir do |d|
   path = File.join(d, '0240 Folder_Script.rb')

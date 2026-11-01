@@ -19,6 +19,21 @@ rescue LoadError => e
   ($stderr.puts("AceArcade: Ruby zlib extension unavailable: #{e.message}") rescue nil)
 end
 
+# String byte access that game scripts can't change. Ruby-1.8-era games often patch String for compatibility, e.g.
+# redefining String#getbyte in terms of [] (the engine log of Pokémon Z and Xenoverse showed AceArcade's own byte reads
+# coming back as one-character Strings that way).
+# AceArcade's own byte reads use the original methods, taken here before any game script runs.
+module AceCoreCompat
+  module Bytes
+    GETBYTE = String.instance_method(:getbyte)
+    SETBYTE = String.instance_method(:setbyte)
+    BYTESIZE = String.instance_method(:bytesize)
+    def self.get(s, i) = GETBYTE.bind_call(s, i)
+    def self.set(s, i, v) = SETBYTE.bind_call(s, i, v)
+    def self.size(s) = BYTESIZE.bind_call(s)
+  end
+end
+
 # Windows folders games use for saves and settings. Essentials up to v18 saves to %APPDATA%\<game> (or the folder
 # Windows reports for "Saved Games"); on Android these variables don't exist, and File.join(nil, ...) stopped such
 # games while their scripts loaded. They point into AceArcade's private folder for this game, where AceArcade's save
@@ -545,7 +560,7 @@ module AceCoreCompat
       if chars.to_i >= 0 && chars.to_i < 0xFFFFFFFF
         bytes = bytes.byteslice(0, chars.to_i * 2) || ''.b
       else
-        stop = (0...bytes.bytesize).step(2).find { |i| bytes.getbyte(i).zero? && bytes.getbyte(i + 1).to_i.zero? }
+        stop = (0...bytes.bytesize).step(2).find { |i| Bytes.get(bytes, i).zero? && Bytes.get(bytes, i + 1).to_i.zero? }
         bytes = bytes.byteslice(0, stop) if stop
       end
       bytes.force_encoding(Encoding::UTF_16LE).encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
@@ -2335,7 +2350,7 @@ module AceCoreCompat
           next unless n.is_a?(RubyVM::AbstractSyntaxTree::Node)
           if n.type == :STR && n.first_lineno == n.last_lineno && n.children[0].is_a?(String) && n.children[0].bytesize == 1
             line = lines[n.first_lineno - 1]
-            found << [n.first_lineno - 1, n.first_column, n.last_column, n.children[0].getbyte(0)] if line && line.getbyte(n.first_column) == 63 # '?'
+            found << [n.first_lineno - 1, n.first_column, n.last_column, Bytes.get(n.children[0], 0)] if line && Bytes.get(line, n.first_column) == 63 # '?'
           end
           n.children.each { |c| walk.call(c) }
         end
@@ -2376,7 +2391,7 @@ module AceCoreCompat
           if args.size == 1 && Integer === args[0] && AceCoreCompat::Ruby18Strings.game_caller?
             i = args[0]
             AceCoreCompat::Ruby18Strings.count!
-            return getbyte(i < 0 ? bytesize + i : i)
+            return AceCoreCompat::Bytes.get(self, i < 0 ? AceCoreCompat::Bytes.size(self) + i : i)
           end
           __acearcade_aref(*args)
         end
@@ -2384,7 +2399,7 @@ module AceCoreCompat
         def []=(*args)
           if args.size == 2 && Integer === args[0] && Integer === args[1] && AceCoreCompat::Ruby18Strings.game_caller?
             i = args[0]
-            setbyte(i < 0 ? bytesize + i : i, args[1] & 0xFF)
+            AceCoreCompat::Bytes.set(self, i < 0 ? AceCoreCompat::Bytes.size(self) + i : i, args[1] & 0xFF)
             return args[1]
           end
           __acearcade_aset(*args)
@@ -2400,12 +2415,12 @@ module AceCoreCompat
         alias_method :__acearcade_readchar, :readchar
         def getc
           c = __acearcade_getc
-          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; c.getbyte(0)) : c
+          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; AceCoreCompat::Bytes.get(c, 0)) : c
         end
 
         def readchar
           c = __acearcade_readchar
-          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; c.getbyte(0)) : c
+          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; AceCoreCompat::Bytes.get(c, 0)) : c
         end
       end
     end
@@ -2511,7 +2526,7 @@ module AceCoreCompat
   module StringInputBytes
     def each_byte(*args)
       return enum_for(:each_byte, *args) unless block_given?
-      super(*args) { |b| yield(b.is_a?(String) ? b.getbyte(0) : b) }
+      super(*args) { |b| yield(b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b) }
     end
   end
 
@@ -2519,7 +2534,7 @@ module AceCoreCompat
   module StringInputFgetb
     def fgetb(*args)
       b = super
-      b.is_a?(String) ? b.getbyte(0) : b
+      b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b
     end
   end
 
