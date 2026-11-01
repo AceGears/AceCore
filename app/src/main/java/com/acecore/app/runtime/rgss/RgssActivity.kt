@@ -97,6 +97,7 @@ import com.acecore.app.runtime.web.overlay.VirtualKeyboard
 import org.libsdl.app.SDLActivity
 import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.offset
 import java.io.File
 import java.util.Locale
@@ -813,7 +814,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     .background(Color.Black.copy(alpha = 0.55f), androidx.compose.foundation.shape.CircleShape)
                     .border(1.5.dp, accent, androidx.compose.foundation.shape.CircleShape)
                     .pointerInput(key) {
-                        androidx.compose.foundation.gestures.detectDragGestures(
+                        detectDragGestures(
                             onDragEnd = { prefs.edit().putFloat("$key.x", fx).putFloat("$key.y", fy).apply() },
                         ) { change, drag ->
                             change.consume()
