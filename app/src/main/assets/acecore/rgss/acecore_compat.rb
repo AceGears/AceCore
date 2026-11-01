@@ -2441,10 +2441,11 @@ module AceCoreCompat
         return false unless defined?(RPG::Cache) && scripts.is_a?(Array) # RPG Maker XP (RGSS1) only
         # Written for mkxp-z / Ruby 3: mentions mkxp-z, or Pokémon Essentials v19+ (module Essentials, VERSION "19"...),
         # the first Essentials versions that run on mkxp-z instead of the RPG Maker XP player.
+        # Main calling mkxp-z's own System functions (System.mount for packed scripts: Pokémon Flux) counts too.
         # (A bundled mkxp.json is no sign: Pokémon Z and Xenoverse ship one and are Ruby 1.8 games.)
         modern = scripts.any? do |e|
           e.is_a?(Array) && e[3].is_a?(String) &&
-            (e[3].match?(/MKXPZ|mkxp-z|mkxp_z/i) || e[3].match?(/^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m))
+            (e[3].match?(/MKXPZ|mkxp-z|mkxp_z|System\.(?:mount|reload_cache|is_mac\?|is_linux\?|is_windows\?)/i) || e[3].match?(/^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m))
         end
         @active = !modern
         ($stderr.puts("AceArcade: Ruby 1.8 string behaviour for game scripts (RPG Maker XP game)") rescue nil) if @active
@@ -2722,28 +2723,32 @@ end
 # yield Integers too (a value that already is an Integer is passed through unchanged).
 #===============================================================================
 module AceCoreCompat
-  module StringInputBytes
-    def each_byte(*args)
-      return enum_for(:each_byte, *args) unless block_given?
-      super(*args) { |b| yield(b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b) }
-    end
-  end
-
-  # For readers whose fgetb returns getc directly.
-  module StringInputFgetb
-    def fgetb(*args)
-      b = super
-      b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b
-    end
-  end
-
+  # Only for games running with Ruby 1.8 behaviour (Ruby18Strings): games made for a current Ruby (Pokémon Flux,
+  # mkxp-z) read their data the Ruby 3 way and are left alone. The methods are wrapped in the class itself (alias),
+  # not through Module#prepend: prepending to a class whose methods are already in use is what the engine's Ruby
+  # 3.1.0 handles badly (see Ruby18Strings.install), and StringInput is used by Marshal.load right after this.
   module Ruby18Bytes
-    @done = {}
+    def self.patched?(klass, m) = (klass.instance_method(m).source_location&.first.to_s.include?('acecore_') rescue false)
+
     def self.patch(klass)
-      return if @done[klass] || !klass.method_defined?(:each_byte)
-      @done[klass] = true
-      klass.prepend(StringInputBytes)
-      klass.prepend(StringInputFgetb) if klass.method_defined?(:fgetb)
+      return unless defined?(AceCoreCompat::Ruby18Strings) && AceCoreCompat::Ruby18Strings.active
+      return if !klass.method_defined?(:each_byte) || patched?(klass, :each_byte)
+      klass.class_eval do
+        alias_method :__acearcade_each_byte, :each_byte
+        def each_byte(*args, &blk)
+          return enum_for(:each_byte, *args) unless blk
+          __acearcade_each_byte(*args) { |b| blk.call(b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b) }
+        end
+      end
+      if klass.method_defined?(:fgetb) && !patched?(klass, :fgetb)
+        klass.class_eval do
+          alias_method :__acearcade_fgetb, :fgetb
+          def fgetb(*args)
+            b = __acearcade_fgetb(*args)
+            b.is_a?(String) ? AceCoreCompat::Bytes.get(b, 0) : b
+          end
+        end
+      end
       ($stderr.puts("AceArcade: #{klass} reads bytes as Integers (Ruby 1.8 data readers)") rescue nil)
     end
   end
