@@ -50,7 +50,7 @@ data class AceTokens(
 )
 
 val LocalAceTokens = staticCompositionLocalOf {
-    AceTokens(Color(0xFFF03AD6), 0.45f, 0.6f, 1.dp, 16.dp, 1f, 1f, false, true, Color(0xFFD4D8E4), Color(0xFF2E86FF))
+    AceTokens(Color(0xFFFF2A2A), 0.45f, 0.6f, 1.dp, 16.dp, 1f, 1f, false, true, Color(0xFFC9CDD4), Color(0xFFFF5A4E))
 }
 
 object AceTheme {
@@ -58,10 +58,21 @@ object AceTheme {
 }
 
 /**
- * AceArcade brand palette, sampled from the AceArcade icon and logo: neon magenta and hot pink (the "A" and
- * "ARCADE"), electric and cobalt blue (the orbit rings), cyan sparks, violet, chrome silver ("ACE") and a deep
- * blue-black base.
+ * AceArcade brand palette, sampled from the 2026 AceArcade logo and icon: neon red ("ARCADE", the glowing seams),
+ * brushed steel and chrome ("ACE", the gears and plates), gunmetal and a near-black base. The previous neon
+ * magenta/blue palette stays available as the "AceArcade Neon (classic)" theme.
  */
+object AceSteel {
+    val NeonRed = Color(0xFFFF2A2A)
+    val Crimson = Color(0xFFE3202B)
+    val Ember = Color(0xFFFF5A4E)
+    val Steel = Color(0xFFC9CDD4)
+    val Chrome = Color(0xFFEEF0F4)
+    val Gunmetal = Color(0xFF2B2C33)
+    val Night = Color(0xFF0B0B0E)
+    val NightSurface = Color(0xFF16161B)
+}
+
 object AcePalette {
     val NeonMagenta = Color(0xFFF03AD6)
     val HotPink = Color(0xFFE5199C)
@@ -83,9 +94,10 @@ private data class PresetSeed(
 )
 
 private fun seedFor(preset: ThemePreset): PresetSeed = when (preset) {
-    ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF06051A, 0xFF110C2A, 0xFFF03AD6, 0xFF2E86FF)
-    ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC4127F, 0xFF1E5BD8, 0xFF8A1CF0, 0xFFF7F5FC, 0xFFFFFFFF, 0xFFE5199C, 0xFF1E5BD8)
-    ThemePreset.AMOLED -> PresetSeed(0xFFE5199C, 0xFFD4D8E4, 0xFF2ED2FF, 0xFF000000, 0xFF0A0712, 0xFFF03AD6, 0xFF2E86FF)
+    ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF0B0B0E, 0xFF16161B, 0xFFFF2A2A, 0xFFC9CDD4)
+    ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC4141F, 0xFF4A4D57, 0xFFE3202B, 0xFFF4F4F6, 0xFFFFFFFF, 0xFFE3202B, 0xFF6B6F7A)
+    ThemePreset.NEON_CLASSIC -> PresetSeed(0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF06051A, 0xFF110C2A, 0xFFF03AD6, 0xFF2E86FF)
+    ThemePreset.AMOLED -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF000000, 0xFF0B0B0D, 0xFFFF2A2A, 0xFFC9CDD4)
     ThemePreset.MIDNIGHT_BLUE -> PresetSeed(0xFF4C8DFF, 0xFFB9C6E0, 0xFF7FB2FF, 0xFF070B18, 0xFF111833, 0xFF4C8DFF, 0xFF2ED2FF)
     ThemePreset.CRIMSON_RED -> PresetSeed(0xFFFF1E3C, 0xFFFFB3BC, 0xFFFF6B7D, 0xFF140509, 0xFF230A10, 0xFFFF1E3C, 0xFFFF6B7D)
     ThemePreset.ROYAL_PURPLE -> PresetSeed(0xFF9B5CFF, 0xFFD3C2F5, 0xFFC08BFF, 0xFF0D0816, 0xFF1A1129, 0xFF9B5CFF, 0xFFF03AD6)

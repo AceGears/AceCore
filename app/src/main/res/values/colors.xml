@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AceArcade brand: deep blue-black base, neon magenta, electric blue. -->
-    <color name="ace_background">#FF06051A</color>
-    <color name="ace_magenta">#FFF03AD6</color>
-    <color name="ace_blue">#FF2E86FF</color>
-    <color name="ace_icon_background">#FF06051A</color>
+    <!-- AceArcade brand (2026 logo): black steel base, brushed silver, neon red. -->
+    <color name="ace_background">#FF0B0B0E</color>
+    <color name="ace_red">#FFFF2A2A</color>
+    <color name="ace_steel">#FFC9CDD4</color>
+    <color name="ace_icon_background">#FF000000</color>
 </resources>

@@ -21,7 +21,7 @@ data class GameLaunchSpec(
     /** Fully resolved layered config (ConfigKey.id -> value). */
     val config: Map<String, String>,
     val webDebugging: Boolean = false,
-    val accentArgb: Long = 0xFFF03AD6L,
+    val accentArgb: Long = 0xFFFF2A2AL,
     val forceReindex: Boolean = false,
     /** Wall-clock time of the Play tap, for launch-time measurement. */
     val launchRequestedAt: Long = 0,

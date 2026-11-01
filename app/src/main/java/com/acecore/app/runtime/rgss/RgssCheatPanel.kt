@@ -68,7 +68,7 @@ private val Muted = Color.White.copy(alpha = 0.62f)
 /** Something the user is about to change, shown in a confirm/edit dialog before anything is sent to the game. */
 private sealed interface Pending {
     data class Number(val title: String, val hint: String, val initial: String, val min: Long, val max: Long, val command: (Long) -> Array<String>) : Pending
-    data class Pick(val title: String, val listCommand: String, val listFile: String, val filter: (List<String>) -> Boolean, val withQuantity: Boolean, val maxQty: Int, val partyFull: Boolean? = null, val command: (String, Int) -> Array<String>) : Pending
+    data class Pick(val title: String, val listCommand: String, val listFile: String, val filter: (List<String>) -> Boolean, val withQuantity: Boolean, val maxQty: Int, val partyFull: Boolean? = null, val next: ((List<String>) -> Pending)? = null, val command: (String, Int) -> Array<String>) : Pending
     data class Confirm(val title: String, val body: String, val command: Array<String>) : Pending
 }
 
@@ -237,6 +237,22 @@ fun RgssCheatPanel(spec: RgssLaunchSpec, appContext: Context, accent: Color, onC
                         }
                     }
                 }
+                // ---------------------------------------------------------------- game switches & variables
+                if (s.has("switches") || s.has("variables")) Section("Switches & variables") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (s.has("switches")) Chip("Turn a switch on/off", accent) {
+                            pending = Pending.Pick("Switches (tap to turn on/off)", "switches", "switches", { true }, withQuantity = false, maxQty = 1) { id, _ -> arrayOf("switch", id, "toggle") }
+                        }
+                        if (s.has("variables")) Chip("Change a variable", accent) {
+                            pending = Pending.Pick("Variables", "variables", "variables", { it.getOrNull(2)?.isNotEmpty() == true }, withQuantity = false, maxQty = 1,
+                                next = { row ->
+                                    Pending.Number("Value for ${row.getOrNull(1)?.substringBefore(" = ") ?: row[0]}", "−99,999,999 – 99,999,999",
+                                        row.getOrNull(2) ?: "0", -99_999_999L, 99_999_999L) { v -> arrayOf("variable", row[0], v.toString()) }
+                                }) { _, _ -> emptyArray() }
+                        }
+                    }
+                    Text("Game switches and variables drive events and story progress. Change them only if you know what they do; your saves are backed up first.", color = Muted, fontSize = 12.sp)
+                }
                 // ---------------------------------------------------------------- field
                 if (s.has("walk_speed") || s.has("no_encounters")) Section("Movement & encounters") {
                     if (s.has("walk_speed")) {
@@ -272,7 +288,7 @@ fun RgssCheatPanel(spec: RgssLaunchSpec, appContext: Context, accent: Color, onC
         }
     }
     pending?.let { pd ->
-        PendingDialog(pd, channel, accent, onDismiss = { pending = null }) { cmd -> pending = null; apply(*cmd) }
+        PendingDialog(pd, channel, accent, onDismiss = { pending = null }, onNext = { pending = it }) { cmd -> pending = null; apply(*cmd) }
     }
 }
 
@@ -351,7 +367,7 @@ private fun Overlay(onClose: () -> Unit, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun PendingDialog(pd: Pending, channel: CheatChannel, accent: Color, onDismiss: () -> Unit, onApply: (Array<String>) -> Unit) {
+private fun PendingDialog(pd: Pending, channel: CheatChannel, accent: Color, onDismiss: () -> Unit, onNext: (Pending) -> Unit = {}, onApply: (Array<String>) -> Unit) {
     when (pd) {
         is Pending.Confirm -> Overlay(onDismiss) {
             Text(pd.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
@@ -404,7 +420,12 @@ private fun PendingDialog(pd: Pending, channel: CheatChannel, accent: Color, onD
                                     Text(
                                         row.getOrNull(1) ?: row[0], color = Color.White,
                                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                                            if (pd.withQuantity) chosen = row else onApply(pd.command(row[0], 1))
+                                            val nx = pd.next
+                                            when {
+                                                nx != null -> onNext(nx(row))
+                                                pd.withQuantity -> chosen = row
+                                                else -> onApply(pd.command(row[0], 1))
+                                            }
                                         }.padding(10.dp),
                                     )
                                 }

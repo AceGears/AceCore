@@ -59,7 +59,7 @@ fun Modifier.aceGlow(color: Color, intensity: Float, corner: Dp, radius: Dp = 14
         }
     }
 
-/** Neon wash for headers and hero areas: magenta at the top melting into electric blue, then the background. */
+/** Neon wash for headers and hero areas: the theme's glow (neon red in AceArcade Steel) melting into its second tone, then the background. */
 @Composable
 fun aceHeroBrush(): Brush {
     val t = AceTheme.tokens
@@ -72,11 +72,26 @@ fun aceHeroBrush(): Brush {
     )
 }
 
-/** Signature dual-tone neon edge (magenta to electric blue) for highlighted cards, covers and dialogs. */
+/** Signature dual-tone edge (neon red to steel in AceArcade Steel) for highlighted cards, covers and dialogs. */
 @Composable
 fun aceNeonEdge(alpha: Float = 0.85f): Brush {
     val t = AceTheme.tokens
     return Brush.linearGradient(listOf(t.glow.copy(alpha = alpha), t.glowAlt.copy(alpha = alpha * 0.8f)))
+}
+
+/**
+ * Machined-metal edge for cards and panels (the 2026 logo's brushed-steel plates): a bright chrome highlight on the
+ * top-left edge fading through the outline colour to a faint lower-right edge, so surfaces read as bevelled plates.
+ */
+@Composable
+fun aceBevelEdge(): Brush {
+    val t = AceTheme.tokens
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    return Brush.linearGradient(
+        0f to t.chrome.copy(alpha = if (t.isDark) 0.38f else 0.55f),
+        0.45f to outline,
+        1f to t.chrome.copy(alpha = if (t.isDark) 0.10f else 0.18f),
+    )
 }
 
 private fun Color.compositeOverSafe(bg: Color) = androidx.compose.ui.graphics.lerp(bg, this.copy(alpha = 1f), this.alpha)
@@ -97,7 +112,7 @@ fun AceCard(modifier: Modifier = Modifier, glow: Boolean = false, content: @Comp
     Surface(
         modifier = modifier
             .then(if (glow) Modifier.aceGlow(t.glow, t.glowIntensity * 0.6f, t.corner) else Modifier)
-            .then(if (t.borderWidth > 0.dp) Modifier.border(t.borderWidth, MaterialTheme.colorScheme.outlineVariant, shape) else Modifier),
+            .then(if (t.borderWidth > 0.dp) Modifier.border(t.borderWidth, aceBevelEdge(), shape) else Modifier),
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp,

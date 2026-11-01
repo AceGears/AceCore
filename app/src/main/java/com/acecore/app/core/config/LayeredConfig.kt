@@ -43,8 +43,27 @@ enum class ConfigKey(
         "How the game fills the screen. Fit keeps its proportions (black bars at the sides), Stretch fills the whole " +
             "screen, Pixel-perfect scales by whole numbers so pixel art stays crisp. Can also be changed in-game (☰ › Display).",
         ConfigType.CHOICE, "fit",
-        listOf("fit" to "Fit (keep proportions)", "fill" to "Stretch to fill", "integer" to "Pixel-perfect (whole-number scale)"),
+        listOf(
+            "fit" to "Fit (keep proportions)", "cover" to "Fill screen (keep proportions, crop edges)",
+            "fill" to "Stretch to fill", "integer" to "Pixel-perfect (whole-number scale)",
+            "original" to "Original size (1 game pixel = 1 screen pixel)", "zoom" to "Custom zoom",
+        ),
         section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    SCREEN_ZOOM(
+        "screenZoom", "Custom zoom", "Size of the game with Screen fit = Custom zoom, as a percentage of the Fit size " +
+            "(above 100% the edges are cut off). Can also be changed in-game (☰ › Display).",
+        ConfigType.INT, "100", range = 25..300, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    SCREEN_OFFSET_X(
+        "screenOffsetX", "Picture position (horizontal)", "Moves the game picture left (−100) or right (+100) inside the " +
+            "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
+        appliesTo = { it.family == EngineFamily.RGSS },
+    ),
+    SCREEN_OFFSET_Y(
+        "screenOffsetY", "Picture position (vertical)", "Moves the game picture up (−100) or down (+100) inside the " +
+            "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
+        appliesTo = { it.family == EngineFamily.RGSS },
     ),
     SCREEN_SIZE(
         "screenSize", "Game size", "Size of the game area (%), centred. Lower it to keep the picture clear of the on-screen controls. " +
@@ -94,6 +113,11 @@ enum class ConfigKey(
     ),
     GAMEPAD_OPACITY("gamepadOpacity", "Controls opacity", "Transparency of on-screen buttons.", ConfigType.INT, "55", range = 15..100, section = "Controls", appliesTo = WITH_CONTROLS),
     GAMEPAD_SCALE("gamepadScale", "Controls size", "Size of on-screen buttons (%).", ConfigType.INT, "100", range = 60..160, section = "Controls", appliesTo = WITH_CONTROLS),
+    CHEAT_SHORTCUT(
+        "cheatShortcut", "Floating cheat button", "A small button over the game that opens the cheat menu directly. " +
+            "Drag it to move it; its place is remembered. Shown only when cheats are on for the game.",
+        ConfigType.BOOL, "true", section = "Gameplay", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
     HAPTICS("haptics", "Haptic feedback", "Vibrate briefly when on-screen buttons are pressed.", ConfigType.BOOL, "true", section = "Controls", appliesTo = WITH_CONTROLS),
     DEADZONE("deadzone", "Stick dead zone", "Analog stick travel ignored before a direction registers (%).", ConfigType.INT, "30", range = 5..70, section = "Controls"),
     BUTTON_MAP("buttonMap", "Controller mapping", "Which keyboard key each controller button sends.", ConfigType.BUTTON_MAP, ButtonMap.DEFAULT_ENCODED, section = "Controls", appliesTo = WITH_CONTROLS),

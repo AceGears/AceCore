@@ -23,7 +23,7 @@ data class RgssLaunchSpec(
     /** Absolute path of the per-game private data directory (SDL pref path). */
     val dataPath: String,
     val config: Map<String, String>,
-    val accentArgb: Long = 0xFFF03AD6L,
+    val accentArgb: Long = 0xFFFF2A2AL,
     /** True when the game runs straight from the user's folder (no private copy). */
     val direct: Boolean = false,
     /** Whether AceCore's runtime helper (and therefore the in-game cheat menu) is loaded. */
@@ -57,11 +57,12 @@ object RgssRuntime {
      * Header for the always-on compatibility preload (acecore_compat.rb, also used with the game helper off): the
      * device screen in landscape pixels, which upstream mkxp-z reports through Graphics.display_width/height.
      */
-    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true, sizePercent: Int = 100, dataDir: File? = null): String =
+    fun compatHeader(displayW: Int, displayH: Int, displayFile: File? = null, fit: String = DisplayPrefs.FIT, smooth: Boolean = true, sizePercent: Int = 100, dataDir: File? = null, display: DisplayPrefs? = null): String =
         "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\n" +
             "  DATA_DIR = ${dataDir?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
-            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent; LOCALE = ${rubyString(java.util.Locale.getDefault().toLanguageTag())}\nend\n"
+            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent; LOCALE = ${rubyString(java.util.Locale.getDefault().toLanguageTag())}\n" +
+            "  ZOOM = ${display?.zoomPercent ?: 100}; OFFSET_X = ${display?.offsetX ?: 0}; OFFSET_Y = ${display?.offsetY ?: 0}\nend\n"
 
     /** Real screen size in landscape orientation (games run landscape). */
     fun landscapeDisplaySize(context: Context): Pair<Int, Int> {
@@ -123,7 +124,7 @@ object RgssRuntime {
         val (dw, dh) = landscapeDisplaySize(context)
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
         val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir), DisplayPrefs.from(config).fit,
-            config[ConfigKey.FILTERING.id] != "sharp", DisplayPrefs.from(config).sizePercent, dataDir) + compatBody, Charsets.UTF_8) }
+            config[ConfigKey.FILTERING.id] != "sharp", DisplayPrefs.from(config).sizePercent, dataDir, DisplayPrefs.from(config)) + compatBody, Charsets.UTF_8) }
         val preload = File(dataDir, PRELOAD_FILE)
         if (helper) {
             val body = context.assets.open(HELPER_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }

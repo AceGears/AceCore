@@ -156,6 +156,13 @@ class GameRepository(
         }
     }
 
+    /** Scans one folder inside a granted tree (a game just unpacked from an archive into a new sub-folder). */
+    suspend fun scanAt(treeUri: Uri, docId: String, name: String): ScanOutcome = withContext(Dispatchers.IO) {
+        val c = scanFolder(SafTree(resolver, treeUri), docId, name, depth = 4)
+        if (c.detection.engine == Engine.UNKNOWN) ScanOutcome.NothingFound("No recognisable game files were found in the unpacked “$name” folder.")
+        else ScanOutcome.Single(c)
+    }
+
     private fun scanFolder(tree: SafTree, docId: String, name: String, depth: Int): ScanCandidate {
         val walk = tree.walk(docId, maxDepth = depth, maxEntries = 6000)
         val idByPath = walk.nodes.associate { it.path to it.docId }

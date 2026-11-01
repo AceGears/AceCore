@@ -27,6 +27,8 @@ The GPL covers AceArcade's code. It does not by itself grant rights to use the A
 | GNU libiconv | native libs | LGPL-2.1-or-later |
 | OpenSSL 1.1.1 | native libs | OpenSSL / SSLeay |
 | Liberation Sans font | embedded in mkxp-z | SIL OFL 1.1 |
+| Apache Commons Compress / IO / Lang | Java libraries (unpacking .zip/.7z games) | Apache-2.0 (NOTICE: software developed at The Apache Software Foundation) |
+| XZ for Java | Java library (LZMA for .7z) | 0BSD / public domain |
 | WenQuanYi Micro Hei font | embedded in mkxp-z | Apache-2.0 or GPL-3.0 with font exception |
 | Ruffle 0.7.1 | `app/src/main/assets/ruffle` | MIT OR Apache-2.0 |
 | AndroidX, Kotlin, kotlinx, Coil, Material icons | Gradle dependencies | Apache-2.0 |

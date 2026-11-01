@@ -83,7 +83,7 @@ val LocalGameLauncher = staticCompositionLocalOf<GameLauncher> { GameLauncher { 
 
 object Routes {
     const val HOME = "home"
-    const val IMPORT = "import?uri={uri}&category={category}"
+    const val IMPORT = "import?uri={uri}&category={category}&file={file}"
     const val GAME = "game/{id}"
     const val GAME_SETTINGS = "game/{id}/settings"
     const val GAME_CHEATS = "game/{id}/cheats"
@@ -93,7 +93,8 @@ object Routes {
     const val SETTINGS_SECTION = "settings/{section}"
     const val ENGINE_SETTINGS = "settings/engine/{engine}"
 
-    fun import(uri: Uri, category: Long? = null) = "import?uri=${Uri.encode(uri.toString())}&category=${category ?: -1L}"
+    fun import(uri: Uri, category: Long? = null, file: Uri? = null) =
+        "import?uri=${Uri.encode(uri.toString())}&category=${category ?: -1L}" + (file?.let { "&file=${Uri.encode(it.toString())}" } ?: "")
     fun game(id: Long) = "game/$id"
     fun gameSettings(id: Long) = "game/$id/settings"
     fun cheats(id: Long) = "game/$id/cheats"
@@ -109,7 +110,7 @@ fun AceCoreRoot(pendingLaunchId: Long?, onPendingLaunchConsumed: () -> Unit) {
     val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
     val s = settings
     if (s == null) {
-        Box(Modifier.fillMaxSize().background(Color(0xFF06051A)))
+        Box(Modifier.fillMaxSize().background(Color(0xFF0B0B0E)))
         return
     }
     AceCoreTheme(s.theme, s.reduceMotion) {
@@ -378,6 +379,7 @@ private fun AceNavHost(nav: NavHostController) {
                 onOpenGameSettings = { nav.navigate(Routes.gameSettings(it)) },
                 onOpenCheats = { nav.navigate(Routes.cheats(it)) },
                 onImport = { uri, category -> nav.navigate(Routes.import(uri, category)) },
+                onImportFile = { file, dest, category -> nav.navigate(Routes.import(dest, category, file)) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onManageCategories = { nav.navigate(Routes.CATEGORIES) },
             )
@@ -387,11 +389,13 @@ private fun AceNavHost(nav: NavHostController) {
             arguments = listOf(
                 navArgument("uri") { type = NavType.StringType; nullable = true },
                 navArgument("category") { type = NavType.LongType; defaultValue = -1L },
+                navArgument("file") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             val uri = entry.arguments?.getString("uri")?.let { Uri.parse(it) }
             val category = entry.arguments?.getLong("category")?.takeIf { it > 0 }
-            ImportScreen(treeUri = uri, categoryId = category, onDone = { nav.popBackStack(Routes.HOME, inclusive = false) }, onOpenGame = {
+            val file = entry.arguments?.getString("file")?.let { Uri.parse(it) }
+            ImportScreen(treeUri = uri, categoryId = category, fileUri = file, onDone = { nav.popBackStack(Routes.HOME, inclusive = false) }, onOpenGame = {
                 nav.popBackStack(Routes.HOME, inclusive = false); nav.navigate(Routes.game(it))
             })
         }

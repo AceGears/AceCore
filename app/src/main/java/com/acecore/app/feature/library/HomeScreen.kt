@@ -122,6 +122,7 @@ fun HomeScreen(
     onOpenGameSettings: (Long) -> Unit,
     onOpenCheats: (Long) -> Unit,
     onImport: (Uri, Long?) -> Unit,
+    onImportFile: (file: Uri, destination: Uri, category: Long?) -> Unit = { _, _, _ -> },
     onOpenSettings: () -> Unit,
     onManageCategories: () -> Unit,
 ) {
@@ -156,6 +157,43 @@ fun HomeScreen(
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) { repo.takePermission(uri); onImport(uri, selectedCategory) }
     }
+    // Adding a game that is one file (.zip / .7z / self-extracting .exe): pick the file, then where to unpack it.
+    var addChooser by remember { mutableStateOf(false) }
+    var archiveFile by remember { mutableStateOf<Uri?>(null) }
+    val pickDestination = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { dest ->
+        val f = archiveFile
+        archiveFile = null
+        if (dest != null && f != null) { repo.takePermission(dest); onImportFile(f, dest, selectedCategory) }
+    }
+    var askDestination by remember { mutableStateOf(false) }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { archiveFile = uri; askDestination = true }
+    }
+    if (addChooser) AlertDialog(
+        onDismissRequest = { addChooser = false },
+        title = { Text("Add a game") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { addChooser = false; pickFolder.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(8.dp)); Text("Game folder")
+                }
+                OutlinedButton(onClick = { addChooser = false; pickFile.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Game file (.zip, .7z, packed .exe)")
+                }
+                Text("A folder is played from where it is. A file is unpacked once into a folder you choose; the file itself isn't changed.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { addChooser = false }) { Text("Cancel") } },
+    )
+    if (askDestination) AlertDialog(
+        onDismissRequest = { askDestination = false; archiveFile = null },
+        title = { Text("Where should it go?") },
+        text = { Text("Choose the folder to unpack the game into, for example your AceArcade games folder. A new folder named after the file is created there.") },
+        confirmButton = { TextButton(onClick = { askDestination = false; pickDestination.launch(null) }) { Text("Choose folder") } },
+        dismissButton = { TextButton(onClick = { askDestination = false; archiveFile = null }) { Text("Cancel") } },
+    )
 
     val games = all
     val visible = remember(games, query, selectedCategory, membership, lib.sort, lib.showHidden) {
@@ -182,7 +220,7 @@ fun HomeScreen(
         contentWindowInsets = WindowInsets(0),
         floatingActionButton = {
             if (!inSelection && games?.isNotEmpty() == true) ExtendedFloatingActionButton(
-                onClick = { pickFolder.launch(null) },
+                onClick = { addChooser = true },
                 icon = { Icon(Icons.Rounded.Add, null) },
                 text = { Text("Add game") },
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -244,7 +282,7 @@ fun HomeScreen(
                         "Add a game folder. AceArcade detects the engine and plays the game from where it is. Nothing is copied unless you ask for it.",
                         Modifier.padding(top = 40.dp),
                     ) {
-                        ExtendedFloatingActionButton(onClick = { pickFolder.launch(null) }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Choose a game folder") })
+                        ExtendedFloatingActionButton(onClick = { addChooser = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add a game") })
                     }
                     visible.isEmpty() && query.isNotBlank() -> EmptyState(Icons.Rounded.Search, "No matches", "No game matches “$query”.", Modifier.padding(top = 24.dp))
                     visible.isEmpty() && selectedCategory != null -> {
@@ -253,7 +291,7 @@ fun HomeScreen(
                             "Long-press games in “All games” and choose Category, add a game here with “Add game”, or link a folder to this category.",
                             Modifier.padding(top = 24.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { pickFolder.launch(null) }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Add game") }
+                                OutlinedButton(onClick = { addChooser = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Add game") }
                                 OutlinedButton(onClick = onManageCategories) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(6.dp)); Text("Link folder") }
                             }
                         }

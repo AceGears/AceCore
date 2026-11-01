@@ -6,18 +6,39 @@ import java.io.File
 /**
  * How an RPG Maker game is placed on screen.
  *
- * [fit]: "fit" keeps the game's aspect ratio (letterboxed), "fill" stretches it to the whole area, "integer" scales by
- * the largest whole number that fits (pixel-perfect, may leave borders).
+ * [fit]: "fit" keeps the game's aspect ratio (letterboxed), "cover" keeps it and fills the whole area (the overflow is
+ * cut off), "fill" stretches it to the whole area, "integer" scales by the largest whole number that fits
+ * (pixel-perfect, may leave borders), "original" draws one game pixel per screen pixel, "zoom" draws [zoomPercent] of
+ * the Fit size.
  * [sizePercent]: the game area as a share of the screen (50–100), centred.
+ * [offsetX]/[offsetY]: picture position inside the free space (or across the overflow), −100..100, 0 = centred.
  *
  * The in-game menu writes changes (display, button mapping, on-screen controls) to [file] straight away. The game's compatibility script (acecore_compat.rb)
  * watches that file to switch the engine's scaling live, and the library imports it into the game's own settings
  * before the next launch (so a change survives even if the game process is killed).
  */
-data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
-    fun normalized() = copy(fit = if (fit in MODES) fit else FIT, sizePercent = sizePercent.coerceIn(MIN_SIZE, 100))
+data class DisplayPrefs(
+    val fit: String = FIT,
+    val sizePercent: Int = 100,
+    val zoomPercent: Int = 100,
+    val offsetX: Int = 0,
+    val offsetY: Int = 0,
+) {
+    fun normalized() = copy(
+        fit = if (fit in MODES) fit else FIT, sizePercent = sizePercent.coerceIn(MIN_SIZE, 100),
+        zoomPercent = zoomPercent.coerceIn(MIN_ZOOM, MAX_ZOOM), offsetX = offsetX.coerceIn(-100, 100),
+        offsetY = offsetY.coerceIn(-100, 100),
+    )
 
-    fun toJson(): String = """{"${ConfigKey.SCREEN_FIT.id}":"${normalized().fit}","${ConfigKey.SCREEN_SIZE.id}":"${normalized().sizePercent}"}"""
+    fun values(): Map<String, String> = normalized().let { n ->
+        mapOf(
+            ConfigKey.SCREEN_FIT.id to n.fit, ConfigKey.SCREEN_SIZE.id to n.sizePercent.toString(),
+            ConfigKey.SCREEN_ZOOM.id to n.zoomPercent.toString(), ConfigKey.SCREEN_OFFSET_X.id to n.offsetX.toString(),
+            ConfigKey.SCREEN_OFFSET_Y.id to n.offsetY.toString(),
+        )
+    }
+
+    fun toJson(): String = values().entries.joinToString(",", "{", "}") { (k, v) -> "\"$k\":\"$v\"" }
 
     /** Values for the engine's own scaling switches (mkxp-z). */
     val fixedAspectRatio get() = fit != FILL
@@ -35,6 +56,12 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
         if (gameW <= 0 || gameH <= 0 || aw <= 0 || ah <= 0) return aw to ah
         val (w, h) = when (normalized().fit) {
             FILL -> aw to ah
+            COVER -> {
+                val scale = maxOf(aw.toDouble() / gameW, ah.toDouble() / gameH)
+                (gameW * scale).toInt() to (gameH * scale).toInt()
+            }
+            ORIGINAL -> gameW to gameH
+            ZOOM -> fitIn(aw, ah, gameW, gameH).let { (fw, fh) -> (fw * zoomPercent / 100) to (fh * zoomPercent / 100) }
             INTEGER -> {
                 val k = maxOf(1, minOf(aw / gameW, ah / gameH))
                 // Whole-number multiple if it fits; on a screen smaller than the game, fall back to Fit.
@@ -54,13 +81,19 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
         const val FIT = "fit"
         const val FILL = "fill"
         const val INTEGER = "integer"
-        val MODES = listOf(FIT, FILL, INTEGER)
+        const val COVER = "cover"
+        const val ORIGINAL = "original"
+        const val ZOOM = "zoom"
+        val MODES = listOf(FIT, COVER, FILL, INTEGER, ORIGINAL, ZOOM)
         const val MIN_SIZE = 50
+        const val MIN_ZOOM = 25
+        const val MAX_ZOOM = 300
         const val FILE_NAME = "settings.json"
 
         /** Settings the in-game menu may change and save for the game. */
         val SAVED_IN_GAME = setOf(
-            ConfigKey.SCREEN_FIT.id, ConfigKey.SCREEN_SIZE.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
+            ConfigKey.SCREEN_FIT.id, ConfigKey.SCREEN_SIZE.id, ConfigKey.SCREEN_ZOOM.id, ConfigKey.SCREEN_OFFSET_X.id,
+            ConfigKey.SCREEN_OFFSET_Y.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
             ConfigKey.FF_SPEED.id, ConfigKey.FF_MODE.id, ConfigKey.FF_AUDIO.id, ConfigKey.PAD_FF.id, ConfigKey.PAD_QS.id,
             ConfigKey.PAD_QL.id, ConfigKey.TOOLS_SCALE.id, ConfigKey.TOOLS_OPACITY.id, ConfigKey.GAMEPAD_OPACITY.id,
         )
@@ -70,6 +103,9 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
         fun from(config: Map<String, String>) = DisplayPrefs(
             config[ConfigKey.SCREEN_FIT.id] ?: FIT,
             config[ConfigKey.SCREEN_SIZE.id]?.toIntOrNull() ?: 100,
+            config[ConfigKey.SCREEN_ZOOM.id]?.toIntOrNull() ?: 100,
+            config[ConfigKey.SCREEN_OFFSET_X.id]?.toIntOrNull() ?: 0,
+            config[ConfigKey.SCREEN_OFFSET_Y.id]?.toIntOrNull() ?: 0,
         ).normalized()
 
         /** Parses the small JSON object written by [toJson] (no JSON library needed on either side). */
@@ -77,8 +113,7 @@ data class DisplayPrefs(val fit: String = FIT, val sizePercent: Int = 100) {
             Regex("\"(\\w+)\"\\s*:\\s*\"([^\"]*)\"").findAll(text).associate { it.groupValues[1] to it.groupValues[2] }
                 .filterKeys { it in SAVED_IN_GAME }
 
-        fun write(dataDir: File, prefs: DisplayPrefs) = writePending(dataDir,
-            mapOf(ConfigKey.SCREEN_FIT.id to prefs.normalized().fit, ConfigKey.SCREEN_SIZE.id to prefs.normalized().sizePercent.toString()))
+        fun write(dataDir: File, prefs: DisplayPrefs) = writePending(dataDir, prefs.values())
 
         private val lock = Any()
 

@@ -95,7 +95,18 @@ script = <<~'RUBY'
     rescue Exception => e
       "#{e.class}"
     end
-    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal}")
+    # Display layout modes (Fill / Zoom / Original + picture position) from the engine patch.
+    layout = begin
+      if Graphics.respond_to?(:acearcade_layout)
+        [[1, 1.0, 0.0, 0.0], [2, 1.5, 0.5, -0.5], [3, 1.0, -1.0, 1.0], [0, 1.0, 0.0, 0.0]].each { |m| Graphics.acearcade_layout(*m); Graphics.update }
+        "ok"
+      else
+        "missing"
+      end
+    rescue Exception => e
+      e.class.to_s
+    end
+    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal} layout=#{layout}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")

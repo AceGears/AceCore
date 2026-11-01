@@ -42,15 +42,28 @@ class DisplayPrefsTest {
         assertEquals("portrait game in landscape", 1080 to 1440, DisplayPrefs("fit", 100).surfaceSize(3120, 1440, 384, 512))
     }
 
+    @Test fun newLayoutModes() {
+        // Fill (cover): keep proportions and cover the whole area; 512x384 on 3120x1440 -> 3120 wide, 2340 tall (cropped).
+        assertEquals(3120 to 2340, DisplayPrefs("cover").surfaceSize(3120, 1440, 512, 384))
+        assertEquals(512 to 384, DisplayPrefs("original").surfaceSize(3120, 1440, 512, 384))
+        assertEquals(2880 to 2160, DisplayPrefs("zoom", zoomPercent = 150).surfaceSize(3120, 1440, 512, 384))
+        val p = DisplayPrefs.from(mapOf("screenFit" to "zoom", "screenZoom" to "999", "screenOffsetX" to "-250", "screenOffsetY" to "40"))
+        assertEquals(DisplayPrefs("zoom", 100, DisplayPrefs.MAX_ZOOM, -100, 40), p)
+        assertTrue(DisplayPrefs("cover").fixedAspectRatio && !DisplayPrefs("cover").integerScaling)
+        val h = RgssRuntime.compatHeader(1, 1, display = DisplayPrefs("zoom", 100, 150, -20, 30))
+        assertTrue(h, h.contains("ZOOM = 150; OFFSET_X = -20; OFFSET_Y = 30"))
+    }
+
     @Test fun pendingChangeRoundTrip() {
         val dir = Files.createTempDirectory("disp").toFile()
         assertNull(DisplayPrefs.takePending(dir))
         assertTrue(DisplayPrefs.write(dir, DisplayPrefs("fill", 75)))
-        assertEquals(mapOf("screenFit" to "fill", "screenSize" to "75"), DisplayPrefs.takePending(dir))
+        val zoomCentred = mapOf("screenZoom" to "100", "screenOffsetX" to "0", "screenOffsetY" to "0")
+        assertEquals(mapOf("screenFit" to "fill", "screenSize" to "75") + zoomCentred, DisplayPrefs.takePending(dir))
         assertNull("consumed", DisplayPrefs.takePending(dir))
         DisplayPrefs.write(dir, DisplayPrefs("integer", 60))
         DisplayPrefs.writePending(dir, mapOf("buttonMap" to "A=ENTER;B=X", "gamepadMode" to "never", "evil" to "x"))
-        assertEquals(mapOf("screenFit" to "integer", "screenSize" to "60", "buttonMap" to "A=ENTER;B=X", "gamepadMode" to "never"),
+        assertEquals(mapOf("screenFit" to "integer", "screenSize" to "60") + zoomCentred + mapOf("buttonMap" to "A=ENTER;B=X", "gamepadMode" to "never"),
             DisplayPrefs.takePending(dir))
         dir.deleteRecursively()
     }

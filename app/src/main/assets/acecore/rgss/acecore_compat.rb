@@ -1560,6 +1560,8 @@ end
 # The Android surface stays full-screen; the engine lays the game out inside it:
 #   Fit = aspect locked, Stretch = aspect unlocked, Pixel-perfect = whole-number scaling (nearest-neighbour),
 #   Game size = Graphics.acearcade_area (share of the screen, centred; AceArcade's engine patch).
+#   Fill (cover: keep proportions, fill the screen, cut off the overflow), Zoom (a % of the Fit size) and Original
+#   (one game pixel per screen pixel), plus the picture position, = Graphics.acearcade_layout (engine patch).
 # This script applies the launch values (AceCoreCompat::FIT / SIZE / SMOOTH), applies changes the menu writes to
 # DISPLAY_FILE, reports the game's resolution to "screen", and keeps Stretch in effect on engines without the
 # aspect-ratio fix.
@@ -1570,7 +1572,11 @@ module AceCoreCompat
     @frame = 0
     @fit = defined?(AceCoreCompat::FIT) ? AceCoreCompat::FIT : nil
     @size = defined?(AceCoreCompat::SIZE) ? AceCoreCompat::SIZE : 100
+    @zoom = defined?(AceCoreCompat::ZOOM) ? AceCoreCompat::ZOOM : 100
+    @offx = defined?(AceCoreCompat::OFFSET_X) ? AceCoreCompat::OFFSET_X : 0
+    @offy = defined?(AceCoreCompat::OFFSET_Y) ? AceCoreCompat::OFFSET_Y : 0
     @reported = nil
+    LAYOUT_MODES = { 'cover' => 1, 'zoom' => 2, 'original' => 3 }.freeze
     @applied = false
 
     def self.dir
@@ -1594,6 +1600,9 @@ module AceCoreCompat
         text = File.read(path)
         fit = text[/"screenFit"\s*:\s*"(\w+)"/, 1] || @fit
         size = (text[/"screenSize"\s*:\s*"(\d+)"/, 1] || @size).to_i
+        @zoom = (text[/"screenZoom"\s*:\s*"(\d+)"/, 1] || @zoom).to_i
+        @offx = (text[/"screenOffsetX"\s*:\s*"(-?\d+)"/, 1] || @offx).to_i
+        @offy = (text[/"screenOffsetY"\s*:\s*"(-?\d+)"/, 1] || @offy).to_i
         apply(fit, size) if fit
       end
       if @fit == 'fill' && Graphics.respond_to?(:fixed_aspect_ratio) && Graphics.fixed_aspect_ratio
@@ -1641,6 +1650,10 @@ module AceCoreCompat
         Graphics.smooth_scaling = integer ? false : smooth
       end
       Graphics.acearcade_area = @size / 100.0 if Graphics.respond_to?(:acearcade_area=)
+      if Graphics.respond_to?(:acearcade_layout)
+        Graphics.acearcade_layout(LAYOUT_MODES[fit] || 0, @zoom.to_i.clamp(25, 400) / 100.0,
+                                  @offx.to_i.clamp(-100, 100) / 100.0, @offy.to_i.clamp(-100, 100) / 100.0)
+      end
     end
   end
 end

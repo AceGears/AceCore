@@ -9,6 +9,10 @@
 // multiple that fits) with "last mile" smoothing of the remainder, i.e. sharp-bilinear: pixel edges stay crisp at any
 // non-integer size instead of the whole image being linearly blurred from 1x. These paths now also require an actual
 // integer step (factor >= 1), so a game larger than its area still draws.
+// Layout modes (Graphics.acearcade_layout = [mode, zoom, offset_x, offset_y]): 0 = the engine's Fit / Stretch /
+// Pixel-perfect, 1 = Fill (keep proportions, cover the whole area, the overflow is cut off), 2 = Zoom (zoom x the Fit
+// size), 3 = Original (one game pixel per screen pixel). The offsets (-1..1) move the picture inside the free space,
+// or across the overflow when it is larger than the screen; 0 = centred. Touch input follows the same rectangle.
 /*
  ** graphics.cpp
  **
@@ -779,6 +783,9 @@ private:
 
 /* AceArcade: share of the window the game screen may use (Graphics.acearcade_area). */
 static float aceAreaScale = 1.0f;
+/* AceArcade: layout mode, zoom and position (Graphics.acearcade_layout, see the header). */
+static int aceMode = 0;
+static float aceZoom = 1.0f, aceOffX = 0.0f, aceOffY = 0.0f;
 
 struct GraphicsPrivate {
     /* Screen resolution, ie. the resolution at which
@@ -893,6 +900,25 @@ struct GraphicsPrivate {
     }
 
     void recalculateScreenSize(bool fixedAspectRatio) {
+        recalculateBaseScreenSize(fixedAspectRatio);
+        /* AceArcade: Fill / Zoom / Original, then the picture position. */
+        const Vec2i area = aceArea();
+        if (aceMode == 1 || aceMode == 2) {
+            float kx = (float)area.x / scRes.x, ky = (float)area.y / scRes.y;
+            float k = aceMode == 1 ? std::max(kx, ky) : std::min(kx, ky) * aceZoom;
+            scSize = Vec2i((int)(scRes.x * k + 0.5f), (int)(scRes.y * k + 0.5f));
+        } else if (aceMode == 3) {
+            scSize = scRes;
+        }
+        if (aceMode != 0) {
+            scOffset.x = (winSize.x - scSize.x) / 2;
+            scOffset.y = (winSize.y - scSize.y) / 2;
+        }
+        scOffset.x += (int)(aceOffX * std::abs(winSize.x - scSize.x) / 2.0f);
+        scOffset.y += (int)(aceOffY * std::abs(winSize.y - scSize.y) / 2.0f);
+    }
+
+    void recalculateBaseScreenSize(bool fixedAspectRatio) {
         const Vec2i area = aceArea();
         scSize = area;
         
@@ -1707,4 +1733,15 @@ void aceArcadeSetArea(double value)
 double aceArcadeGetArea()
 {
     return aceAreaScale;
+}
+
+/* AceArcade: layout mode / zoom / position (see the header); re-lays out the screen like aceArcadeSetArea. */
+void aceArcadeSetLayout(int mode, double zoom, double offX, double offY)
+{
+    aceMode = (mode >= 0 && mode <= 3) ? mode : 0;
+    aceZoom = (float)(zoom < 0.25 ? 0.25 : (zoom > 4.0 ? 4.0 : zoom));
+    aceOffX = (float)(offX < -1.0 ? -1.0 : (offX > 1.0 ? 1.0 : offX));
+    aceOffY = (float)(offY < -1.0 ? -1.0 : (offY > 1.0 ? 1.0 : offY));
+    Graphics &g = shState->graphics();
+    g.setIntegerScaling(g.getIntegerScaling());
 }

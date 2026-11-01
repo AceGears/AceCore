@@ -309,6 +309,8 @@ module AceCore
           c << "rpg_heal" if rpg_party
           c << "rpg_level" if rpg_party
         end
+        c << "switches" if defined?($game_switches) && $game_switches && defined?($data_system) && $data_system.respond_to?(:switches)
+        c << "variables" if defined?($game_variables) && $game_variables && defined?($data_system) && $data_system.respond_to?(:variables)
         c << "walk_speed" if defined?(::Game_Player) && ::Game_Player.ancestors.include?(PlayerSpeed)
         if encounters_hook_available?
           c << "no_encounters"
@@ -460,8 +462,54 @@ module AceCore
         when "rpg_item" then rpg_give_item(int(a[0], 1), int(a[1], 1, 99))
         when "rpg_heal" then rpg_heal
         when "rpg_level" then rpg_level(int(a[0], 0), int(a[1], 1, 99))
+        when "switches" then list_switches
+        when "switch" then set_switch(int(a[0], 1), a[1].to_s)
+        when "variables" then list_variables
+        when "variable" then set_variable(int(a[0], 1), int(a[1], -99_999_999, 99_999_999))
         else raise "Unknown command #{verb}"
         end
+      end
+
+      # ---------------------------------------------------------------- game switches & variables (every RPG Maker game)
+      # Listed with the names the game's database gives them; empty names are shown as "(unnamed)". Only numbers are
+      # written to variables: a variable holding text or an object is shown but not changed.
+      def list_switches
+        need("switches")
+        names = $data_system.switches
+        n = [names.size - 1, 5000].min
+        lines = (1..n).map { |i| [i, "#{i}: #{AceCore.clean(names[i].to_s.strip.empty? ? '(unnamed)' : names[i])}  [#{$game_switches[i] ? 'ON' : 'OFF'}]"].join("\t") }
+        AceCore.write("switches", lines.join("\n") + "\n")
+        "#{lines.size} switches"
+      end
+
+      def set_switch(id, value)
+        need("switches")
+        on = value == "toggle" ? !$game_switches[id] : value == "1"
+        $game_switches[id] = on
+        $game_map.need_refresh = true if defined?($game_map) && $game_map.respond_to?(:need_refresh=)
+        "Switch #{id} #{on ? 'ON' : 'OFF'}"
+      end
+
+      def list_variables
+        need("variables")
+        names = $data_system.variables
+        n = [names.size - 1, 5000].min
+        lines = (1..n).map do |i|
+          v = $game_variables[i]
+          shown = v.is_a?(Numeric) || v.nil? ? (v || 0).to_s : "(#{v.class})"
+          [i, "#{i}: #{AceCore.clean(names[i].to_s.strip.empty? ? '(unnamed)' : names[i])} = #{shown}", v.is_a?(Integer) || v.nil? ? (v || 0) : ""].join("\t")
+        end
+        AceCore.write("variables", lines.join("\n") + "\n")
+        "#{lines.size} variables"
+      end
+
+      def set_variable(id, value)
+        need("variables")
+        old = $game_variables[id]
+        raise "Variable #{id} holds #{old.class}, not a number; left unchanged" unless old.nil? || old.is_a?(Numeric)
+        $game_variables[id] = value
+        $game_map.need_refresh = true if defined?($game_map) && $game_map.respond_to?(:need_refresh=)
+        "Variable #{id} = #{value}"
       end
 
       def max_level

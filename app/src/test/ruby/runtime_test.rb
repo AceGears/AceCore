@@ -366,6 +366,25 @@ SCENARIOS["rpgmaker_xp"] = <<~'RUBY'
   check("no Pokémon capabilities", !caps.include?("pkmn_edit") && s["kind"] == "rpgmaker")
   cmd(DIR, "2\tgold\tset\t9000")
   check("gold set via gain_gold", $game_party.gold == 9000)
+  # Game switches and variables, with the names from the game's database.
+  sysdata = Struct.new(:switches, :variables).new([nil, "Met rival", "", "Gym 1"], [nil, "Steps", "Name"])
+  $data_system = sysdata
+  $game_switches = [nil, false, true, false]; $game_variables = [nil, 12, "Ash"]
+  map = Struct.new(:need_refresh).new(false); $game_map = map
+  cmd(DIR, "20\tprobe")
+  check("switches/variables capability", (%w[switches variables] - state(DIR)["caps"].split(",")).empty?)
+  r = cmd(DIR, "21\tswitches")
+  rows = File.read(File.join(DIR, "switches")).lines.map { |l| l.chomp.split("\t") }
+  check("switch list with names and states", r[0][1] == "ok" && rows == [["1", "1: Met rival  [OFF]"], ["2", "2: (unnamed)  [ON]"], ["3", "3: Gym 1  [OFF]"]])
+  cmd(DIR, "22\tswitch\t3\ttoggle")
+  check("switch toggled, map refreshed", $game_switches[3] == true && map.need_refresh)
+  cmd(DIR, "23\tvariables")
+  vrows = File.read(File.join(DIR, "variables")).lines.map { |l| l.chomp.split("\t") }
+  check("variable list shows values", vrows[0] == ["1", "1: Steps = 12", "12"] && vrows[1][1] == "2: Name = (String)")
+  cmd(DIR, "24\tvariable\t1\t500")
+  check("variable set", $game_variables[1] == 500)
+  r = cmd(DIR, "25\tvariable\t2\t5")
+  check("text variable left unchanged", r[0][1] == "error" && $game_variables[2] == "Ash")
   cmd(DIR, "3\trpg_item\t1\t5")
   check("XP gain_item uses item id", $game_party.items[1] == 5)
   cmd(DIR, "4\trpg_heal")

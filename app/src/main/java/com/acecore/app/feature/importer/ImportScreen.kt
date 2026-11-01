@@ -94,6 +94,43 @@ class ImportViewModel(
         }
     }
 
+    /**
+     * A game that arrived as one file ([file]: .zip / .7z / self-extracting .exe): copied to the cache, unpacked into a
+     * new folder in [destTree], then that folder is scanned like any other.
+     */
+    fun startArchive(file: Uri, destTree: Uri, context: android.content.Context) {
+        if (started == file) return
+        started = file
+        viewModelScope.launch {
+            state = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val name = ArchiveImport.displayName(context.contentResolver, file)
+                    state = UiState.Scanning("Reading $name…")
+                    val local = ArchiveImport.copyToCache(context, file, name) { done -> state = UiState.Scanning("Reading $name… ${done shr 20} MB") }
+                    try {
+                        state = UiState.Scanning("Checking $name…")
+                        val kind = ArchiveImport.inspect(local)
+                        if (kind is ArchiveImport.Kind.Unsupported) return@withContext UiState.Failed(kind.reason)
+                        val folder = ArchiveImport.folderName(name)
+                        val docId = ArchiveImport.extract(context, local, kind, destTree, folder) { i, n ->
+                            if (i % 25 == 0 || i == n) state = UiState.Scanning("Unpacking $folder… $i / $n files")
+                        }
+                        state = UiState.Scanning("Analysing $folder…")
+                        val outcome = repo.scanAt(destTree, docId, folder)
+                        if (outcome is ScanOutcome.Single) {
+                            outcome.candidate.detection.launchCandidates.firstOrNull { it.playable }?.let { chosenLaunch[outcome.candidate.rootDocId] = it }
+                        }
+                        UiState.Results(outcome) as UiState
+                    } finally {
+                        local.delete()
+                    }
+                }
+            }.getOrElse { e ->
+                UiState.Failed(if (e is SecurityException) "AceArcade can't write to that folder. Choose a folder on your phone's storage." else "Unpacking failed: ${e.message}")
+            }
+        }
+    }
+
     /** When set (adding from a category tab), imported games also join this category. */
     var targetCategory: Long? = null
 
@@ -112,11 +149,14 @@ class ImportViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportScreen(treeUri: Uri?, categoryId: Long? = null, onDone: () -> Unit, onOpenGame: (Long) -> Unit) {
+fun ImportScreen(treeUri: Uri?, categoryId: Long? = null, fileUri: Uri? = null, onDone: () -> Unit, onOpenGame: (Long) -> Unit) {
     val ctx = LocalContext.current
     val vm: ImportViewModel = viewModel { ImportViewModel(ctx.container.games, ctx.container.categories) }
     vm.targetCategory = categoryId
-    LaunchedEffect(treeUri) { treeUri?.let { vm.start(it) } }
+    LaunchedEffect(treeUri, fileUri) {
+        val tree = treeUri ?: return@LaunchedEffect
+        if (fileUri != null) vm.startArchive(fileUri, tree, ctx.applicationContext) else vm.start(tree)
+    }
     val state = vm.state
 
     LaunchedEffect(state) {

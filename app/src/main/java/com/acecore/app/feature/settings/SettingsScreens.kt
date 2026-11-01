@@ -243,7 +243,8 @@ private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: 
     val previewTheme = current.copy(preset = preset)
     val accent = accentArgbFor(previewTheme).toColor()
     val bg = when (preset) {
-        ThemePreset.SIGNATURE_LIGHT -> Color(0xFFF7F5FC)
+        ThemePreset.SIGNATURE_LIGHT -> Color(0xFFF4F4F6)
+        ThemePreset.NEON_CLASSIC -> Color(0xFF06051A)
         ThemePreset.AMOLED -> Color.Black
         ThemePreset.MIDNIGHT_BLUE -> Color(0xFF070B18)
         ThemePreset.CRIMSON_RED -> Color(0xFF140509)
@@ -252,7 +253,7 @@ private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: 
         ThemePreset.GOLD_EDITION -> Color(0xFF0E0B05)
         ThemePreset.CUSTOM -> current.background.toColor()
         ThemePreset.DYNAMIC -> MaterialTheme.colorScheme.background
-        else -> Color(0xFF06051A)
+        else -> Color(0xFF0B0B0E)
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
         Box(
@@ -615,6 +616,13 @@ Kotlin standard library, kotlinx.coroutines, kotlinx.serialization
 
 Coil
   Apache License 2.0 — Coil Contributors
+
+Apache Commons Compress, Apache Commons IO, Apache Commons Lang (unpacking .zip / .7z games)
+  Apache License 2.0 — The Apache Software Foundation. This product includes software developed at
+  The Apache Software Foundation (https://www.apache.org/).
+
+XZ for Java (LZMA for .7z archives)
+  Public domain (0BSD) — Lasse Collin and contributors
 
 Material Symbols / Material Icons
   Apache License 2.0 — Google LLC

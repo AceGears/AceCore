@@ -96,6 +96,8 @@ import com.acecore.app.runtime.web.overlay.VirtualGamepad
 import com.acecore.app.runtime.web.overlay.VirtualKeyboard
 import org.libsdl.app.SDLActivity
 import kotlin.math.roundToInt
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.offset
 import java.io.File
 import java.util.Locale
 
@@ -766,6 +768,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     ),
                 )
             }
+            if (s.cheatsEnabled && ConfigKey.CHEAT_SHORTCUT.bool(cfg[ConfigKey.CHEAT_SHORTCUT.id] ?: "true") &&
+                !menuOpen && !cheatsOpen && !editingLayout && failure == null && !starting
+            ) CheatShortcut(accent) { cheatsOpen = true }
             if (keyboardOpen) VirtualKeyboard(accent, haptics, ::sendKey) { keyboardOpen = false }
             if (menuOpen) RgssMenu(s, accent)
             if (cheatsOpen) RgssCheatPanel(s, applicationContext, accent) { cheatsOpen = false }
@@ -782,6 +787,45 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (stalled && !menuOpen && failure == null) StallBanner(s, accent, Modifier.align(Alignment.TopCenter))
             if (starting && !menuOpen && failure == null) StartingPill(stageText, accent, Modifier.align(Alignment.TopCenter))
             failure?.let { f -> FailureScreen(s, f, accent) }
+        }
+    }
+
+    /**
+     * Floating cheat button: opens the cheat menu without going through ☰. Drag to move; the position is kept as a
+     * fraction of the screen (per orientation), so it stays in the same place on any screen size.
+     */
+    @Composable
+    private fun CheatShortcut(accent: Color, onOpen: () -> Unit) {
+        val prefs = remember { getSharedPreferences("cheat_shortcut", MODE_PRIVATE) }
+        val land = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
+        val key = if (land) "land" else "port"
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val sizePx = with(density) { 46.dp.toPx() }
+            val wPx = with(density) { maxWidth.toPx() } - sizePx
+            val hPx = with(density) { maxHeight.toPx() } - sizePx
+            var fx by remember(key) { mutableStateOf(prefs.getFloat("$key.x", 0.5f)) }
+            var fy by remember(key) { mutableStateOf(prefs.getFloat("$key.y", 0.04f)) }
+            Box(
+                Modifier
+                    .offset { androidx.compose.ui.unit.IntOffset((fx * wPx).roundToInt(), (fy * hPx).roundToInt()) }
+                    .size(46.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), androidx.compose.foundation.shape.CircleShape)
+                    .border(1.5.dp, accent, androidx.compose.foundation.shape.CircleShape)
+                    .pointerInput(key) {
+                        androidx.compose.foundation.gestures.detectDragGestures(
+                            onDragEnd = { prefs.edit().putFloat("$key.x", fx).putFloat("$key.y", fy).apply() },
+                        ) { change, drag ->
+                            change.consume()
+                            if (wPx > 0) fx = (fx + drag.x / wPx).coerceIn(0f, 1f)
+                            if (hPx > 0) fy = (fy + drag.y / hPx).coerceIn(0f, 1f)
+                        }
+                    }
+                    .clickable(onClickLabel = "Open cheats") { onOpen() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(androidx.compose.material.icons.Icons.Rounded.AutoFixHigh, "Cheats", tint = accent, modifier = Modifier.size(24.dp))
+            }
         }
     }
 
@@ -859,6 +903,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                 Modifier.padding(top = 12.dp).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp)
                     .background(PanelBg, RoundedCornerShape(20.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -868,26 +913,47 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     androidx.compose.material3.TextButton(onClick = { displayOpen = false }) { Text("Done", color = accent, fontWeight = FontWeight.Bold) }
                 }
                 Text("Screen fit", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(DisplayPrefs.FIT to "Fit", DisplayPrefs.FILL to "Stretch", DisplayPrefs.INTEGER to "Pixel-perfect").forEach { (mode, label) ->
-                        val sel = display.fit == mode
-                        Box(
-                            Modifier.weight(1f).height(40.dp)
-                                .background(if (sel) accent.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
-                                .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                                .clickable { updateDisplay(display.copy(fit = mode)) },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(label, color = Color.White, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, fontSize = 13.sp) }
+                listOf(
+                    listOf(DisplayPrefs.FIT to "Fit", DisplayPrefs.COVER to "Fill", DisplayPrefs.FILL to "Stretch"),
+                    listOf(DisplayPrefs.INTEGER to "Pixel-perfect", DisplayPrefs.ORIGINAL to "Original", DisplayPrefs.ZOOM to "Zoom"),
+                ).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (mode, label) ->
+                            val sel = display.fit == mode
+                            Box(
+                                Modifier.weight(1f).height(40.dp)
+                                    .background(if (sel) accent.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                                    .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                    .clickable { updateDisplay(display.copy(fit = mode)) },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(label, color = Color.White, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, fontSize = 13.sp) }
+                        }
                     }
                 }
                 Text(
                     when (display.fit) {
+                        DisplayPrefs.COVER -> "Keeps the game's proportions and fills the whole area; the edges that don't fit are cut off."
                         DisplayPrefs.FILL -> "Fills the whole area; the picture is stretched to the screen's shape."
                         DisplayPrefs.INTEGER -> "Largest whole-number multiple of the game's resolution: crisp pixels, may leave borders."
+                        DisplayPrefs.ORIGINAL -> "One game pixel per screen pixel (the game's own resolution, small on a phone)."
+                        DisplayPrefs.ZOOM -> "Your own size, as a percentage of the Fit size. Above 100% the edges are cut off."
                         else -> "Largest size that keeps the game's proportions."
                     },
                     color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
                 )
+                if (display.fit == DisplayPrefs.ZOOM) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Zoom", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Text("${display.zoomPercent}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    androidx.compose.material3.Slider(
+                        value = display.zoomPercent.toFloat(),
+                        onValueChange = { updateDisplay(display.copy(zoomPercent = (it / 5f).roundToInt() * 5)) },
+                        valueRange = DisplayPrefs.MIN_ZOOM.toFloat()..DisplayPrefs.MAX_ZOOM.toFloat(),
+                        steps = (DisplayPrefs.MAX_ZOOM - DisplayPrefs.MIN_ZOOM) / 5 - 1,
+                        colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Game size", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Text("${display.sizePercent}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -898,6 +964,30 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     valueRange = DisplayPrefs.MIN_SIZE.toFloat()..100f, steps = (100 - DisplayPrefs.MIN_SIZE) / 5 - 1,
                     colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Picture position", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(
+                        if (display.offsetX == 0 && display.offsetY == 0) "Centred" else "${display.offsetX}, ${display.offsetY}",
+                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { updateDisplay(display.copy(offsetX = 0, offsetY = 0)) }) {
+                        Text("Centre", color = accent)
+                    }
+                }
+                listOf("↔" to true, "↕" to false).forEach { (sym, horizontal) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(sym, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, modifier = Modifier.width(24.dp))
+                        androidx.compose.material3.Slider(
+                            value = (if (horizontal) display.offsetX else display.offsetY).toFloat(),
+                            onValueChange = {
+                                val v = (it / 5f).roundToInt() * 5
+                                updateDisplay(if (horizontal) display.copy(offsetX = v) else display.copy(offsetY = v))
+                            },
+                            valueRange = -100f..100f, steps = 39, modifier = Modifier.weight(1f),
+                            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+                        )
+                    }
+                }
                 Text(layoutInfo, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                 Text("Saved for this game. Also in the game's settings in the library.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
             }
@@ -1275,8 +1365,11 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 }
 
 private fun fitLabel(fit: String) = when (fit) {
+    DisplayPrefs.COVER -> "Fill"
     DisplayPrefs.FILL -> "Stretch"
     DisplayPrefs.INTEGER -> "Pixel-perfect"
+    DisplayPrefs.ORIGINAL -> "Original"
+    DisplayPrefs.ZOOM -> "Zoom"
     else -> "Fit"
 }
 
