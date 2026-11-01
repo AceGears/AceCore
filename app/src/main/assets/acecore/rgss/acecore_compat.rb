@@ -2367,6 +2367,8 @@ module AceCoreCompat
     # kept calling the original String#[] after a module was prepended to String (its method cache wasn't cleared),
     # so a prepended version never ran on the device although it did in tests.
     def self.install
+      return if @installed
+      @installed = true
       String.class_eval do
         alias_method :__acearcade_aref, :[]
         alias_method :__acearcade_aset, :[]=

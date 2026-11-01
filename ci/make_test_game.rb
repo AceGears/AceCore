@@ -57,7 +57,15 @@ script = <<~'RUBY'
     rescue Exception => e
       "#{e.class}: #{e.message}"
     end
-    mark.call("rgss1", "r18=#{$acearcade_r18} cvar=#{cvar} win32=#{win}")
+    # Ruby 1.8 strings (used for RPG Maker XP games not written for mkxp-z; this test game declares mkxp-z, so the
+    # mechanism is switched on here directly): with the engine's Ruby, "AB"[0] must then be the byte 65.
+    s18 = if defined?(AceCoreCompat::Ruby18Strings)
+            AceCoreCompat::Ruby18Strings.install
+            ("AB"[0] == 65 && "AB"[1] == 66 && "AB"[0, 1] == "A") ? "ok" : "AB"[0].inspect
+          else
+            "missing"
+          end
+    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
