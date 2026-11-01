@@ -2288,6 +2288,9 @@ AceCoreCompat::Ruby18Syntax.apply($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $
 module AceCoreCompat
   module Ruby18Strings
     @active = false
+    @diag_left = 6
+    @conversions = 0
+    @seen = {}
     class << self
       attr_reader :active
 
@@ -2304,8 +2307,22 @@ module AceCoreCompat
       # True when the String method was called from the game's code (not AceArcade's scripts).
       def game_caller?
         loc = caller_locations(2, 1)&.first or return false
-        !loc.path.include?('acecore_')
+        game = !loc.path.include?('acecore_')
+        diagnose(loc, game) if @diag_left > 0
+        game
       end
+
+      # The first few decisions go to the engine log, so a report shows where Ruby 1.8 behaviour applied.
+      def diagnose(loc, game)
+        key = "#{loc.path}:#{game}"
+        return if @seen[key]
+        @seen[key] = true
+        @diag_left -= 1
+        ($stderr.puts("AceArcade: Ruby 1.8 strings #{game ? 'used' : 'not used'} for calls from #{loc.path}:#{loc.lineno} (String: #{String.ancestors.first(3).inspect})") rescue nil)
+      end
+
+      def count! = (@conversions += 1)
+      attr_reader :conversions
 
       # ?x literals -> their byte value, found through the parser (not text search), so "?" in strings, regexps and
       # a ? b : c are untouched. Line numbers stay the same.
@@ -2346,27 +2363,48 @@ module AceCoreCompat
       end
     end
 
-    module StringMethods
-      def [](*args)
-        if args.size == 1 && args[0].is_a?(Integer) && Ruby18Strings.game_caller?
-          i = args[0]
-          return getbyte(i < 0 ? bytesize + i : i)
+    # The methods are redefined in String / IO themselves (alias + def), not prepended: the Ruby 3.1.0 in the engine
+    # kept calling the original String#[] after a module was prepended to String (its method cache wasn't cleared),
+    # so a prepended version never ran on the device although it did in tests.
+    def self.install
+      String.class_eval do
+        alias_method :__acearcade_aref, :[]
+        alias_method :__acearcade_aset, :[]=
+        def [](*args)
+          if args.size == 1 && Integer === args[0] && AceCoreCompat::Ruby18Strings.game_caller?
+            i = args[0]
+            AceCoreCompat::Ruby18Strings.count!
+            return getbyte(i < 0 ? bytesize + i : i)
+          end
+          __acearcade_aref(*args)
         end
-        super
-      end
 
-      def []=(*args)
-        if args.size == 2 && args[0].is_a?(Integer) && args[1].is_a?(Integer) && Ruby18Strings.game_caller?
-          i = args[0]
-          setbyte(i < 0 ? bytesize + i : i, args[1] & 0xFF)
-          return args[1]
+        def []=(*args)
+          if args.size == 2 && Integer === args[0] && Integer === args[1] && AceCoreCompat::Ruby18Strings.game_caller?
+            i = args[0]
+            setbyte(i < 0 ? bytesize + i : i, args[1] & 0xFF)
+            return args[1]
+          end
+          __acearcade_aset(*args)
         end
-        super
-      end
 
-      def each(*args, &blk)
-        return super if defined?(super)
-        each_line(*args, &blk)
+        unless method_defined?(:each)
+          def each(*args, &blk) = each_line(*args, &blk)
+        end
+      end
+      # IO#getc / IO#readchar returned the byte (an Integer) in Ruby 1.8; Essentials' File readers (fgetb) use them.
+      IO.class_eval do
+        alias_method :__acearcade_getc, :getc
+        alias_method :__acearcade_readchar, :readchar
+        def getc
+          c = __acearcade_getc
+          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; c.getbyte(0)) : c
+        end
+
+        def readchar
+          c = __acearcade_readchar
+          c.is_a?(String) && AceCoreCompat::Ruby18Strings.game_caller? ? (AceCoreCompat::Ruby18Strings.count!; c.getbyte(0)) : c
+        end
       end
     end
   end
@@ -2394,20 +2432,25 @@ module AceCoreCompat
       end
     end
 
-    module InstanceRead
-      def read(*args)
-        src = super
-        args.empty? && is_a?(File) && ScriptFiles.script?(path) && ScriptFiles.game_caller? ? ScriptFiles.adapt(src, path) : src
-      end
-    end
   end
 end
 File.singleton_class.prepend(AceCoreCompat::ScriptFiles::ClassRead)
-File.prepend(AceCoreCompat::ScriptFiles::InstanceRead)
+class File
+  # (defined in File itself, see Ruby18Strings.install for why not prepended)
+  def read(*args)
+    src = super
+    args.empty? && AceCoreCompat::ScriptFiles.script?(path) && AceCoreCompat::ScriptFiles.game_caller? ? AceCoreCompat::ScriptFiles.adapt(src, path) : src
+  end
+end
 
 if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
   AceCoreCompat::Ruby18Strings.apply($RGSS_SCRIPTS)
-  String.prepend(AceCoreCompat::Ruby18Strings::StringMethods) if AceCoreCompat::Ruby18Strings.active
+  if AceCoreCompat::Ruby18Strings.active
+    AceCoreCompat::Ruby18Strings.install
+    at_exit do
+      ($stderr.puts("AceArcade: Ruby 1.8 strings: #{AceCoreCompat::Ruby18Strings.conversions} byte reads; String: #{String.ancestors.first(3).inspect}") rescue nil)
+    end
+  end
 end
 
 #===============================================================================

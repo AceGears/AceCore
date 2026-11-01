@@ -38,6 +38,14 @@ check 'logged', $stderr.string.include?('Ruby 1.8 string behaviour for game scri
 eval("def acecore_probe(s) = s[0]", TOPLEVEL_BINDING, '/data/x/acecore_compat.rb')
 check "AceArcade's code keeps Ruby 3 str[i]", acecore_probe("hi"), "h"
 check 'two-argument and range forms unchanged', ["hello"[1, 2], "hello"[1..2], "hello"["ell"]], ["el", "el", "ell"]
+# Essentials File readers (fgetb via getc), as in Pokémon Xenoverse's Pokédex data.
+eval("def pbFgetb(f) = f.getc", TOPLEVEL_BINDING, '102_PokeBattle_Pokemon.rb')
+Dir.mktmpdir do |d|
+  f = File.join(d, 'dexdata.dat'); File.binwrite(f, "\x7F\x01".b)
+  check 'File#getc gives the byte for game code', File.open(f, 'rb') { |io| [pbFgetb(io), pbFgetb(io)] }, [127, 1]
+  check "AceArcade's code still gets a String from getc", File.open(f, 'rb') { |io| eval("io.getc", binding, '/x/acecore_runtime.rb') }, "\x7F".b
+end
+check 'byte reads counted and logged', AceCoreCompat::Ruby18Strings.conversions > 0 && $stderr.string.include?('Ruby 1.8 strings used for calls from'), true
 # Script files a game's Main loads from a folder get the same adaptations (Xenoverse, Reminiscencia).
 Dir.mktmpdir do |d|
   path = File.join(d, '0240 Folder_Script.rb')
