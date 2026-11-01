@@ -297,8 +297,9 @@ end
 #             WriteProfileString(A)                -> win.ini in the game's own Windows folder (%SystemRoot%)
 #   gdi32     AddFontResource(A/W/Ex)              -> 1 for a font the engine has loaded (the game's Fonts folder)
 #   user32    PostMessage to the game window / HWND_BROADCAST -> accepted; SetCapture/ReleaseCapture/GetCapture
-#   advapi32  RegOpenKey(Ex)(A/W), RegQueryValueEx, RegEnum*, RegQueryInfoKey, RegCloseKey -> the registry is
-#                                                     empty: keys not found (2), so games use their defaults
+#   advapi32  RegOpenKey(Ex)(A/W), RegQueryValueEx(A/W), RegEnum*, RegCloseKey -> read-only registry with the user's
+#                                                     shell folders (Documents, Saved Games, AppData, Fonts...) in
+#                                                     this game's Windows folders; any other key: not found (2)
 #   game DLLs (audio.dll, rubyscreen.dll...) -> reported absent to File.exist?/File.open, so Essentials' own
 #                                                     "no DLL" code path runs
 #   user32    FindWindow(Ex)(A), GetForegroundWindow/GetActiveWindow -> the game window (there is exactly one)
@@ -312,10 +313,10 @@ end
 #   winhttp   WinHttpOpen/Connect/OpenRequest/SendRequest/WriteData/ReceiveResponse/QueryHeaders/
 #             QueryDataAvailable/ReadData/CloseHandle -> real HTTP(S) requests (any verb, headers, body), same TLS
 #                                                     checks as wininet; FALSE + GetLastError on failure
-#   any other Windows function: Win32API.new raises, as it does for a missing DLL on Windows, and the call is listed
-#   once in the engine log ("AceArcade: Windows function ... not available on Android"). Games guard optional calls
-#   with "rescue"; returning a fake 0 instead would read as success for HRESULT functions (SHGetKnownFolderPath) and
-#   send games down a wrong path (Pokémon Infinity: File.join(nil) in FileTests).
+#   any other Windows function (see AceCoreCompat::MissingFunction): listed once in the engine log. If the game binds
+#   it inside "rescue", Win32API.new raises like a missing DLL on Windows and the game's fallback runs; otherwise the
+#   binding succeeds and only an actual call raises, naming the function. Nothing returns a made-up value: a fake 0
+#   would read as success for HRESULT functions (SHGetKnownFolderPath) and send games down a wrong path.
 #   wininet   InternetOpenA / InternetConnectA     -> session handles
 #             InternetOpenUrl(A)                   -> real HTTP(S) GET (redirects followed, TLS verified against the
 #                                                     game's cacert.pem or Android's CA store); 0 on failure, like Windows
@@ -903,18 +904,87 @@ module AceCoreCompat
       chars
     end
 
-    # The Windows registry doesn't exist on Android: every key is absent, as on a Windows install where nothing was
-    # ever written there. Opening a key fails with ERROR_FILE_NOT_FOUND (Essentials MiniRegistry then returns its
-    # default), values of the predefined roots are not found, and no other handle is valid.
+    # ---- Registry. Android has no Windows registry. AceArcade provides the part every Windows installation has and
+    # games read: the user's shell folders (Documents, Saved Games, AppData, Fonts...), pointing at this game's own
+    # Windows folders (see USERPROFILE / SystemRoot at the top). Every other key is absent, as on a Windows install
+    # where nothing was written there: opening it fails with ERROR_FILE_NOT_FOUND and games use their defaults
+    # (Essentials MiniRegistry; the RPG Maker RTP key, so no RTP is reported installed). Read-only: nothing is created.
     HKEY_ROOTS = (0x80000000..0x80000006).freeze
+    HKCU = 0x80000001
+    SHELL_FOLDERS = 'software\\microsoft\\windows\\currentversion\\explorer\\shell folders'
+    USER_SHELL_FOLDERS = 'software\\microsoft\\windows\\currentversion\\explorer\\user shell folders'
+    @reg_handles = {}
+    @reg_next = 0x1000
+
     def reg_root?(h) = HKEY_ROOTS.cover?(h.to_i & 0xFFFFFFFF)
 
-    def reg_open(name)
-      note_once("registry key #{c_string(name, -1).force_encoding(Encoding::UTF_8).scrub} -> not found (no Windows registry on Android)") if name.is_a?(String)
-      2
+    def user_dir(*parts)
+      home = ENV['USERPROFILE'] or return nil
+      path = File.join(home, *parts)
+      (Dir.mkdir(path) rescue nil) unless File.directory?(path)
+      path.tr('/', '\\')
     end
 
-    def reg_value(hkey) = reg_root?(hkey) ? 2 : 6
+    def shell_folders
+      {
+        'personal' => user_dir('Documents'), 'my documents' => user_dir('Documents'),
+        'desktop' => user_dir('Desktop'), 'my pictures' => user_dir('Pictures'), 'my music' => user_dir('Music'),
+        'my video' => user_dir('Videos'), 'appdata' => ENV['APPDATA']&.tr('/', '\\'),
+        'local appdata' => ENV['LOCALAPPDATA']&.tr('/', '\\'),
+        'fonts' => ENV['SystemRoot'] && File.join(ENV['SystemRoot'], 'Fonts').tr('/', '\\'),
+        '{4c5c32ff-bb9d-43b0-b5b4-2d72e54eaaa4}' => user_dir('Saved Games'),   # FOLDERID_SavedGames
+        '{374de290-123f-4565-9164-39c4925e467b}' => user_dir('Downloads'),     # FOLDERID_Downloads
+      }.compact
+    end
+
+    # The values of a key, or nil when the key doesn't exist.
+    def reg_key(root, path)
+      root = root.to_i & 0xFFFFFFFF
+      if (h = @reg_handles[root])
+        root, path = h[:root], [h[:path], path].reject { |x| x.nil? || x.empty? }.join('\\')
+      end
+      key = path.to_s.downcase.tr('/', '\\').sub(/\A\\+/, '').sub(/\\+\z/, '')
+      return nil unless root == HKCU && [SHELL_FOLDERS, USER_SHELL_FOLDERS].include?(key)
+      { root: root, path: key, values: shell_folders }
+    end
+
+    # RegOpenKey(Ex): writes the new key handle to [out] (a 4-byte buffer) and returns 0, or ERROR_FILE_NOT_FOUND.
+    def reg_open(root, name, out)
+      name = name.is_a?(String) ? c_string(name, -1).force_encoding(Encoding::UTF_8).scrub : ''
+      key = reg_key(root, name)
+      unless key
+        note_once("registry key #{name} -> not found (no Windows registry on Android)")
+        return 2
+      end
+      h = (@reg_next += 1)
+      @reg_handles[h] = key
+      fill(out, [h].pack('L'))
+      0
+    end
+
+    def reg_close(h)
+      return 0 if reg_root?(h)
+      @reg_handles.delete(h.to_i & 0xFFFFFFFF) ? 0 : 6
+    end
+
+    # RegQueryValueEx(key, name, reserved, type*, data*, size*): REG_SZ text with its NUL. data NULL: only the size;
+    # data too small: ERROR_MORE_DATA (234) with the size needed, as on Windows.
+    def reg_query(h, name, type_buf, data_buf, size_buf, wide = false)
+      key = @reg_handles[h.to_i & 0xFFFFFFFF]
+      return(reg_root?(h) ? 2 : 6) unless key
+      name = name.is_a?(String) ? (wide ? WinHttp.wide(name) : c_string(name, -1).force_encoding(Encoding::UTF_8)) : ''
+      value = key[:values][name.to_s.downcase] or return 2
+      bytes = wide ? (value + "\0").encode(Encoding::UTF_16LE).b : (value.encode(Encoding::Windows_1252, invalid: :replace, undef: :replace) + "\0").b
+      fill(type_buf, [1].pack('L')) # REG_SZ
+      cap = size_buf.is_a?(String) && size_buf.bytesize >= 4 ? size_buf.b.unpack1('L') : 0
+      fill(size_buf, [bytes.bytesize].pack('L'))
+      return 0 unless data_buf.is_a?(String)
+      return 234 if bytes.bytesize > [cap, data_buf.bytesize].min
+      fill(data_buf, bytes)
+      0
+    end
+
+    def reg_enum(h) = @reg_handles[h.to_i & 0xFFFFFFFF] ? 259 : (reg_root?(h) ? 259 : 6) # ERROR_NO_MORE_ITEMS
 
     # AddFontResource: the engine loads every font in the game's "Fonts" folder at start-up, so a font file that is
     # there (or a copy of one, as Essentials' FontInstaller makes) is available to the game: 1 font added. Any other
@@ -986,6 +1056,9 @@ module AceCoreCompat
       'setpriorityclass' => proc { |*_| 1 },
       'getcurrentthreadid' => proc { |*_| Win32::THREAD },
       'getcurrentprocessid' => proc { |*_| Process.pid },
+      # Pseudo-handles, the constant values Windows returns ("the current process / thread").
+      'getcurrentprocess' => proc { |*_| -1 },
+      'getcurrentthread' => proc { |*_| -2 },
       'gettickcount' => proc { |*_| (Process.clock_gettime(Process::CLOCK_MONOTONIC, :millisecond) & 0xFFFFFFFF) },
       'queryperformancefrequency' => proc { |buf| Win32.fill(buf, [1_000_000_000].pack('q')); 1 },
       'queryperformancecounter' => proc { |buf| Win32.fill(buf, [Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)].pack('q')); 1 },
@@ -1094,6 +1167,11 @@ module AceCoreCompat
       'postmessagea' => post, 'postmessagew' => post,
       # Mouse capture: the game window is the only window, so it always has the mouse. SetCapture returns the window
       # that had capture before (none); GetCapture the game window once captured.
+      # Device contexts are Windows GDI drawing surfaces of a desktop window; the game draws through the engine and
+      # there is no GDI surface to hand out. GetDC fails (NULL), as Windows does when it can't provide one.
+      'getdc' => (gdc = proc { |*_| Win32.note_once('user32!GetDC -> NULL (no Windows drawing surface on Android)'); 0 }),
+      'getwindowdc' => gdc, 'getdcex' => gdc,
+      'releasedc' => proc { |*_| 0 },
       'setcapture' => proc { |_hwnd| prev = Win32.captured ? Win32::WINDOW : 0; Win32.captured = true; prev },
       'releasecapture' => proc { |*_| Win32.captured = false; 1 },
       'getcapture' => proc { |*_| Win32.captured ? Win32::WINDOW : 0 },
@@ -1107,16 +1185,17 @@ module AceCoreCompat
     },
     # Registry functions return their error code directly (they don't use GetLastError).
     'advapi32' => {
-      'regopenkeyex' => (rok = proc { |_hkey, name, *_| Win32.reg_open(name) }),
-      'regopenkeyexa' => rok, 'regopenkeya' => rok, 'regopenkey' => rok,
-      'regopenkeyexw' => (rokw = proc { |_hkey, name, *_| Win32.reg_open(name.is_a?(String) ? WinHttp.wide(name).b : name) }),
-      'regopenkeyw' => rokw,
-      'regclosekey' => proc { |hkey| Win32.reg_root?(hkey) ? 0 : 6 },
-      'regqueryvalueex' => (rqv = proc { |hkey, *_| Win32.reg_value(hkey) }),
-      'regqueryvalueexa' => rqv, 'regqueryvalueexw' => rqv, 'regqueryvaluea' => rqv,
-      'regenumkeyex' => rqv, 'regenumkeyexa' => rqv, 'regenumkeyexw' => rqv,
-      'regenumvalue' => rqv, 'regenumvaluea' => rqv, 'regenumvaluew' => rqv,
-      'regqueryinfokey' => rqv, 'regqueryinfokeya' => rqv, 'regqueryinfokeyw' => rqv,
+      'regopenkeyex' => (rok = proc { |hkey, name, _opt = 0, _sam = 0, out = nil| Win32.reg_open(hkey, name, out) }),
+      'regopenkeyexa' => rok,
+      'regopenkey' => (ro = proc { |hkey, name, out = nil| Win32.reg_open(hkey, name, out) }), 'regopenkeya' => ro,
+      'regopenkeyexw' => proc { |hkey, name, _opt = 0, _sam = 0, out = nil| Win32.reg_open(hkey, name.is_a?(String) ? WinHttp.wide(name).b : name, out) },
+      'regopenkeyw' => proc { |hkey, name, out = nil| Win32.reg_open(hkey, name.is_a?(String) ? WinHttp.wide(name).b : name, out) },
+      'regclosekey' => proc { |hkey| Win32.reg_close(hkey) },
+      'regqueryvalueex' => (rqv = proc { |h, name, _r = 0, type = nil, data = nil, size = nil| Win32.reg_query(h, name, type, data, size) }),
+      'regqueryvalueexa' => rqv,
+      'regqueryvalueexw' => proc { |h, name, _r = 0, type = nil, data = nil, size = nil| Win32.reg_query(h, name, type, data, size, true) },
+      'regenumkeyex' => (ren = proc { |h, *_| Win32.reg_enum(h) }), 'regenumkeyexa' => ren, 'regenumkeyexw' => ren,
+      'regenumvalue' => ren, 'regenumvaluea' => ren, 'regenumvaluew' => ren,
     },
     'winhttp' => {
       'winhttpopen' => proc { |agent, *_| WinHttp.open_session(agent) },
@@ -1194,10 +1273,87 @@ if defined?(MiniFFI)
         super
       rescue RuntimeError => e
         raise unless e.message.start_with?('Failed loading', 'Failed to find')
-        AceCoreCompat.win_function(dll, func) or begin
-          AceCoreCompat::Win32.missing(dll, func)
-          raise(e.class, "#{e.message} (Windows function #{dll}!#{func} is not available on Android)")
+        AceCoreCompat.win_function(dll, func) || AceCoreCompat::MissingFunction.bind(dll, func, e, caller_locations(1, 8)&.find { |l| l.path != __FILE__ })
+      end
+    end
+
+    # A Windows function AceArcade doesn't implement.
+    #
+    # Games bind their Windows functions when a script loads (Win32API.new at module level), often many that are
+    # used only by an optional feature (a debug map extractor, a mouse script, a font installer). On Windows the
+    # binding always succeeds. Failing every such binding stopped games before their title screen even though the
+    # function would never have been called; doing that game by game is what kept turning up "the next" missing
+    # function.
+    #
+    # So the binding is decided by the game's own code:
+    #   * guarded (the Win32API.new is inside "rescue", e.g. Win32API.new(...) rescue nil): it fails right away, the
+    #     same as a missing DLL on Windows, so the game's fallback runs;
+    #   * not guarded: the binding succeeds, and calling the function raises a clear error naming it. Nothing returns
+    #     a made-up value; a game only stops if it really uses something Android can't do.
+    # Either way the function is listed once in the engine log.
+    module MissingFunction
+      @asts = {}
+      @sources = {}
+
+      class Binding
+        def initialize(dll, func, where)
+          @dll, @func, @where = dll, func, where
         end
+
+        def call(*_args)
+          ($stderr.puts("AceArcade: Windows function #{@dll}!#{@func} called (bound at #{@where}): not available on Android") rescue nil)
+          raise RuntimeError, "Windows function #{@dll}!#{@func} is not available on Android (called by the game; bound at #{@where})"
+        end
+        alias Call call
+      end
+
+      module_function
+
+      def bind(dll, func, error, loc)
+        AceCoreCompat::Win32.missing(dll, func)
+        where = loc ? "#{loc.path}:#{loc.lineno}" : '?'
+        if loc.nil? || guarded?(loc.path, loc.lineno)
+          raise(error.class, "#{error.message} (Windows function #{dll}!#{func} is not available on Android)")
+        end
+        AceCoreCompat::Win32.note_once("#{dll}!#{func} bound at #{where} (unguarded): fails only if the game calls it")
+        Binding.new(dll, func, where)
+      end
+
+      # The game's source for a backtrace path: "062:FileTests" (Scripts.rxdata, decoded by the engine) or a script
+      # file the game's Main loads from a folder ("0240 Sprite_Resizer.rb").
+      def source(path)
+        return @sources[path] if @sources.key?(path)
+        src = nil
+        if (m = path.match(/\A(\d+):/)) && defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS.is_a?(Array)
+          entry = $RGSS_SCRIPTS[m[1].to_i]
+          src = entry[3] if entry.is_a?(Array) && entry[3].is_a?(String)
+        end
+        src ||= File.read(path) if File.file?(path)
+        src ||= (Dir.glob("**/#{path.tr('[]{}*?', '')}").first&.then { |f| File.read(f) } rescue nil)
+        @sources[path] = src && src.dup.force_encoding(Encoding::UTF_8)
+      rescue StandardError
+        @sources[path] = nil
+      end
+
+      # true when [line] is inside the protected part of a begin/rescue (or "x rescue y") in the game's code, or the
+      # source can't be examined (then the call keeps the strict behaviour).
+      def guarded?(path, line)
+        src = source(path) or return true
+        return true unless defined?(RubyVM::AbstractSyntaxTree)
+        ast = (@asts[path] ||= RubyVM::AbstractSyntaxTree.parse(src))
+        protected_line?(ast, line)
+      rescue StandardError, SyntaxError
+        true
+      end
+
+      def protected_line?(node, line)
+        return false unless node.is_a?(RubyVM::AbstractSyntaxTree::Node)
+        return false if node.first_lineno > line || node.last_lineno < line
+        if node.type == :RESCUE
+          body = node.children[0]
+          return true if body.is_a?(RubyVM::AbstractSyntaxTree::Node) && body.first_lineno <= line && body.last_lineno >= line
+        end
+        node.children.any? { |c| protected_line?(c, line) }
       end
     end
   end

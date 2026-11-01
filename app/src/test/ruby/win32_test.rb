@@ -79,14 +79,20 @@ u16 = "Pokémon".encode('UTF-16LE').b + "\0\0".b
 need = wc.call(65001, 0, u16, -1, nil, 0, nil, nil)
 o = "\0" * need; wc.call(65001, 0, u16, -1, o, need, nil, nil)
 check 'WideCharToMultiByte UTF-16 -> UTF-8 with NUL', o.force_encoding('UTF-8'), "Pokémon\0"
-2.times do
+# An unimplemented function bound without "rescue" (module-level Win32API.new): the binding succeeds, as on Windows,
+# and only calling it raises, naming the function. Nothing returns a made-up value.
+unbound = Win32API.new('shell32', 'SHGetKnownFolderPath', 'pllp', 'i')
+check 'unguarded binding of an unknown function succeeds', unbound.class.name, 'AceCoreCompat::MissingFunction::Binding'
+err = (unbound.call(0, 0, 0, "\0" * 8) rescue $!)
+check 'calling it raises clearly', [err.class, err.message.include?('shell32!SHGetKnownFolderPath is not available on Android')], [RuntimeError, true]
+check 'unknown function listed in the log', $stderr.string.include?('Windows function shell32!SHGetKnownFolderPath is not available on Android'), true
+begin
   begin
-    api['shell32', 'SHGetKnownFolderPath', 'pllp', 'i']; check 'unknown function raises', :created, :raised
+    Win32API.new('gdi32', 'CreateDIBSection', 'lpllpl', 'l')
   rescue RuntimeError => e
-    check 'unknown function raises clearly', e.message.include?('shell32!SHGetKnownFolderPath is not available on Android'), true
+    check 'binding inside begin/rescue fails like a missing DLL', e.message.include?('gdi32!CreateDIBSection is not available on Android'), true
   end
 end
-check 'unknown function logged once', $stderr.string.scan('shell32!SHGetKnownFolderPath').size, 1
 # Essentials pattern: optional calls guarded with "rescue nil" fall back to their non-Windows path.
 skgfp = (Win32API.new('shell32.dll', 'SHGetKnownFolderPath', 'pllp', 'i') rescue nil)
 check 'Essentials getKnownFolder falls back', skgfp, nil
@@ -143,6 +149,15 @@ module MiniRegistry
   def self.read(hkey, name)
     type = 0.chr * 4; size = 0.chr * 4
     check(RegQueryValueExA.call(hkey, name, 0, type, 0, size))
+    data = " " * size.unpack("V")[0]
+    check(RegQueryValueExA.call(hkey, name, 0, type, data, size))
+    type = type.unpack("V")[0]
+    data = data[0, size.unpack("V")[0]]
+    case type
+    when 1 then data.chop
+    when 4 then data.unpack("V")[0]
+    else raise "Type #{type} not supported."
+    end
   end
   def self.check(code)
     if code != 0
@@ -200,5 +215,22 @@ end
 sc = Win32API.new('user32', 'SetCapture', 'p', 'i'); rc = Win32API.new('user32', 'ReleaseCapture', '', 'i')
 check 'SetCapture returns the previous capture (none), then the game window', [sc.call(42), sc.call(42)], [0, 42]
 check 'ReleaseCapture', [rc.call, Win32API.new('user32', 'GetCapture', '', 'i').call], [1, 0]
+# Registry: the user's shell folders exist (Essentials getSaveFolder / FontInstaller read them); other keys don't.
+Dir.mktmpdir do |d|
+  ENV['USERPROFILE'] = File.join(d, 'User'); Dir.mkdir(ENV['USERPROFILE'])
+  personal = MiniRegistry.get(MiniRegistry::HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders", "Personal")
+  check 'Shell Folders\\Personal is the game\'s Documents folder', personal.tr('\\', '/'), File.join(d, 'User', 'Documents')
+  check 'File.join on it works and the folder exists', File.directory?(File.join(personal, 'My Games').sub(%r{/My Games\z}, '')), true
+  saved = MiniRegistry.get(MiniRegistry::HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders", "{4C5C32FF-BB9D-43b0-B5B4-2D72E54EAAA4}")
+  check 'Saved Games folder', saved.tr('\\', '/'), File.join(d, 'User', 'Saved Games')
+  check 'unknown value -> default', MiniRegistry.get(MiniRegistry::HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders", "Nope", :dflt), :dflt
+  check 'RTP key absent', MiniRegistry.get(MiniRegistry::HKEY_LOCAL_MACHINE, "SOFTWARE\\Enterbrain\\RGSS\\RTP", "Standard", nil), nil
+  q = Win32API.new('advapi32', 'RegQueryValueExA', 'LPLPPP', 'L'); o = Win32API.new('advapi32', 'RegOpenKeyExA', 'LPLLP', 'L')
+  k = "\0" * 4; o.call(0x80000001, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders", 0, 0x20019, k)
+  h = k.unpack1('L'); size = [4].pack('L'); type = "\0" * 4
+  check 'RegQueryValueEx small buffer -> ERROR_MORE_DATA with the size', [q.call(h, 'Personal', 0, type, "\0" * 4, size), size.unpack1('L') > 4, type.unpack1('L')], [234, true, 1]
+end
+check 'GetCurrentProcess pseudo-handle', Win32API.new('kernel32.dll', 'GetCurrentProcess', '', 'l').call, -1
+check 'GetDC fails (no GDI surface)', Win32API.new('user32', 'GetDC', 'l', 'l').call(42), 0
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)
