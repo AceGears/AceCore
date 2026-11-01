@@ -85,6 +85,34 @@ check "game's rescue => e does not catch the restart", pbNoCatch, [:in, :in]
 check 'line numbers kept', $RGSS_SCRIPTS[3][3].lines.size, retry_src.lines.size
 eval($RGSS_SCRIPTS[4][3])
 check 'byte-range regexp compiles and keeps its meaning', [pbJsonString?('"abc é"'), pbJsonString?("\"a\u0085b\""), pbJsonString?("\"a\nb\"")], [true, false, false]
+# Ruby 1.8 weakref.rb pattern (Pokémon Z BitmapCache): Thread.critical around shared tables.
+class OldWeakRef
+  @@id_map = {}
+  def initialize(obj) = __setobj__(obj)
+  def __setobj__(obj)
+    @__id = obj.__id__
+    __old_status = Thread.critical
+    begin
+      Thread.critical = true
+      @@id_map[@__id] = [] unless @@id_map[@__id]
+    ensure
+      Thread.critical = __old_status
+    end
+    @@id_map[@__id].push self.__id__
+  end
+  def __getobj__ = ObjectSpace._id2ref(@__id)
+end
+bmp = +"bitmap"
+check 'Thread.critical starts false', Thread.critical, false
+check '1.8 weakref with Thread.critical works', OldWeakRef.new(bmp).__getobj__.equal?(bmp), true
+check 'Thread.critical released after the ensure', Thread.critical, false
+Thread.critical = true; Thread.critical = true
+check 'nested set keeps it', Thread.critical, true
+other = Thread.new { Thread.critical = true; r = :got; Thread.critical = false; r }
+sleep 0.05
+check 'another thread waits while it is held', other.alive?, true
+Thread.critical = false
+check 'and gets it once released', other.value, :got
 check 'logged', $stderr.string.include?('003:PScreen_Load (4 "retry" in an iterator)'), true
 check 'adaptation is logged', $stderr.string.include?('001:AudioUtilities') || $stderr.string.include?('000:AudioUtilities'), true
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')

@@ -61,7 +61,7 @@ object RgssRuntime {
         "# encoding: utf-8\nmodule AceCoreCompat\n  DISPLAY_W = $displayW\n  DISPLAY_H = $displayH\n" +
             "  DATA_DIR = ${dataDir?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
-            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent\nend\n"
+            "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent; LOCALE = ${rubyString(java.util.Locale.getDefault().toLanguageTag())}\nend\n"
 
     /** Real screen size in landscape orientation (games run landscape). */
     fun landscapeDisplaySize(context: Context): Pair<Int, Int> {

@@ -257,5 +257,12 @@ Dir.mktmpdir do |d|
     check 'system of another program: Ruby\'s normal nil', system('notepad.exe'), nil
   end
 end
+# Language (Xenoverse picks its text language from these): the device locale as Windows reports it.
+AceCoreCompat.const_set(:LOCALE, 'es-MX')
+check 'GetUserDefaultLangID = device language', Win32API.new('kernel32', 'GetUserDefaultLangID', '', 'i').call, 0x080A
+k = "\0" * 4
+check 'Control Panel\\International exists', Win32API.new('advapi32', 'RegOpenKeyExA', 'LPLLP', 'L').call(0x80000001, "Control Panel\\International", 0, 0x20019, k), 0
+check 'LocaleName', MiniRegistry.get(MiniRegistry::HKEY_CURRENT_USER, "Control Panel\\International", "LocaleName"), 'es-MX'
+check 'ResourceLocale default value', MiniRegistry.get(MiniRegistry::HKEY_CURRENT_USER, "Control Panel\\Desktop\\ResourceLocale", ""), '0000080A'
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)

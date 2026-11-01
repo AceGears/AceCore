@@ -76,6 +76,13 @@ class LaunchDiagnosisTest {
         assertEquals(Fix.NONE, r.fix)
     }
 
+    @Test fun theOriginalExceptionBehindAGameHandlerIsShown() {
+        val ruby = "RuntimeError: Traceback is too big. Output in traceback.log\n000:Main:14:in `raise_traceback_error'\n" +
+            "\nCaused by NoMethodError: undefined method `size' for nil\n120_Language.rb:33:in `pbLang'\n"
+        val r = LaunchDiagnosis.classify("x", ruby, null, false, true, true)
+        assertTrue(r.issue, r.issue.contains("undefined method `size' for nil") && r.issue.contains("120_Language.rb:33"))
+    }
+
     @Test fun syntaxErrorsShowTheMessage() {
         val r = LaunchDiagnosis.classify("x", "SyntaxError: 126:PScreen_Load:544: Invalid retry\n:26:PScreen_Load", null, false, true, true)
         assertTrue(r.issue, r.issue.contains("126:PScreen_Load:544: Invalid retry"))

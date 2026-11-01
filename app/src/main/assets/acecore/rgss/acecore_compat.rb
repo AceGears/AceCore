@@ -994,7 +994,34 @@ module AceCoreCompat
       chars
     end
 
-    # ---- Registry. Android has no Windows registry. AceArcade provides the part every Windows installation has and
+    # ---- Language. The device language as Windows reports it (LANGID = primary language | sublanguage << 10).
+    LANGIDS = {
+      'en-us' => 0x0409, 'en-gb' => 0x0809, 'en-au' => 0x0C09, 'en-ca' => 0x1009, 'en' => 0x0409,
+      'es-es' => 0x0C0A, 'es-mx' => 0x080A, 'es-us' => 0x540A, 'es-ar' => 0x2C0A, 'es' => 0x0C0A,
+      'fr-fr' => 0x040C, 'fr-ca' => 0x0C0C, 'fr' => 0x040C, 'de-de' => 0x0407, 'de' => 0x0407,
+      'it-it' => 0x0410, 'it' => 0x0410, 'pt-br' => 0x0416, 'pt-pt' => 0x0816, 'pt' => 0x0816,
+      'ja-jp' => 0x0411, 'ja' => 0x0411, 'ko-kr' => 0x0412, 'ko' => 0x0412, 'zh-cn' => 0x0804, 'zh-tw' => 0x0404,
+      'zh-hans' => 0x0804, 'zh-hant' => 0x0404, 'zh' => 0x0804, 'ru-ru' => 0x0419, 'ru' => 0x0419,
+      'pl-pl' => 0x0415, 'pl' => 0x0415, 'nl-nl' => 0x0413, 'nl' => 0x0413, 'tr-tr' => 0x041F, 'tr' => 0x041F,
+      'sv-se' => 0x041D, 'sv' => 0x041D, 'da-dk' => 0x0406, 'da' => 0x0406, 'nb-no' => 0x0414, 'fi-fi' => 0x040B,
+      'cs-cz' => 0x0405, 'el-gr' => 0x0408, 'hu-hu' => 0x040E, 'ar-sa' => 0x0401, 'id-id' => 0x0421,
+    }.freeze
+    # Three-letter language codes Windows uses in Control Panel\International (sLanguage).
+    ABBREVIATIONS = { 0x0409 => 'ENU', 0x0809 => 'ENG', 0x0C0A => 'ESN', 0x080A => 'ESM', 0x040C => 'FRA',
+                      0x0407 => 'DEU', 0x0410 => 'ITA', 0x0416 => 'PTB', 0x0816 => 'PTG', 0x0411 => 'JPN',
+                      0x0412 => 'KOR', 0x0804 => 'CHS', 0x0404 => 'CHT', 0x0419 => 'RUS' }.freeze
+
+    def locale_tag
+      tag = defined?(AceCoreCompat::LOCALE) ? AceCoreCompat::LOCALE.to_s : 'en-US'
+      tag.empty? || tag == 'und' ? 'en-US' : tag
+    end
+
+    def langid
+      parts = locale_tag.downcase.split('-')
+      LANGIDS[parts.first(2).join('-')] || LANGIDS[parts.first] || 0x0409
+    end
+
+ AceArcade provides the part every Windows installation has and
     # games read: the user's shell folders (Documents, Saved Games, AppData, Fonts...), pointing at this game's own
     # Windows folders (see USERPROFILE / SystemRoot at the top). Every other key is absent, as on a Windows install
     # where nothing was written there: opening it fails with ERROR_FILE_NOT_FOUND and games use their defaults
@@ -1034,8 +1061,16 @@ module AceCoreCompat
         root, path = h[:root], [h[:path], path].reject { |x| x.nil? || x.empty? }.join('\\')
       end
       key = path.to_s.downcase.tr('/', '\\').sub(/\A\\+/, '').sub(/\\+\z/, '')
-      return nil unless root == HKCU && [SHELL_FOLDERS, USER_SHELL_FOLDERS].include?(key)
-      { root: root, path: key, values: shell_folders }
+      return nil unless root == HKCU
+      values = case key
+               when SHELL_FOLDERS, USER_SHELL_FOLDERS then shell_folders
+               when 'control panel\\international'
+                 { 'locale' => format('%08X', langid), 'localename' => locale_tag,
+                   'slanguage' => ABBREVIATIONS[langid] || 'ENU' }
+               when 'control panel\\desktop\\resourcelocale' then { '' => format('%08X', langid) }
+               when 'control panel\\desktop' then {}
+               end
+      values && { root: root, path: key, values: values }
     end
 
     # RegOpenKey(Ex): writes the new key handle to [out] (a 4-byte buffer) and returns 0, or ERROR_FILE_NOT_FOUND.
@@ -1148,6 +1183,10 @@ module AceCoreCompat
       'getcurrentprocessid' => proc { |*_| Process.pid },
       # Pseudo-handles, the constant values Windows returns ("the current process / thread").
       'getcurrentprocess' => proc { |*_| -1 },
+      # The device language (see Win32.langid); LCIDs use the default sort order, so they equal the LANGID.
+      'getuserdefaultlangid' => (lang = proc { |*_| Win32.langid }), 'getsystemdefaultlangid' => lang,
+      'getuserdefaultuilanguage' => lang, 'getsystemdefaultuilanguage' => lang,
+      'getuserdefaultlcid' => lang, 'getsystemdefaultlcid' => lang, 'getthreadlocale' => lang,
       'getcurrentthread' => proc { |*_| -2 },
       'gettickcount' => proc { |*_| (Process.clock_gettime(Process::CLOCK_MONOTONIC, :millisecond) & 0xFFFFFFFF) },
       'queryperformancefrequency' => proc { |buf| Win32.fill(buf, [1_000_000_000].pack('q')); 1 },
@@ -2213,6 +2252,48 @@ module AceCoreCompat
   end
 end
 AceCoreCompat::Ruby18Syntax.apply($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
+
+#===============================================================================
+# Thread.critical (Ruby 1.8; removed in 1.9)
+#
+# In Ruby 1.8, "Thread.critical = true" stopped the scheduler from switching to another Ruby thread until it was
+# set back to false; code used it as a global lock around shared data (Ruby 1.8's weakref.rb, copied into Pokémon
+# Essentials' BitmapCache: old = Thread.critical; Thread.critical = true; ...; ensure Thread.critical = old).
+# The same guarantee here is one process-wide lock: setting it true acquires the lock (a thread that already holds
+# it keeps it; nesting doesn't count, as in 1.8), setting it false releases it. Threads that don't use
+# Thread.critical were never stopped by it in a way games relied on beyond this mutual exclusion, and Ruby 3's own
+# interpreter lock already keeps single Ruby operations atomic.
+#===============================================================================
+unless Thread.respond_to?(:critical)
+  module AceCoreCompat
+    module ThreadCritical
+      @lock = Thread::Mutex.new
+      @owner = nil
+      class << self
+        def held? = @owner.equal?(Thread.current)
+
+        def set(on)
+          if on
+            unless held?
+              @lock.lock
+              @owner = Thread.current
+            end
+          elsif held?
+            @owner = nil
+            @lock.unlock
+          end
+          on
+        end
+      end
+    end
+  end
+  class Thread
+    def self.critical = AceCoreCompat::ThreadCritical.held?
+    def self.critical=(value)
+      AceCoreCompat::ThreadCritical.set(value ? true : false)
+    end
+  end
+end
 
 #===============================================================================
 # Ruby 1.8 byte reading in Pokémon Essentials data files

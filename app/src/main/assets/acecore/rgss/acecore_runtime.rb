@@ -117,12 +117,31 @@ module AceCore
       ""
     end
 
+    # The exceptions behind this one. Games' own error handlers often re-raise a short message ("Traceback is too
+    # big") from inside "rescue"; Ruby keeps the original as #cause, which is the real failure.
+    def causes(e)
+      out = +""
+      seen = {}
+      c = e.cause
+      3.times do
+        break if c.nil? || seen[c.object_id]
+        seen[c.object_id] = true
+        msg = c.message.to_s
+        msg = msg[0, 1500] + " ... (#{msg.size} characters)" if msg.size > 1500
+        out << "\nCaused by #{c.class}: #{msg}\n" << (c.backtrace || []).first(12).join("\n") << "\n" << source_line(c)
+        c = c.cause
+      end
+      out
+    rescue StandardError
+      ""
+    end
+
     def on_exit
       e = $!
       if e && !e.is_a?(SystemExit)
         # The first frames: where the game script failed, not only the compatibility layer's line.
         where = (e.backtrace || []).first(12).join("\n")
-        write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}")
+        write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}#{causes(e)}")
       end
     rescue Exception
       nil

@@ -44,6 +44,12 @@ object LaunchDiagnosis {
 
     /** Names the actual cause of a game script error instead of a generic message. */
     fun scriptError(ruby: String): Result {
+        // A game's own error handler re-raising a short message: the original exception is the cause.
+        val cause = ruby.split("\nCaused by ").drop(1).lastOrNull()
+        if (cause != null) {
+            val inner = scriptError(cause)
+            return inner.copy(issue = inner.issue + " (reported by the game as: ${ruby.lineSequence().first().trim().take(120)})")
+        }
         val first = ruby.lineSequence().first().trim()
         val where = gameFrame(ruby)?.let { " (in $it)" } ?: ""
         Regex("Windows function ([^ !]+)!(\\S+) is not available").find(first)?.let { m ->
