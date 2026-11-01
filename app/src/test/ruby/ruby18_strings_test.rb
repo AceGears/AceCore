@@ -77,6 +77,16 @@ S
 check 'str[/re/] sets $~ for the game (trainer distance)', [pbTrainerDistance('Trainer(4)'), pbTrainerDistance('Bob')], [4, nil]
 check 'str[/re/] sets $~ for the game (event size)', pbEventSize('Door size(2,3)'), [2, 3]
 check '$~.pre_match after str[/re/]', pbPreMatch('ab<b>c'), 'ab'
+# A game made for mkxp-z (its own mkxp.json; Pokémon Flux) keeps Ruby 3 strings even without "mkxp-z" in Scripts.rxdata.
+Dir.mktmpdir do |d|
+  File.write(File.join(d, 'mkxp.json'), '{}')
+  probe = "module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end; module RPG; module Cache; end; end\n" \
+          "$RGSS_SCRIPTS = [[1, 'Main', '', 'load_scripts_from_file']]; $stderr = File.open(File::NULL, 'w')\n" \
+          "Dir.chdir(#{d.inspect}) { load #{COMPAT.inspect} }\nprint AceCoreCompat::Ruby18Strings.active.inspect, ' ', 'AB'[0].inspect"
+  require 'rbconfig'
+  out = IO.popen([RbConfig.ruby, '-e', probe], err: File::NULL, &:read)
+  check 'mkxp.json game: no Ruby 1.8 strings', out, 'false "A"'
+end
 check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
 check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]

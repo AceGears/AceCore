@@ -2433,6 +2433,13 @@ module AceCoreCompat
 
       def decide(scripts)
         return false unless defined?(RPG::Cache) && scripts.is_a?(Array) # RPG Maker XP (RGSS1) only
+        # A game that ships its own mkxp.json / mkxp.conf was made for mkxp(-z), which runs a current Ruby, so it
+        # expects Ruby 3 strings. Pokémon Flux (mkxp.json, scripts loaded from Data/Script_NNN.rb files, so the
+        # "mkxp-z" check below can't see them) crashed in Ruby 1.8 mode.
+        if %w[mkxp.json mkxp.conf].any? { |f| File.file?(f) }
+          ($stderr.puts("AceArcade: game made for mkxp-z (has its own mkxp.json): Ruby 3 string behaviour") rescue nil)
+          return(@active = false)
+        end
         # Written for mkxp-z / Ruby 3: mentions mkxp-z, or Pokémon Essentials v19+ (module Essentials, VERSION "19"...),
         # the first Essentials versions that run on mkxp-z instead of the RPG Maker XP player.
         modern = scripts.any? do |e|
