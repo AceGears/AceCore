@@ -1579,6 +1579,7 @@ module AceCoreCompat
         apply(@fit, @size) if @fit
       end
       return unless (@frame % 30).zero?
+      match_game_screen
       report_resolution
       path = defined?(AceCoreCompat::DISPLAY_FILE) && AceCoreCompat::DISPLAY_FILE
       mtime = path && (File.mtime(path) rescue nil)
@@ -1594,6 +1595,23 @@ module AceCoreCompat
       end
     rescue StandardError
       nil
+    end
+
+    # Pokémon Essentials for RPG Maker XP declares its screen size by redefining Graphics.width/height (512x384)
+    # while the XP engine keeps drawing a 640x480 image; on Windows the game window is then sized to the declared
+    # screen and shows its top-left part. Pokémon Z and Xenoverse never resize the window themselves, so the engine
+    # screen is matched to the size the game declares: the same visible area, centred by the engine.
+    def self.match_game_screen
+      return if @matched
+      w, h = (Graphics.width rescue nil), (Graphics.height rescue nil)
+      return unless w.is_a?(Integer) && h.is_a?(Integer) && w > 0 && h > 0
+      ew, eh = AceCoreCompat::Win32.game_size
+      if w < ew && h < eh
+        AceCoreCompat::Win32.resize_client(w, h)
+        @matched = true if AceCoreCompat::Win32.game_size == [w, h]
+      end
+    rescue StandardError
+      @matched = true
     end
 
     def self.report_resolution

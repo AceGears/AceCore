@@ -248,6 +248,12 @@ module Graphics; class << self; alias_method :__engine_w, :width; alias_method :
 swp.call(42, 0, 0, 0, 512, 384, 0)
 check "SetWindowPos resizes although the game's Graphics.width already says 512", [Graphics.__engine_w, Graphics.__engine_h], [512, 384]
 module Graphics; class << self; alias_method :width, :__engine_w; alias_method :height, :__engine_h; end; end
+# Pokémon Z / Xenoverse: the game only declares 512x384 (its own Graphics.width/height) and never resizes the window.
+Graphics.resize_screen(640, 480)
+module Graphics; class << self; alias_method :__engine_w2, :width; alias_method :__engine_h2, :height; def width = 512; def height = 384; end; end
+AceCoreCompat::Display.match_game_screen
+check 'engine screen matched to the size the game declares', [Graphics.__engine_w2, Graphics.__engine_h2], [512, 384]
+module Graphics; class << self; alias_method :width, :__engine_w2; alias_method :height, :__engine_h2; end; end
 # A game restarting itself to apply settings (starts its own exe, then exits).
 Dir.mktmpdir do |d|
   helper = File.join(d, 'helper'); Dir.mkdir(helper)
