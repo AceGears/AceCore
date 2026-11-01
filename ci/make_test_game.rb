@@ -114,16 +114,24 @@ script = <<~'RUBY'
     mark.call("test_started", "1")
     frames = 0
     layout_modes = [[1, 1.0, 0.0, 0.0], [2, 1.5, 0.5, -0.5], [3, 1.0, -1.0, 1.0], [0, 1.0, 0.0, 0.0]]
+    filters = [1, 2, 3, 0] # Smooth edges, Smooth, CRT, then off
     while frames < 60 * 90
       # The first frames are drawn in each display layout mode (Fill, Zoom + offset, Original + offset), then back to
       # the default: a crash in those engine paths would end the test here.
       if frames < layout_modes.size && Graphics.respond_to?(:acearcade_layout)
         Graphics.acearcade_layout(*layout_modes[frames])
       end
+      # Then a few frames through each upscaling filter shader (built on first use), then back to off.
+      fi = (frames - layout_modes.size) / 3
+      if frames >= layout_modes.size && fi < filters.size && (frames - layout_modes.size) % 3 == 0 && Graphics.respond_to?(:acearcade_filter)
+        Graphics.acearcade_filter(filters[fi])
+      end
       Graphics.update
       Input.update
       frames += 1
-      if $game_party.gold == 777
+      if $game_party.gold == 777 && frames >= 24
+        st = Graphics.respond_to?(:acearcade_filter_state) ? Graphics.acearcade_filter_state : "missing"
+        mark.call("filters", st == 1 ? "ok" : "state=#{st}")
         mark.call("test_cheat_ok", $game_party.gold)
         break
       end

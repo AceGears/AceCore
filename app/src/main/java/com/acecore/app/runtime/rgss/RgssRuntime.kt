@@ -62,7 +62,8 @@ object RgssRuntime {
             "  DATA_DIR = ${dataDir?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  DISPLAY_FILE = ${displayFile?.let { rubyString(it.absolutePath) } ?: "nil"}\n" +
             "  FIT = ${rubyString(fit)}\n  SMOOTH = $smooth\n  SIZE = $sizePercent; LOCALE = ${rubyString(java.util.Locale.getDefault().toLanguageTag())}\n" +
-            "  ZOOM = ${display?.zoomPercent ?: 100}; OFFSET_X = ${display?.offsetX ?: 0}; OFFSET_Y = ${display?.offsetY ?: 0}\nend\n"
+            "  ZOOM = ${display?.zoomPercent ?: 100}; OFFSET_X = ${display?.offsetX ?: 0}; OFFSET_Y = ${display?.offsetY ?: 0}; " +
+            "FILTER = ${rubyString(display?.filter ?: DisplayPrefs.FILTER_OFF)}\nend\n"
 
     /** Real screen size in landscape orientation (games run landscape). */
     fun landscapeDisplaySize(context: Context): Pair<Int, Int> {

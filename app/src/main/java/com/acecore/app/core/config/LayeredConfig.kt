@@ -50,6 +50,14 @@ enum class ConfigKey(
         ),
         section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
     ),
+    SCREEN_FILTER(
+        "screenFilter", "Upscaling filter",
+        "How the game's pixels are enlarged. Smooth edges rounds off the jagged steps of pixel art (Scale4x), Smooth " +
+            "gives a soft high-resolution look (bicubic), CRT imitates an old TV. Can also be changed in-game (☰ › Display).",
+        ConfigType.CHOICE, "off",
+        listOf("off" to "Off (sharp pixels)", "edges" to "Smooth edges (Scale4x)", "smooth" to "Smooth (bicubic)", "crt" to "CRT (scanlines)"),
+        section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+    ),
     SCREEN_ZOOM(
         "screenZoom", "Custom zoom", "Size of the game with Screen fit = Custom zoom, as a percentage of the Fit size " +
             "(above 100% the edges are cut off). Can also be changed in-game (☰ › Display).",

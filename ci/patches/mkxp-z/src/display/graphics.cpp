@@ -13,6 +13,10 @@
 // Pixel-perfect, 1 = Fill (keep proportions, cover the whole area, the overflow is cut off), 2 = Zoom (zoom x the Fit
 // size), 3 = Original (one game pixel per screen pixel). The offsets (-1..1) move the picture inside the free space,
 // or across the overflow when it is larger than the screen; 0 = centred. Touch input follows the same rectangle.
+// Upscaling filters (Graphics.acearcade_filter = 0..3): the finished game frame is drawn to the screen through a
+// shader instead of the plain blit: 1 = Smooth edges (Scale2x applied twice, i.e. Scale4x / AdvMAME4x edge
+// smoothing of pixel art), 2 = Smooth (bicubic, Catmull-Rom), 3 = CRT (scanlines and a light aperture mask).
+// 0 = off (the normal path, unchanged). If the shader can't be built on a device, the filter switches itself off.
 /*
  ** graphics.cpp
  **
@@ -786,6 +790,91 @@ static float aceAreaScale = 1.0f;
 /* AceArcade: layout mode, zoom and position (Graphics.acearcade_layout, see the header). */
 static int aceMode = 0;
 static float aceZoom = 1.0f, aceOffX = 0.0f, aceOffY = 0.0f;
+/* AceArcade: upscaling filter (Graphics.acearcade_filter, see the header). */
+static int aceFilter = 0;
+
+static const char aceFilterVert[] =
+    "uniform mat4 projMat;\n"
+    "uniform vec2 texSizeInv;\n"
+    "uniform vec2 translation;\n"
+    "attribute vec2 position;\n"
+    "attribute vec2 texCoord;\n"
+    "varying vec2 v_texCoord;\n"
+    "void main() {\n"
+    "  gl_Position = projMat * vec4(position + translation, 0, 1);\n"
+    "  v_texCoord = texCoord * texSizeInv;\n"
+    "}\n";
+
+static const char aceFilterFrag[] =
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+    "precision highp float;\n"
+    "#endif\n"
+    "uniform sampler2D texture;\n"
+    "uniform vec2 texPx;\n"      /* size of the texture in pixels */
+    "uniform vec2 srcSize;\n"    /* size of the game picture inside it */
+    "uniform float mode;\n"
+    "varying vec2 v_texCoord;\n"
+    "vec3 T(vec2 px) { px = clamp(px, vec2(0.0), srcSize - 1.0); return texture2D(texture, (px + 0.5) / texPx).rgb; }\n"
+    "bool eq(vec3 a, vec3 b) { vec3 d = abs(a - b); return d.r + d.g + d.b < 0.06; }\n"
+    /* Scale2x image of the game at integer 2x-pixel q */
+    "vec3 s2x(vec2 q) {\n"
+    "  vec2 ip = floor(q * 0.5); vec2 sub = q - ip * 2.0;\n"
+    "  vec3 P = T(ip); vec3 A = T(ip + vec2(0.0, -1.0)); vec3 D = T(ip + vec2(0.0, 1.0));\n"
+    "  vec3 L = T(ip + vec2(-1.0, 0.0)); vec3 R = T(ip + vec2(1.0, 0.0));\n"
+    "  vec3 v = sub.y < 0.5 ? A : D; vec3 vo = sub.y < 0.5 ? D : A;\n"
+    "  vec3 h = sub.x < 0.5 ? L : R; vec3 ho = sub.x < 0.5 ? R : L;\n"
+    "  return (eq(v, h) && !eq(v, ho) && !eq(h, vo)) ? v : P;\n"
+    "}\n"
+    /* Scale2x of the Scale2x image (Scale4x) at position p (game pixels) */
+    "vec3 s4x(vec2 p) {\n"
+    "  vec2 q = p * 2.0; vec2 iq = floor(q); vec2 f = q - iq;\n"
+    "  vec3 P = s2x(iq); vec3 A = s2x(iq + vec2(0.0, -1.0)); vec3 D = s2x(iq + vec2(0.0, 1.0));\n"
+    "  vec3 L = s2x(iq + vec2(-1.0, 0.0)); vec3 R = s2x(iq + vec2(1.0, 0.0));\n"
+    "  vec3 v = f.y < 0.5 ? A : D; vec3 vo = f.y < 0.5 ? D : A;\n"
+    "  vec3 h = f.x < 0.5 ? L : R; vec3 ho = f.x < 0.5 ? R : L;\n"
+    "  return (eq(v, h) && !eq(v, ho) && !eq(h, vo)) ? v : P;\n"
+    "}\n"
+    "vec4 cr(float t) { float t2 = t * t; float t3 = t2 * t;\n"
+    "  return vec4(-0.5*t3 + t2 - 0.5*t, 1.5*t3 - 2.5*t2 + 1.0, -1.5*t3 + 2.0*t2 + 0.5*t, 0.5*t3 - 0.5*t2); }\n"
+    "vec3 bicubic(vec2 p) {\n"
+    "  vec2 q = p - 0.5; vec2 ip = floor(q); vec2 f = q - ip;\n"
+    "  vec4 wx = cr(f.x); vec4 wy = cr(f.y); vec3 c = vec3(0.0);\n"
+    "  for (int j = 0; j < 4; j++) { vec3 row = vec3(0.0);\n"
+    "    for (int i = 0; i < 4; i++) row += T(ip + vec2(float(i) - 1.0, float(j) - 1.0)) * wx[i];\n"
+    "    c += row * wy[j]; }\n"
+    "  return clamp(c, 0.0, 1.0);\n"
+    "}\n"
+    "vec3 crt(vec2 p) {\n"
+    "  vec2 ip = floor(p - vec2(0.5, 0.0)); float fx = p.x - 0.5 - ip.x; float fy = fract(p.y);\n"
+    "  vec3 c = mix(T(vec2(ip.x, floor(p.y))), T(vec2(ip.x + 1.0, floor(p.y))), smoothstep(0.0, 1.0, fx));\n"
+    "  float d = (fy - 0.5) * 2.0; float scan = 0.45 + 0.55 * exp(-d * d * 2.2);\n"
+    "  float m = mod(gl_FragCoord.x, 3.0); vec3 mask = m < 1.0 ? vec3(1.06, 0.94, 0.94) : (m < 2.0 ? vec3(0.94, 1.06, 0.94) : vec3(0.94, 0.94, 1.06));\n"
+    "  return clamp(c * scan * mask * 1.18, 0.0, 1.0);\n"
+    "}\n"
+    "void main() {\n"
+    "  vec2 p = v_texCoord * texPx;\n"
+    "  vec3 c = mode < 1.5 ? s4x(p) : (mode < 2.5 ? bicubic(p) : crt(p));\n"
+    "  gl_FragColor = vec4(c, 1.0);\n"
+    "}\n";
+
+/* AceArcade: the filter shader (built on the GL thread the first time a filter is used). */
+class AceFilterShader : public ShaderBase
+{
+public:
+    AceFilterShader()
+    {
+        Shader::init((const unsigned char *)aceFilterVert, (int)sizeof(aceFilterVert) - 1,
+                     (const unsigned char *)aceFilterFrag, (int)sizeof(aceFilterFrag) - 1,
+                     "aceFilter", "aceFilter", "AceFilterShader");
+        ShaderBase::init();
+        u_texPx = gl.GetUniformLocation(program, "texPx");
+        u_srcSize = gl.GetUniformLocation(program, "srcSize");
+        u_mode = gl.GetUniformLocation(program, "mode");
+    }
+    GLint u_texPx, u_srcSize, u_mode;
+};
+static AceFilterShader *aceFilterShader = 0;
+static bool aceFilterBroken = false;
 
 struct GraphicsPrivate {
     /* Screen resolution, ie. the resolution at which
@@ -1114,10 +1203,40 @@ struct GraphicsPrivate {
             sourceSize = scRes;
         }
         
+        /* AceArcade: an upscaling filter draws the game frame through its shader instead of the plain blit. */
+        if (aceFilter > 0 && !aceFilterBroken && !aceFilterShader) {
+            try { aceFilterShader = new AceFilterShader(); }
+            catch (...) { aceFilterBroken = true; Debug() << "AceArcade: upscaling filter unavailable on this GPU"; }
+        }
+        if (aceFilter > 0 && aceFilterShader) {
+            GLMeta::blitEnd();
+            TEXFBO &src = screen.getPP().frontBuffer();
+            FBO::bind(FBO::ID(0));
+            glState.viewport.pushSet(IntRect(0, 0, winSize.x, winSize.y));
+            FBO::clear();
+            AceFilterShader &sh = *aceFilterShader;
+            sh.bind();
+            sh.applyViewportProj();
+            sh.setTranslation(Vec2i());
+            sh.setTexSize(Vec2i(src.width, src.height));
+            gl.Uniform2f(sh.u_texPx, (float)src.width, (float)src.height);
+            gl.Uniform2f(sh.u_srcSize, (float)scRes.x, (float)scRes.y);
+            gl.Uniform1f(sh.u_mode, (float)aceFilter);
+            TEX::bind(src.tex);
+            TEX::setSmooth(false);
+            glState.blend.pushSet(false);
+            Quad &quad = shState->gpQuad();
+            quad.setTexPosRect(IntRect(0, 0, scRes.x, scRes.y),
+                               IntRect(scOffset.x, scSize.y + scOffset.y, scSize.x, -scSize.y));
+            quad.draw();
+            glState.blend.pop();
+            glState.viewport.pop();
+        } else {
         FBO::clear();
         metaBlitBufferFlippedScaled(sourceSize);
         
         GLMeta::blitEnd();
+        }
         
         swapGLBuffer();
         
@@ -1733,6 +1852,18 @@ void aceArcadeSetArea(double value)
 double aceArcadeGetArea()
 {
     return aceAreaScale;
+}
+
+/* AceArcade: upscaling filter 0..3 (see the header). */
+void aceArcadeSetFilter(int filter)
+{
+    aceFilter = (filter >= 0 && filter <= 3) ? filter : 0;
+}
+
+/* AceArcade: 1 = the filter shader was built and is in use, 0 = not built yet, -1 = it failed on this GPU. */
+int aceArcadeFilterState()
+{
+    return aceFilterBroken ? -1 : (aceFilterShader ? 1 : 0);
 }
 
 /* AceArcade: layout mode / zoom / position (see the header); re-lays out the screen like aceArcadeSetArea. */

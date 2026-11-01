@@ -23,18 +23,19 @@ data class DisplayPrefs(
     val zoomPercent: Int = 100,
     val offsetX: Int = 0,
     val offsetY: Int = 0,
+    val filter: String = FILTER_OFF,
 ) {
     fun normalized() = copy(
         fit = if (fit in MODES) fit else FIT, sizePercent = sizePercent.coerceIn(MIN_SIZE, 100),
         zoomPercent = zoomPercent.coerceIn(MIN_ZOOM, MAX_ZOOM), offsetX = offsetX.coerceIn(-100, 100),
-        offsetY = offsetY.coerceIn(-100, 100),
+        offsetY = offsetY.coerceIn(-100, 100), filter = if (filter in FILTERS) filter else FILTER_OFF,
     )
 
     fun values(): Map<String, String> = normalized().let { n ->
         mapOf(
             ConfigKey.SCREEN_FIT.id to n.fit, ConfigKey.SCREEN_SIZE.id to n.sizePercent.toString(),
             ConfigKey.SCREEN_ZOOM.id to n.zoomPercent.toString(), ConfigKey.SCREEN_OFFSET_X.id to n.offsetX.toString(),
-            ConfigKey.SCREEN_OFFSET_Y.id to n.offsetY.toString(),
+            ConfigKey.SCREEN_OFFSET_Y.id to n.offsetY.toString(), ConfigKey.SCREEN_FILTER.id to n.filter,
         )
     }
 
@@ -88,12 +89,14 @@ data class DisplayPrefs(
         const val MIN_SIZE = 50
         const val MIN_ZOOM = 25
         const val MAX_ZOOM = 300
+        const val FILTER_OFF = "off"
+        val FILTERS = listOf(FILTER_OFF, "edges", "smooth", "crt")
         const val FILE_NAME = "settings.json"
 
         /** Settings the in-game menu may change and save for the game. */
         val SAVED_IN_GAME = setOf(
             ConfigKey.SCREEN_FIT.id, ConfigKey.SCREEN_SIZE.id, ConfigKey.SCREEN_ZOOM.id, ConfigKey.SCREEN_OFFSET_X.id,
-            ConfigKey.SCREEN_OFFSET_Y.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
+            ConfigKey.SCREEN_OFFSET_Y.id, ConfigKey.SCREEN_FILTER.id, ConfigKey.BUTTON_MAP.id, ConfigKey.GAMEPAD_MODE.id,
             ConfigKey.FF_SPEED.id, ConfigKey.FF_MODE.id, ConfigKey.FF_AUDIO.id, ConfigKey.PAD_FF.id, ConfigKey.PAD_QS.id,
             ConfigKey.PAD_QL.id, ConfigKey.TOOLS_SCALE.id, ConfigKey.TOOLS_OPACITY.id, ConfigKey.GAMEPAD_OPACITY.id,
         )
@@ -106,6 +109,7 @@ data class DisplayPrefs(
             config[ConfigKey.SCREEN_ZOOM.id]?.toIntOrNull() ?: 100,
             config[ConfigKey.SCREEN_OFFSET_X.id]?.toIntOrNull() ?: 0,
             config[ConfigKey.SCREEN_OFFSET_Y.id]?.toIntOrNull() ?: 0,
+            config[ConfigKey.SCREEN_FILTER.id] ?: FILTER_OFF,
         ).normalized()
 
         /** Parses the small JSON object written by [toJson] (no JSON library needed on either side). */

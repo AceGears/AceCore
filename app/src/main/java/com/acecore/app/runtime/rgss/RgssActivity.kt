@@ -965,6 +965,28 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     valueRange = DisplayPrefs.MIN_SIZE.toFloat()..100f, steps = (100 - DisplayPrefs.MIN_SIZE) / 5 - 1,
                     colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
                 )
+                Text("Upscaling filter", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("off" to "Off", "edges" to "Smooth edges", "smooth" to "Smooth", "crt" to "CRT").forEach { (f, label) ->
+                        val sel = display.filter == f
+                        Box(
+                            Modifier.weight(1f).height(40.dp)
+                                .background(if (sel) accent.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                                .border(1.dp, if (sel) accent else Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                .clickable { updateDisplay(display.copy(filter = f)) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(label, color = Color.White, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal, fontSize = 12.sp, maxLines = 1) }
+                    }
+                }
+                Text(
+                    when (display.filter) {
+                        "edges" -> "Rounds off the jagged steps of pixel art (Scale4x) for a cleaner high-resolution look."
+                        "smooth" -> "Soft high-resolution look (bicubic). Small text may look slightly blurred."
+                        "crt" -> "Scanlines and a light colour mask, like an old TV."
+                        else -> "Sharp pixels, as the game draws them."
+                    },
+                    color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp,
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Picture position", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Text(

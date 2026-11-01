@@ -1,6 +1,7 @@
 // AceCore/AceArcade patch (applied by CI over mkxp-z-android-reworked@b668e08 binding/graphics-binding.cpp):
 // adds Graphics.acearcade_area / Graphics.acearcade_area= (game-area scale 0.5..1.0, see display/graphics.cpp) and
-// Graphics.acearcade_layout(mode, zoom, offset_x, offset_y) (Fill / Zoom / Original and picture position).
+// Graphics.acearcade_layout(mode, zoom, offset_x, offset_y) (Fill / Zoom / Original and picture position) and
+// Graphics.acearcade_filter(n) (upscaling filter).
 /*
  ** graphics-binding.cpp
  **
@@ -247,6 +248,25 @@ RB_METHOD(graphicsResizeScreen)
 void aceArcadeSetArea(double value);
 double aceArcadeGetArea();
 void aceArcadeSetLayout(int mode, double zoom, double offX, double offY);
+void aceArcadeSetFilter(int filter);
+int aceArcadeFilterState();
+
+RB_METHOD(graphicsAceFilterState)
+{
+    RB_UNUSED_PARAM;
+    return INT2FIX(aceArcadeFilterState());
+}
+
+RB_METHOD(graphicsAceFilter)
+{
+    RB_UNUSED_PARAM;
+    int f;
+    rb_get_args(argc, argv, "i", &f RB_ARG_END);
+    GFX_LOCK;
+    aceArcadeSetFilter(f);
+    GFX_UNLOCK;
+    return Qnil;
+}
 
 RB_METHOD(graphicsAceLayout)
 {
@@ -448,4 +468,6 @@ void graphicsBindingInit()
     _rb_define_module_function(module, "acearcade_area", graphicsAceAreaGet);
     _rb_define_module_function(module, "acearcade_area=", graphicsAceAreaSet);
     _rb_define_module_function(module, "acearcade_layout", graphicsAceLayout);
+    _rb_define_module_function(module, "acearcade_filter", graphicsAceFilter);
+    _rb_define_module_function(module, "acearcade_filter_state", graphicsAceFilterState);
 }

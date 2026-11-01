@@ -11,6 +11,7 @@ import com.acecore.app.core.storage.DirectStorage
 import com.acecore.app.runtime.rgss.RgssActivity
 import com.acecore.app.runtime.rgss.RgssLaunchSpec
 import com.acecore.app.runtime.rgss.RgssRuntime
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
@@ -96,6 +97,8 @@ class RgssDirectLaunchTest {
         val result = File(helper, "result").takeIf { it.exists() }?.readText().orEmpty()
         assertTrue("Helper result: $result", result.startsWith("1\tok"))
         assertTrue("State should list the gold capability", File(helper, "state").readText().contains("gold"))
+        val filters = File(helper, "filters").takeIf { it.exists() }?.readText()?.trim().orEmpty()
+        assertEquals("The upscaling filter shader must build and draw on the engine", "ok", filters)
 
         // ---- Walking: hold the on-screen D-pad (real touch events) and check the character moves, then stops.
         if (!waitFor(30_000) { File(helper, "walk_ready").exists() && File(helper, "dpad").exists() }) fail("Walk phase not reached. " + diagnostics(helper))

@@ -51,14 +51,16 @@ class DisplayPrefsTest {
         assertEquals(DisplayPrefs("zoom", 100, DisplayPrefs.MAX_ZOOM, -100, 40), p)
         assertTrue(DisplayPrefs("cover").fixedAspectRatio && !DisplayPrefs("cover").integerScaling)
         val h = RgssRuntime.compatHeader(1, 1, display = DisplayPrefs("zoom", 100, 150, -20, 30))
-        assertTrue(h, h.contains("ZOOM = 150; OFFSET_X = -20; OFFSET_Y = 30"))
+        assertTrue(h, h.contains("ZOOM = 150; OFFSET_X = -20; OFFSET_Y = 30; FILTER = \"off\""))
+        assertEquals("edges", DisplayPrefs.from(mapOf("screenFilter" to "edges")).filter)
+        assertEquals("unknown filter falls back to off", "off", DisplayPrefs.from(mapOf("screenFilter" to "xbr9")).filter)
     }
 
     @Test fun pendingChangeRoundTrip() {
         val dir = Files.createTempDirectory("disp").toFile()
         assertNull(DisplayPrefs.takePending(dir))
         assertTrue(DisplayPrefs.write(dir, DisplayPrefs("fill", 75)))
-        val zoomCentred = mapOf("screenZoom" to "100", "screenOffsetX" to "0", "screenOffsetY" to "0")
+        val zoomCentred = mapOf("screenZoom" to "100", "screenOffsetX" to "0", "screenOffsetY" to "0", "screenFilter" to "off")
         assertEquals(mapOf("screenFit" to "fill", "screenSize" to "75") + zoomCentred, DisplayPrefs.takePending(dir))
         assertNull("consumed", DisplayPrefs.takePending(dir))
         DisplayPrefs.write(dir, DisplayPrefs("integer", 60))
