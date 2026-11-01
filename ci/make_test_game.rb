@@ -98,7 +98,9 @@ script = <<~'RUBY'
     # Display layout modes (Fill / Zoom / Original + picture position) from the engine patch.
     layout = begin
       if Graphics.respond_to?(:acearcade_layout)
-        [[1, 1.0, 0.0, 0.0], [2, 1.5, 0.5, -0.5], [3, 1.0, -1.0, 1.0], [0, 1.0, 0.0, 0.0]].each { |m| Graphics.acearcade_layout(*m); Graphics.update }
+        # (Frames are drawn with these modes at the start of the main loop below; no Graphics.update here, the test
+        # reads these markers when the first frame appears.)
+        Graphics.acearcade_layout(1, 1.0, 0.0, 0.0); Graphics.acearcade_layout(0, 1.0, 0.0, 0.0)
         "ok"
       else
         "missing"
@@ -111,7 +113,13 @@ script = <<~'RUBY'
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
     frames = 0
+    layout_modes = [[1, 1.0, 0.0, 0.0], [2, 1.5, 0.5, -0.5], [3, 1.0, -1.0, 1.0], [0, 1.0, 0.0, 0.0]]
     while frames < 60 * 90
+      # The first frames are drawn in each display layout mode (Fill, Zoom + offset, Original + offset), then back to
+      # the default: a crash in those engine paths would end the test here.
+      if frames < layout_modes.size && Graphics.respond_to?(:acearcade_layout)
+        Graphics.acearcade_layout(*layout_modes[frames])
+      end
       Graphics.update
       Input.update
       frames += 1
