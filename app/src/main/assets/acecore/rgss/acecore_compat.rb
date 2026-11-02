@@ -2280,24 +2280,77 @@ module AceCoreCompat
     def compiles?(src, name)
       RubyVM::InstructionSequence.compile(src, name)
       true
-    rescue SyntaxError
+    rescue SyntaxError, ArgumentError, EncodingError
       false
     end
 
     def compile_error(src, name)
       RubyVM::InstructionSequence.compile(src, name)
       nil
-    rescue SyntaxError => e
+    rescue SyntaxError, ArgumentError, EncodingError => e
       e
     end
 
-    # Returns the adapted source, or nil when the script needs no change or can't be adapted safely.
+    def error_line(err) = err && err.message.to_s.b[/:(\d+): /, 1]&.to_i
+
+    # Pattern matching on a script's bytes: scripts written in Windows-1252 (accented text in comments or strings)
+    # aren't valid UTF-8, and a regexp match on such a String raises ArgumentError. Every pattern here is ASCII.
+    def bin(s) = s.b
+    def utf8(s) = s.force_encoding(Encoding::UTF_8)
+
+    # Returns the adapted source, or nil when the script needs no change or can't be adapted safely. Only when the
+    # compiler's first complaint is on a "when ...:" line; accepted when that complaint is gone (the script compiles, or
+    # the next problem is elsewhere and is left to the other adaptations).
     def adapt(src, name)
-      return nil unless src.is_a?(String) && src.match?(WHEN_COLON)
-      return nil if compiles?(src, name)
-      fixed = src.gsub(WHEN_COLON) { "#{$1} then" }
-      compiles?(fixed, name) ? fixed : nil
+      return nil unless src.is_a?(String) && bin(src).match?(WHEN_COLON)
+      err = compile_error(src, name) or return nil
+      line = (src.lines[error_line(err).to_i - 1] or return nil)
+      return nil unless bin(line).match?(WHEN_COLON)
+      fixed = utf8(bin(src).gsub(WHEN_COLON) { "#{$1} then" })
+      e2 = compile_error(fixed, name)
+      e2.nil? || error_line(e2) != error_line(err) ? fixed : nil
     end
+
+    # ---- "next" / "break" / "redo" outside any block or loop (Ruby 1.8 compiled them and raised LocalJumpError
+    # ("unexpected next") only if that line actually ran; since 1.9 the whole script fails to compile: "Invalid next",
+    # Pokémon Realidea's Savestate script). Each one the compiler rejects becomes a call that raises the same
+    # LocalJumpError when reached, keeping the rest of its statement ("next x if c" -> "...jump :next, x if c").
+    JUMP_WORD = /(?<![\w.:$@])(next|break|redo)(?![\w?!:])/
+
+    def adapt_jumps(src, name)
+      return nil unless src.is_a?(String) && bin(src).match?(JUMP_WORD)
+      count = 0
+      100.times do
+        err = compile_error(src, name)
+        kind = err && err.message.to_s.b[/: Invalid (next|break|redo)/, 1]
+        return(count > 0 ? [src, count] : nil) unless kind
+        line_no = error_line(err) or return(count > 0 ? [src, count] : nil)
+        lines = src.lines
+        line = (lines[line_no - 1] or return nil)
+        b = bin(line)
+        positions = []
+        b.scan(JUMP_WORD) { positions << [$~.begin(0), $1] if $1 == kind }
+        done = positions.any? do |pos, word|
+          rest = b.byteslice(pos + word.size..).to_s
+          bare = rest.match?(/\A[ \t]*(?:$|;|\}|\)|\bif\b|\bunless\b|\bwhile\b|\buntil\b|\bend\b|#)/)
+          call = bare ? "::AceCoreCompat::Ruby18Syntax.jump(:#{word})" : "::AceCoreCompat::Ruby18Syntax.jump :#{word},"
+          candidate = lines.dup
+          candidate[line_no - 1] = utf8(b.byteslice(0, pos) + call.b + rest)
+          trial = candidate.join
+          e2 = compile_error(trial, name)
+          next false unless e2.nil? || error_line(e2) != line_no || !e2.message.to_s.b.include?("Invalid #{word}")
+          src = trial
+          true
+        end
+        return(count > 0 ? [src, count] : nil) unless done
+        count += 1
+      end
+      count > 0 ? [src, count] : nil
+    rescue StandardError
+      nil
+    end
+
+    def jump(kind, *_value) = ::Kernel.raise(::LocalJumpError, "unexpected #{kind}")
 
     # ---- "retry" inside a block or for loop (Ruby 1.8: restarts that iterator call from the beginning, receiver and
     # arguments re-evaluated; since 1.9 retry is only allowed in rescue, so the script doesn't compile: "Invalid
@@ -2313,11 +2366,11 @@ module AceCoreCompat
       # 1. Each line the compiler rejects: its retry becomes the raise (reported one line at a time).
       200.times do
         err = compile_error(src, name) or break
-        line_no = err.message[/:(\d+): Invalid retry/, 1]&.to_i or return nil
+        line_no = err.message.to_s.b[/:(\d+): Invalid retry/, 1]&.to_i or return nil
         lines = src.lines
-        code, comment = (lines[line_no - 1] or return nil).split('#', 2)
+        code, comment = bin(lines[line_no - 1] || (return nil)).split('#'.b, 2)
         return nil unless code.match?(RETRY_ONLY)
-        lines[line_no - 1] = code.gsub(RETRY_ONLY, RETRY_RAISE) + (comment ? "##{comment}" : '')
+        lines[line_no - 1] = utf8(code.gsub(RETRY_ONLY, RETRY_RAISE) + (comment ? "#".b + comment : ''.b))
         src = lines.join
         marked_lines << line_no
       end
@@ -2360,39 +2413,71 @@ module AceCoreCompat
     BYTE_ESCAPE = /\\x([89a-fA-F][0-9a-fA-F])/
 
     def adapt_regexp_bytes(src, name)
-      return nil unless src.is_a?(String) && src.match?(BYTE_ESCAPE)
+      return nil unless src.is_a?(String) && bin(src).match?(BYTE_ESCAPE)
       count = 0
       50.times do
         err = compile_error(src, name)
         return(count > 0 ? [src, count] : nil) if err.nil?
-        line_no = err.message[/:(\d+): invalid multibyte escape/, 1]&.to_i or return nil
+        msg = err.message.to_s.b
+        # Another kind of problem first: keep what was fixed so far; the other adaptations take it from there.
+        line_no = msg[/:(\d+): invalid multibyte escape/, 1]&.to_i or return(count > 0 ? [src, count] : nil)
         lines = src.lines
-        line = lines[line_no - 1] or return nil
-        re = err.message[/invalid multibyte escape: (\/.*\/)/, 1]
-        fixed = if re && line.include?(re)
-                  line.sub(re) { |r| r.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" } }
+        line = (lines[line_no - 1] or return nil)
+        b = bin(line)
+        re = msg[/invalid multibyte escape: (\/.*\/)/, 1]
+        fixed = if re && b.include?(re)
+                  b.sub(re) { |r| r.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" } }
                 else
-                  line.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" }
+                  b.gsub(BYTE_ESCAPE) { "\\u00#{$1.downcase}" }
                 end
-        return nil if fixed == line
-        lines[line_no - 1] = fixed
+        return(count > 0 ? [src, count] : nil) if fixed == b
+        lines[line_no - 1] = utf8(fixed)
         src = lines.join
         count += 1
       end
-      nil
+      count > 0 ? [src, count] : nil
     rescue StandardError
       nil
     end
 
     # Every adaptation above for one script's source, plus ?x literals for Ruby 1.8 string mode. Used for script
     # files a game loads itself from a folder (its Main reads "Data/Scripts/*.rb" and evals them).
+    FIXERS = [
+      [:adapt, '"when ...:"'], [:adapt_regexp_bytes, 'byte escapes in a regexp'],
+      [:adapt_jumps, '"next"/"break" outside a loop'], [:adapt_retry, '"retry" in an iterator'],
+    ].freeze
+
+    # Applies the syntax adaptations until the script compiles: the compiler reports one problem at a time, and a
+    # script can have several kinds (a byte-escape regexp, then an "Invalid next" further down). A script that already
+    # compiles is returned unchanged, and so is one that can't be fully adapted (it then fails exactly as it would
+    # have). Returns [source, {label => count}].
+    def fix_syntax(src, name)
+      notes = Hash.new(0)
+      out = src
+      return [out, notes] unless out.is_a?(String) && defined?(RubyVM::InstructionSequence)
+      10.times do
+        break if compiles?(out, name)
+        progressed = FIXERS.any? do |meth, label|
+          r = (send(meth, out, name) rescue nil) or next false
+          fixed, n = r.is_a?(Array) ? r : [r, bin(out).scan(WHEN_COLON).size]
+          next false if fixed.nil? || fixed == out
+          out = fixed
+          notes[label] += n
+          true
+        end
+        break unless progressed
+      end
+      # Partly adapted but still not compiling: run the script as written, so the game reports its own error.
+      return [src, Hash.new(0)] unless notes.empty? || compiles?(out, name)
+      [out, notes]
+    end
+
+    def notes_text(notes) = notes.map { |label, n| "#{n} #{label}" }.join(', ')
+
     def adapt_all(src, name)
       return src unless src.is_a?(String) && defined?(RubyVM::InstructionSequence)
-      out = src
-      notes = []
-      if (f = adapt(out, name)) then out = f; notes << '"when ...:"' end
-      if (r = adapt_regexp_bytes(out, name)) then out = r[0]; notes << 'byte escapes in a regexp' end
-      if (r = adapt_retry(out, name)) then out = r[0]; notes << '"retry" in an iterator' end
+      out, fixed = fix_syntax(src, name)
+      notes = fixed.empty? ? [] : [notes_text(fixed)]
       if defined?(AceCoreCompat::Ruby18Strings) && AceCoreCompat::Ruby18Strings.active &&
          (r = AceCoreCompat::Ruby18Strings.char_literals(out, name))
         out = r[0]; notes << '?x character literals'
@@ -2412,18 +2497,14 @@ module AceCoreCompat
       scripts.each_with_index do |entry, i|
         next unless entry.is_a?(Array) && entry[3].is_a?(String)
         name = format('%03d:%s', i, entry[1].to_s)
-        if (fixed = adapt(entry[3], name))
-          n = entry[3].scan(WHEN_COLON).size
-          entry[3] = fixed
-          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{n} \"when ...:\")") rescue nil)
-        end
-        if (r = adapt_regexp_bytes(entry[3], name))
-          entry[3] = r[0]
-          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} byte escapes in a regexp)") rescue nil)
-        end
-        if (r = adapt_retry(entry[3], name))
-          entry[3] = r[0]
-          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{r[1]} \"retry\" in an iterator)") rescue nil)
+        begin
+          out, notes = fix_syntax(entry[3], name)
+          next if notes.empty?
+          entry[3] = out
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax adapted in #{name} (#{notes_text(notes)})") rescue nil)
+        rescue StandardError => e
+          # One script that can't be checked doesn't stop the others (it runs as written).
+          ($stderr.puts("AceArcade: Ruby 1.8 syntax check skipped for #{name}: #{e.class}: #{e.message}") rescue nil)
         end
       end
     rescue StandardError => e
@@ -2463,11 +2544,31 @@ module AceCoreCompat
         # (A bundled mkxp.json is no sign: Pokémon Z and Xenoverse ship one and are Ruby 1.8 games.)
         modern = scripts.any? do |e|
           e.is_a?(Array) && e[3].is_a?(String) &&
-            (e[3].match?(/MKXPZ|mkxp-z|mkxp_z|System\.(?:mount|reload_cache|is_mac\?|is_linux\?|is_windows\?)/i) || e[3].match?(/^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m))
+            (e[3].b.match?(/MKXPZ|mkxp-z|mkxp_z|System\.(?:mount|reload_cache|is_mac\?|is_linux\?|is_windows\?)/i) || e[3].b.match?(ESSENTIALS_19))
         end
+        # Pokémon Essentials v19+ whose scripts are loaded from a folder by its Main (Data/Scripts/001_Settings.rb …,
+        # Pokémon Nova): the version is declared in those files, not in Scripts.rxdata.
+        modern ||= scripts.any? { |e| e.is_a?(Array) && e[3].is_a?(String) && e[3].b.match?(/\.rb\b/) } && folder_scripts_modern?
         @active = !modern
         ($stderr.puts("AceArcade: Ruby 1.8 string behaviour for game scripts (RPG Maker XP game)") rescue nil) if @active
         @active
+      rescue StandardError
+        false
+      end
+
+      ESSENTIALS_19 = /^\s*module\s+Essentials\b.*?^\s*VERSION\s*=\s*["'](19|[2-9]\d)/m
+
+      # Looks for the Essentials v19+ version declaration in script files under Data/Scripts or Scripts (at most
+      # 400 files / 24 MB read). Only that declaration counts: older games loaded from a folder (Xenoverse) don't have it.
+      def folder_scripts_modern?
+        budget = 24 << 20
+        files = (Dir.glob('Data/Scripts/**/*.rb') + Dir.glob('Scripts/**/*.rb')).sort.first(400)
+        files.any? do |f|
+          next false if budget <= 0
+          t = (File.binread(f) rescue ''.b)
+          budget -= t.bytesize
+          t.match?(ESSENTIALS_19)
+        end
       rescue StandardError
         false
       end

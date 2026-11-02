@@ -91,6 +91,22 @@ probe = lambda do |files|
   end
 end
 check 'bundled mkxp.json: still Ruby 1.8 strings', probe.call('Script_001.rb' => 'def a = 1'), 'true'
+# Pokémon Nova: Essentials v21 scripts in Data/Scripts/*.rb loaded by Main -> Ruby 3 strings. Xenoverse-style folder
+# scripts without the v19+ declaration keep Ruby 1.8 strings. A Windows-1252 Main doesn't break the decision.
+folder = lambda do |settings|
+  Dir.mktmpdir do |d|
+    FileUtils.mkdir_p(File.join(d, 'Data', 'Scripts'))
+    File.write(File.join(d, 'Data', 'Scripts', '001_Settings.rb'), settings)
+    main = "# Pok\\xE9mon\nDir['Data/Scripts/*.rb'].each { |f| eval(File.read(f)) }"
+    code = "module AceCoreCompat; DISPLAY_W = 1; DISPLAY_H = 1; end; module RPG; module Cache; end; end\n" \
+           "$RGSS_SCRIPTS = [[1, 'Main', '', \"#{main}\".b.force_encoding('UTF-8')]]; $stderr = File.open(File::NULL, 'w')\n" \
+           "Dir.chdir(#{d.inspect}) { load #{COMPAT.inspect} }\nprint AceCoreCompat::Ruby18Strings.active.inspect"
+    IO.popen([RbConfig.ruby, '-e', code], err: File::NULL, &:read)
+  end
+end
+require 'fileutils'
+check 'Essentials v21 scripts in a folder: Ruby 3 strings', folder.call(%(module Essentials\n  VERSION = "21.99"\nend\n)), 'false'
+check 'older folder scripts (Xenoverse): Ruby 1.8 strings', folder.call("SCREEN_WIDTH = 512\n"), 'true'
 # Windows can't open a folder as a file (EACCES, rescued by Essentials' pbGetFileChar); Linux would raise EISDIR on read.
 Dir.mktmpdir do |d|
   r = begin; File.open(d + '/', 'rb') { |f| f.read(1) }; rescue Errno::EACCES, Errno::ENOENT, Errno::EINVAL; :rescued; rescue SystemCallError => e; e.class; end

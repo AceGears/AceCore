@@ -26,8 +26,8 @@ android {
         applicationId = "com.acecore.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 48
-        versionName = "0.11.1"
+        versionCode = 49
+        versionName = "0.11.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         // Optional single-ABI build (CI emulator tests: arm64 only, so an x86_64 emulator runs it through ARM translation).
