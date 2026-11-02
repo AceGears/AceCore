@@ -14,7 +14,10 @@ export PULSE_SERVER="unix:$S/pulse.sock"
 export BOX64_NOBANNER=1 BOX64_LOG=0
 # Wine's own errors are logged (not its warnings); the app can override any of these settings for a game in
 # /tmp/acearcade-env (written before each launch).
-export WINEDEBUG=err+all,fixme-all
+export WINEDEBUG=err+all,fixme-all,+process,+loaddll
+# OpenGL on the CPU (Mesa llvmpipe): games drawing with OpenGL (SFML, SDL, Pokémon SDK's LiteRGSS) get a working
+# context on the VNC display, which has no GPU behind it.
+export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_GL_VERSION_OVERRIDE=3.3 LP_NUM_THREADS=4
 [ -f /tmp/acearcade-env ] && . /tmp/acearcade-env
 rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 "$S/exit" "$S/window"
 

@@ -16,7 +16,8 @@ docker run --rm --platform linux/arm64 -v "$W:/out" "$DEBIAN_IMAGE" bash -euc '
     tigervnc-standalone-server x11-utils pulseaudio \
     libx11-6 libxext6 libxrender1 libxrandr2 libxi6 libxcursor1 libxinerama1 libxcomposite1 libxfixes3 libxxf86vm1 \
     libfreetype6 libfontconfig1 fonts-dejavu-core libasound2t64 libpulse0 libgnutls30t64 libgl1 libglx-mesa0 \
-    libegl1 libgles2 libvulkan1 libsdl2-2.0-0 libudev1 libdbus-1-3 libunwind8 ca-certificates procps > /dev/null
+    libegl1 libgles2 libvulkan1 libsdl2-2.0-0 libudev1 libdbus-1-3 libunwind8 ca-certificates procps \
+    libgl1-mesa-dri libglu1-mesa > /dev/null
   apt-get clean
   rm -rf /var/lib/apt/lists/* /usr/share/man/* /usr/share/info/* /var/cache/* /var/log/*
   find /usr/share/doc -type f ! -name copyright -delete   # keep the licence file of every package
