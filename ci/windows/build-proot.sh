@@ -31,8 +31,10 @@ cd "$W"
 # termux/proot (Android fixes), loader unbundled.
 git init -q proot && cd proot && git fetch -q --depth 1 https://github.com/termux/proot "$PROOT_REF" && git checkout -q FETCH_HEAD
 cd src
+# One extension misses <string.h> (an error with current NDK compilers).
+grep -q "<string.h>" extension/ashmem_memfd/ashmem_memfd.c || sed -i "1i #include <string.h>" extension/ashmem_memfd/ashmem_memfd.c
 # Flags through the environment: the makefile appends its own (+=), which command-line variables would replace.
-export CFLAGS="-I$W/talloc/include -include string.h" LDFLAGS="-L$W/talloc/lib"
+export CFLAGS="-I$W/talloc/include" LDFLAGS="-L$W/talloc/lib"
 export PROOT_UNBUNDLE_LOADER=.
 make -j"$(nproc)" V=1 proot loader/loader
 "$STRIP" proot loader/loader
