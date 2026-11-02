@@ -32,7 +32,7 @@ cd "$W"
 git init -q proot && cd proot && git fetch -q --depth 1 https://github.com/termux/proot "$PROOT_REF" && git checkout -q FETCH_HEAD
 cd src
 # Flags through the environment: the makefile appends its own (+=), which command-line variables would replace.
-export CFLAGS="-I$W/talloc/include -Werror=implicit-function-declaration" LDFLAGS="-L$W/talloc/lib"
+export CFLAGS="-I$W/talloc/include -include string.h" LDFLAGS="-L$W/talloc/lib"
 export PROOT_UNBUNDLE_LOADER=.
 make -j"$(nproc)" V=1 proot loader/loader
 "$STRIP" proot loader/loader
