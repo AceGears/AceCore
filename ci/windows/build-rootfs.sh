@@ -32,6 +32,10 @@ DEBV=$(cat "$R/etc/debian_version")
 echo "== Box64 (cross-compiled for arm64)"
 git init -q "$W/box64" && git -C "$W/box64" fetch -q --depth 1 https://github.com/ptitSeb/box64 "$BOX64_REF" \
   && git -C "$W/box64" checkout -q FETCH_HEAD
+# Android (apps targeting API 29+) refuses executable file-backed pages that were modified (SELinux execmod), which
+# Wine needs for every relocated DLL ("failed to set ... protection ... noexec filesystem?"). Guest x86 code is only
+# translated, never executed natively, so Box64 keeps PROT_EXEC in its own records and maps those pages without it.
+git -C "$W/box64" apply "$HERE/box64-android-noexec.patch"
 cmake -S "$W/box64" -B "$W/box64/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DARM_DYNAREC=ON -DBAD_SIGNAL=ON \
   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_ASM_COMPILER=aarch64-linux-gnu-gcc -DNOGIT=ON > /dev/null
 cmake --build "$W/box64/build" -j"$(nproc)" > "$W/box64-build.log" 2>&1 || { tail -50 "$W/box64-build.log"; exit 1; }
