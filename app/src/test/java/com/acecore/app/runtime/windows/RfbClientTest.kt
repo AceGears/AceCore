@@ -107,6 +107,56 @@ class RfbClientTest {
         assertEquals(listOf(0, red, green, 0, 0, red, green, 0), px.toList())
     }
 
+    /**
+     * Hidden pointer: the client asks for the Cursor pseudo-encoding (so Xvnc leaves the pointer out of the picture),
+     * skips the pointer shape the server sends (pixels + mask) and still reads the rectangle after it correctly; showing
+     * the pointer again drops the encoding and asks for a full picture.
+     */
+    @Test fun hiddenPointerSkipsShapeAndCanBeShownAgain() {
+        val server = ServerSocket(0, 5, java.net.InetAddress.getByName("127.0.0.1"))
+        val messages = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val gotFrame = CountDownLatch(1)
+        val serverDone = CountDownLatch(1)
+        thread {
+            server.accept().use { s ->
+                val i = DataInputStream(s.getInputStream()); val o = DataOutputStream(s.getOutputStream())
+                o.write("RFB 003.008\n".toByteArray()); o.flush(); i.skipBytes(12)
+                o.writeByte(1); o.writeByte(1); o.flush(); i.skipBytes(1); o.writeInt(0); o.flush(); i.skipBytes(1)
+                o.writeShort(4); o.writeShort(2); o.write(ByteArray(16)); o.writeInt(0); o.flush()
+                i.skipBytes(20)
+                check(i.readUnsignedByte() == 2); i.skipBytes(1)
+                messages += "encodings ${List(i.readUnsignedShort()) { i.readInt() }}"
+                check(i.readUnsignedByte() == 3); i.skipBytes(9)
+                // One update: a 3x2 pointer shape (3*2*4 pixel bytes + 1 mask byte per row), then a raw red pixel.
+                o.writeByte(0); o.writeByte(0); o.writeShort(2)
+                o.writeShort(1); o.writeShort(1); o.writeShort(3); o.writeShort(2); o.writeInt(-239)
+                o.write(ByteArray(3 * 2 * 4) { 0x55 }); o.write(byteArrayOf(0xE0.toByte(), 0xE0.toByte()))
+                o.writeShort(0); o.writeShort(1); o.writeShort(1); o.writeShort(1); o.writeInt(0)
+                o.write(byteArrayOf(0, 0, 0xFF.toByte(), 0)); o.flush()
+                check(i.readUnsignedByte() == 3); i.skipBytes(9)          // the client's next incremental request
+                // The test shows the pointer again: new encodings, then a full (non-incremental) request.
+                check(i.readUnsignedByte() == 2); i.skipBytes(1)
+                messages += "encodings ${List(i.readUnsignedShort()) { i.readInt() }}"
+                check(i.readUnsignedByte() == 3); messages += "request incremental=${i.readUnsignedByte()}"; i.skipBytes(8)
+                serverDone.countDown()
+                Thread.sleep(300)
+            }
+        }
+        val client = RfbClient(server.localPort, onFrame = { gotFrame.countDown() }, onResize = { _, _ -> }, cursorHidden = true)
+        val reader = thread { runCatching { client.run(5_000) } }
+        assertTrue("frame after the pointer shape", gotFrame.await(10, TimeUnit.SECONDS))
+        val px = synchronized(client.lock) { client.pixels.copyOf() }
+        Thread.sleep(100)
+        client.setCursorHidden(false)
+        assertTrue("server finished", serverDone.await(10, TimeUnit.SECONDS))
+        client.close(); reader.join(2_000); server.close()
+        assertEquals(0xFFFF0000.toInt(), px[4]) // (0,1) on the 4x2 screen
+        assertEquals("encodings [1, 0, -223, -239]", messages[0])
+        assertEquals("encodings [1, 0, -223]", messages[1])
+        assertEquals("request incremental=0", messages[2])
+        assertEquals(false, client.cursorHidden)
+    }
+
     @Test fun keysymsForKeysGamesUse() {
         assertEquals(0xFF0D, Keysyms.fromAndroid(66))   // Enter
         assertEquals(0xFF1B, Keysyms.fromAndroid(111))  // Esc

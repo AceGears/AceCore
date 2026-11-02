@@ -9,8 +9,13 @@ enum class ConfigType { BOOL, INT, CHOICE, BUTTON_MAP }
 private val WEB_FLASH_RGSS: (Engine) -> Boolean =
     { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH || it.family == EngineFamily.RGSS }
 
-/** Engines with AceArcade's on-screen controller and key mapping (adds Godot). */
-private val WITH_CONTROLS: (Engine) -> Boolean = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.GODOT || it.family == EngineFamily.EASYRPG }
+/** Engines with AceArcade's on-screen controller and key mapping (adds Godot, EasyRPG and Windows programs). */
+private val WITH_CONTROLS: (Engine) -> Boolean = {
+    WEB_FLASH_RGSS(it) || it.family == EngineFamily.GODOT || it.family == EngineFamily.EASYRPG || it.family == EngineFamily.WINDOWS
+}
+
+/** Engines with the screen fit / game size / position settings (RPG Maker XP-VX Ace and Windows programs). */
+private val WITH_LAYOUT: (Engine) -> Boolean = { it.family == EngineFamily.RGSS || it.family == EngineFamily.WINDOWS }
 
 /**
  * Settings that can be set globally, per engine, and per game. Each key declares which engines it actually
@@ -36,7 +41,8 @@ enum class ConfigKey(
     KEEP_SCREEN_ON("keepScreenOn", "Keep screen on", "Prevent the screen from sleeping during play.", ConfigType.BOOL, "true", section = "Display", appliesTo = WEB_FLASH_RGSS),
     FILTERING(
         "filtering", "Scaling filter", "Sharp keeps pixel art crisp; Smooth blurs when scaled.", ConfigType.CHOICE, "smooth",
-        listOf("smooth" to "Smooth (bilinear)", "sharp" to "Sharp (nearest-neighbour)"), section = "Display", appliesTo = WEB_FLASH_RGSS,
+        listOf("smooth" to "Smooth (bilinear)", "sharp" to "Sharp (nearest-neighbour)"), section = "Display",
+        appliesTo = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.WINDOWS },
     ),
     SCREEN_FIT(
         "screenFit", "Screen fit",
@@ -48,7 +54,7 @@ enum class ConfigKey(
             "fill" to "Stretch to fill", "integer" to "Pixel-perfect (whole-number scale)",
             "original" to "Original size (1 game pixel = 1 screen pixel)", "zoom" to "Custom zoom",
         ),
-        section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+        section = "Display", appliesTo = WITH_LAYOUT,
     ),
     SCREEN_FILTER(
         "screenFilter", "Upscaling filter",
@@ -61,22 +67,22 @@ enum class ConfigKey(
     SCREEN_ZOOM(
         "screenZoom", "Custom zoom", "Size of the game with Screen fit = Custom zoom, as a percentage of the Fit size " +
             "(above 100% the edges are cut off). Can also be changed in-game (☰ › Display).",
-        ConfigType.INT, "100", range = 25..300, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+        ConfigType.INT, "100", range = 25..300, section = "Display", appliesTo = WITH_LAYOUT,
     ),
     SCREEN_OFFSET_X(
         "screenOffsetX", "Picture position (horizontal)", "Moves the game picture left (−100) or right (+100) inside the " +
             "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
-        appliesTo = { it.family == EngineFamily.RGSS },
+        appliesTo = WITH_LAYOUT,
     ),
     SCREEN_OFFSET_Y(
         "screenOffsetY", "Picture position (vertical)", "Moves the game picture up (−100) or down (+100) inside the " +
             "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
-        appliesTo = { it.family == EngineFamily.RGSS },
+        appliesTo = WITH_LAYOUT,
     ),
     SCREEN_SIZE(
         "screenSize", "Game size", "Size of the game area (%), centred. Lower it to keep the picture clear of the on-screen controls. " +
             "Can also be changed in-game (☰ › Display).",
-        ConfigType.INT, "100", range = 50..100, section = "Display", appliesTo = { it.family == EngineFamily.RGSS },
+        ConfigType.INT, "100", range = 50..100, section = "Display", appliesTo = WITH_LAYOUT,
     ),
     GODOT_RENDERER(
         "godotRenderer", "Renderer",
@@ -86,7 +92,26 @@ enum class ConfigKey(
         listOf("auto" to "Automatic", "vulkan" to "Vulkan (Mobile)", "opengl" to "OpenGL ES 3 (Compatibility)"),
         section = "Display", appliesTo = { it.family == EngineFamily.GODOT },
     ),
-    SHOW_FPS("showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display"),
+    SHOW_FPS(
+        "showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display",
+        appliesTo = { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH || it.family == EngineFamily.WINDOWS },
+    ),
+    WINDOWS_CURSOR(
+        "windowsCursor", "Mouse pointer", "Show the Windows mouse pointer on the game picture. Hide it for games you play " +
+            "with the controls. Can also be changed in-game (☰ › Display).",
+        ConfigType.BOOL, "true", section = "Display", appliesTo = { it.family == EngineFamily.WINDOWS },
+    ),
+    WINDOWS_SCREEN(
+        "windowsScreen", "Windows screen size",
+        "Size of the screen Windows programs run on. A game that goes full screen uses it as its resolution, and a smaller " +
+            "one can run faster. AceArcade shows the game's own window, so for windowed games this changes nothing. Applies from the next launch.",
+        ConfigType.CHOICE, "1600x1200",
+        listOf(
+            "1600x1200" to "1600 × 1200 (4:3)", "1280x960" to "1280 × 960 (4:3)", "1024x768" to "1024 × 768 (4:3)",
+            "800x600" to "800 × 600 (4:3)", "1920x1080" to "1920 × 1080 (16:9)", "1280x720" to "1280 × 720 (16:9)",
+        ),
+        section = "Display", appliesTo = { it.family == EngineFamily.WINDOWS },
+    ),
     FF_SPEED(
         "ffSpeed", "Fast-forward speed",
         "How much faster the game runs while fast-forward is on. Frame-based and time-based game logic both speed up; " +

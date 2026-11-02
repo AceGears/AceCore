@@ -28,6 +28,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.LaunchedEffect
+import com.acecore.app.core.config.ConfigKey
+import com.acecore.app.runtime.rgss.DisplayPrefs
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -73,10 +82,28 @@ data class WindowsLaunchSpec(
     val opacity: Int = 55,
     val scale: Int = 100,
     val haptics: Boolean = true,
+    /** The game's AceArcade data folder (in-game Display changes are saved there for the library to import). */
+    val dataDir: String = "",
+    /** Screen fit, game size, zoom and position ([DisplayPrefs] as JSON). */
+    val display: String = "",
+    /** Smooth (bilinear) scaling; false = sharp pixels. */
+    val smooth: Boolean = true,
+    val showFps: Boolean = false,
+    /** Show the Windows mouse pointer in the picture. */
+    val cursor: Boolean = true,
+    /** Size of the runtime's virtual screen, "WxH". */
+    val screen: String = "1600x1200",
 ) {
     fun toJson(): String = JSONObject().put("gameId", gameId).put("title", title).put("exe", exe).put("helperDir", helperDir)
         .put("buttonMap", buttonMap).put("accent", accentArgb).put("gamepadMode", gamepadMode).put("opacity", opacity)
-        .put("scale", scale).put("haptics", haptics).toString()
+        .put("scale", scale).put("haptics", haptics).put("dataDir", dataDir).put("display", display).put("smooth", smooth)
+        .put("showFps", showFps).put("cursor", cursor).put("screen", screen).toString()
+
+    /** The virtual screen size, within sensible bounds (the default when the value is malformed). */
+    fun screenSize(): Pair<Int, Int> {
+        val p = screen.lowercase().split('x').mapNotNull { it.trim().toIntOrNull() }
+        return if (p.size == 2 && p[0] in 320..3840 && p[1] in 240..2160) p[0] to p[1] else 1600 to 1200
+    }
 
     companion object {
         const val EXTRA = "com.acecore.app.extra.WINDOWS_SPEC"
@@ -85,6 +112,8 @@ data class WindowsLaunchSpec(
                 it.getLong("gameId"), it.getString("title"), it.getString("exe"), it.getString("helperDir"),
                 it.optString("buttonMap"), it.optLong("accent", 0xFFFF2A2AL), it.optString("gamepadMode", "auto"),
                 it.optInt("opacity", 55), it.optInt("scale", 100), it.optBoolean("haptics", true),
+                it.optString("dataDir"), it.optString("display"), it.optBoolean("smooth", true), it.optBoolean("showFps", false),
+                it.optBoolean("cursor", true), it.optString("screen", "1600x1200"),
             )
         }
 
@@ -119,8 +148,15 @@ class WindowsGameActivity : ComponentActivity() {
     private var padVisible by mutableStateOf(true)
     private var showing by mutableStateOf(false)
     private var logView by mutableStateOf<String?>(null)
+    private var displayOpen by mutableStateOf(false)
+    /** Screen fit, game size, zoom and position; changed live from ☰ › Display and saved for this game. */
+    private var display by mutableStateOf(DisplayPrefs())
+    private var smooth by mutableStateOf(true)
+    private var showFps by mutableStateOf(false)
+    private var cursorShown by mutableStateOf(true)
+    private var fpsText by mutableStateOf("")
 
-    private val controller = ControllerInput(onButton = ::sendPad, onMenu = { menuOpen = !menuOpen })
+    private val controller = ControllerInput(onButton = ::sendPad, onMenu = { if (displayOpen) displayOpen = false else menuOpen = !menuOpen })
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,9 +171,15 @@ class WindowsGameActivity : ComponentActivity() {
             "always" -> true
             else -> !ControllerInput.controllerConnected()
         }
+        display = DisplayPrefs.from(DisplayPrefs.parse(s.display))
+        smooth = s.smooth
+        showFps = s.showFps
+        cursorShown = s.cursor
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         screen = ScreenView(this)
+        screen.prefs = display
+        screen.smooth = smooth
         val root = FrameLayout(this).apply { setBackgroundColor(AColor.BLACK) }
         root.addView(screen, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(ComposeView(this).apply {
@@ -147,7 +189,7 @@ class WindowsGameActivity : ComponentActivity() {
         setContentView(root)
         // Back opens AceArcade's menu (Exit is there), so a stray swipe doesn't end the game.
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { menuOpen = !menuOpen }
+            override fun handleOnBackPressed() { if (displayOpen) displayOpen = false else menuOpen = !menuOpen }
         })
         Thread(::startRuntime, "windows-start").start()
     }
@@ -170,7 +212,8 @@ class WindowsGameActivity : ComponentActivity() {
             WindowsRuntime.writeEnv(this, emptyMap())
             stage = "Starting Windows"
             detail = null
-            val p = WindowsRuntime.processBuilder(this, exe, DISPLAY_W, DISPLAY_H).start()
+            val (screenW, screenH) = spec.screenSize()
+            val p = WindowsRuntime.processBuilder(this, exe, screenW, screenH).start()
             process = p
             LaunchTimeline.mark(helperDir, "Runtime started (Wine + Box64 under PRoot)")
             Thread({ pumpLog(p) }, "windows-log").start()
@@ -196,7 +239,7 @@ class WindowsGameActivity : ComponentActivity() {
                 LaunchTimeline.mark(helperDir, "First frame drawn")
             }
             screen.frameArrived()
-        }, onResize = { w, h -> screen.post { screen.resizeFrame(w, h) } })
+        }, onResize = { w, h -> screen.post { screen.resizeFrame(w, h) } }, cursorHidden = !cursorShown)
         rfb = client
         screen.client = client
         try {
@@ -373,6 +416,40 @@ class WindowsGameActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
         controller.handleMotion(event) || super.dispatchGenericMotionEvent(event)
 
+    // ------------------------------------------------------------------ display settings
+
+    /** Saves in-game changes for this game (the library imports them into its settings before the next launch). */
+    private fun saveForGame(values: Map<String, String>) {
+        val dir = spec.dataDir.takeIf { it.isNotBlank() } ?: return
+        Thread { DisplayPrefs.writePending(File(dir), values) }.start()
+    }
+
+    private fun updateDisplay(next: DisplayPrefs) {
+        val n = next.normalized()
+        if (n == display) return
+        display = n
+        screen.prefs = n
+        // The upscaling filters (Smooth edges, CRT) belong to the RPG Maker engine; this screen uses Smooth / Sharp.
+        saveForGame(n.values() - ConfigKey.SCREEN_FILTER.id)
+    }
+
+    private fun updateSmooth(v: Boolean) {
+        smooth = v
+        screen.smooth = v
+        saveForGame(mapOf(ConfigKey.FILTERING.id to if (v) "smooth" else "sharp"))
+    }
+
+    private fun updateCursor(shown: Boolean) {
+        cursorShown = shown
+        INPUT.execute { rfb?.setCursorHidden(!shown) }
+        saveForGame(mapOf(ConfigKey.WINDOWS_CURSOR.id to shown.toString()))
+    }
+
+    private fun updateShowFps(v: Boolean) {
+        showFps = v
+        saveForGame(mapOf(ConfigKey.SHOW_FPS.id to v.toString()))
+    }
+
     // ------------------------------------------------------------------ overlay
 
     @Composable
@@ -381,12 +458,28 @@ class WindowsGameActivity : ComponentActivity() {
         val store = remember { GamepadLayoutStore(this@WindowsGameActivity) }
         Box(Modifier.fillMaxSize()) {
             if (!showing || failure != null) StatusPanel(accent)
-            if (padVisible && !menuOpen && failure == null) {
+            if (showFps && showing && failure == null) {
+                LaunchedEffect(Unit) {
+                    var last = frames
+                    while (true) {
+                        delay(1000)
+                        val now = frames
+                        fpsText = "${now - last} fps"
+                        last = now
+                    }
+                }
+                Text(
+                    fpsText.ifEmpty { "… fps" }, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            if (padVisible && !menuOpen && !displayOpen && failure == null) {
                 VirtualGamepad(
                     store = store, opacity = spec.opacity / 100f, scale = spec.scale / 100f, haptics = spec.haptics, accent = accent,
                     editing = false, onEditDone = {}, onButton = ::sendPad, onMenu = { menuOpen = true },
                 )
-            } else if (!menuOpen && failure == null) {
+            } else if (!menuOpen && !displayOpen && failure == null) {
                 Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).background(PanelBg, RoundedCornerShape(50))
                     .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50)).clickable { menuOpen = true }
                     .padding(horizontal = 16.dp, vertical = 6.dp)) { Text("☰", color = Color.White, fontSize = 16.sp) }
@@ -399,6 +492,7 @@ class WindowsGameActivity : ComponentActivity() {
                     }
                 }
             }
+            if (displayOpen && failure == null) DisplayPanel(accent)
             if (menuOpen) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).clickable { menuOpen = false }) {
                     Column(
@@ -410,6 +504,7 @@ class WindowsGameActivity : ComponentActivity() {
                         Text(spec.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text("Windows runtime (Wine + Box64) · experimental", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                         MenuRow("Resume", accent) { menuOpen = false }
+                        MenuRow("Display", accent) { menuOpen = false; displayOpen = true }
                         MenuRow(if (padVisible) "Hide on-screen controls" else "Show on-screen controls", accent) { padVisible = !padVisible; menuOpen = false }
                         MenuRow("Right-click mode: ${if (screen.rightClick) "on" else "off"}", accent) { screen.rightClick = !screen.rightClick; menuOpen = false }
                         MenuRow("Show Windows log", accent) {
@@ -421,6 +516,129 @@ class WindowsGameActivity : ComponentActivity() {
                         MenuRow("Exit to library", accent) { exitGame() }
                     }
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun Choice(label: String, selected: Boolean, accent: Color, modifier: Modifier, onClick: () -> Unit) {
+        Box(
+            modifier.height(40.dp)
+                .background(if (selected) accent.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                .border(1.dp, if (selected) accent else Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Text(label, color = Color.White, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, fontSize = 13.sp, maxLines = 1) }
+    }
+
+    @Composable
+    private fun PanelSlider(value: Int, range: IntRange, accent: Color, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
+        androidx.compose.material3.Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange((it / 5f).roundToInt() * 5) },
+            valueRange = range.first.toFloat()..range.last.toFloat(), steps = (range.last - range.first) / 5 - 1, modifier = modifier,
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+        )
+    }
+
+    /**
+     * ☰ › Display: how the game's window is placed on the phone screen, applied live and saved for this game. The
+     * panel sits at the top so the game stays visible behind it while adjusting.
+     */
+    @Composable
+    private fun DisplayPanel(accent: Color) {
+        val label = Color.White.copy(alpha = 0.7f)
+        val hint = Color.White.copy(alpha = 0.6f)
+        Box(
+            Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { displayOpen = false },
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                Modifier.padding(top = 12.dp).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp)
+                    .background(PanelBg, RoundedCornerShape(20.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Display", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(onClick = { updateDisplay(DisplayPrefs()); updateSmooth(true) }) { Text("Reset", color = accent) }
+                    androidx.compose.material3.TextButton(onClick = { displayOpen = false }) { Text("Done", color = accent, fontWeight = FontWeight.Bold) }
+                }
+                Text("Screen fit", color = label, fontSize = 12.sp)
+                listOf(
+                    listOf(DisplayPrefs.FIT to "Fit", DisplayPrefs.COVER to "Fill", DisplayPrefs.FILL to "Stretch"),
+                    listOf(DisplayPrefs.INTEGER to "Pixel-perfect", DisplayPrefs.ORIGINAL to "Original", DisplayPrefs.ZOOM to "Zoom"),
+                ).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (mode, name) -> Choice(name, display.fit == mode, accent, Modifier.weight(1f)) { updateDisplay(display.copy(fit = mode)) } }
+                    }
+                }
+                Text(
+                    when (display.fit) {
+                        DisplayPrefs.COVER -> "Keeps the game's proportions and fills the whole area; the edges that don't fit are cut off."
+                        DisplayPrefs.FILL -> "Fills the whole area; the picture is stretched to the screen's shape."
+                        DisplayPrefs.INTEGER -> "Largest whole-number multiple of the game's window: crisp pixels, may leave borders."
+                        DisplayPrefs.ORIGINAL -> "One game pixel per screen pixel (the game's own size, small on a phone)."
+                        DisplayPrefs.ZOOM -> "Your own size, as a percentage of the Fit size. Above 100% the edges are cut off."
+                        else -> "Largest size that keeps the game's proportions."
+                    },
+                    color = hint, fontSize = 12.sp,
+                )
+                if (display.fit == DisplayPrefs.ZOOM) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Zoom", color = label, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Text("${display.zoomPercent}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    PanelSlider(display.zoomPercent, DisplayPrefs.MIN_ZOOM..DisplayPrefs.MAX_ZOOM, accent) { updateDisplay(display.copy(zoomPercent = it)) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Game size", color = label, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("${display.sizePercent}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                PanelSlider(display.sizePercent, DisplayPrefs.MIN_SIZE..100, accent) { updateDisplay(display.copy(sizePercent = it)) }
+                Text("Scaling", color = label, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Choice("Smooth", smooth, accent, Modifier.weight(1f)) { updateSmooth(true) }
+                    Choice("Sharp pixels", !smooth, accent, Modifier.weight(1f)) { updateSmooth(false) }
+                }
+                Text(
+                    if (smooth) "Soft edges when the picture is enlarged (bilinear)." else "Every game pixel stays a crisp block; best for pixel art, sharpest with Pixel-perfect.",
+                    color = hint, fontSize = 12.sp,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Picture position", color = label, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(
+                        if (display.offsetX == 0 && display.offsetY == 0) "Centred" else "${display.offsetX}, ${display.offsetY}",
+                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { updateDisplay(display.copy(offsetX = 0, offsetY = 0)) }) { Text("Centre", color = accent) }
+                }
+                listOf("↔" to true, "↕" to false).forEach { (sym, horizontal) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(sym, color = label, fontSize = 14.sp, modifier = Modifier.width(24.dp))
+                        PanelSlider(if (horizontal) display.offsetX else display.offsetY, -100..100, accent, Modifier.weight(1f)) { v ->
+                            updateDisplay(if (horizontal) display.copy(offsetX = v) else display.copy(offsetY = v))
+                        }
+                    }
+                }
+                Text("Mouse pointer", color = label, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Choice("Show", cursorShown, accent, Modifier.weight(1f)) { updateCursor(true) }
+                    Choice("Hide", !cursorShown, accent, Modifier.weight(1f)) { updateCursor(false) }
+                }
+                Text("Performance overlay", color = label, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Choice("Off", !showFps, accent, Modifier.weight(1f)) { updateShowFps(false) }
+                    Choice("Show fps", showFps, accent, Modifier.weight(1f)) { updateShowFps(true) }
+                }
+                val (pw, ph) = screen.pictureSource()
+                val (sw, sh) = spec.screenSize()
+                Text(
+                    "Game window ${pw}×${ph} · Windows screen ${sw}×${sh} (change it in the game's settings; applies from the next launch)",
+                    color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp,
+                )
+                Text("Saved for this game. Also in the game's settings in the library.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         }
     }
@@ -462,12 +680,17 @@ class WindowsGameActivity : ComponentActivity() {
     }
 
     /**
-     * Draws the runtime's screen: the game's window (when known) or the whole display, scaled to fit with its aspect
-     * ratio kept. Touch = left mouse button at that point (right button in right-click mode).
+     * Draws the runtime's screen: the game's window (when known) or the whole display, placed by the Display settings
+     * ([prefs]: Fit / Fill / Stretch / Pixel-perfect / Original / Zoom, game size, position) with smooth or sharp
+     * scaling. Touch = left mouse button at that point (right button in right-click mode).
      */
     private class ScreenView(context: Context) : View(context) {
         @Volatile var client: RfbClient? = null
         @Volatile var rightClick = false
+        var prefs = DisplayPrefs()
+            set(v) { field = v; invalidate() }
+        var smooth = true
+            set(v) { field = v; paint.isFilterBitmap = v; invalidate() }
         private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
         private var bitmap: Bitmap? = null
         private val bitmapLock = Any()
@@ -505,12 +728,18 @@ class WindowsGameActivity : ComponentActivity() {
             postInvalidateOnAnimation()
         }
 
+        /** Size of the game's window (or of the whole display), for the Display panel's readout. */
+        fun pictureSource(): Pair<Int, Int> = area().let { it.width() to it.height() }
+
         override fun onDraw(canvas: Canvas) {
             synchronized(bitmapLock) {
                 val b = bitmap ?: return
-                val s = minOf(width.toFloat() / b.width, height.toFloat() / b.height)
-                val w = b.width * s; val h = b.height * s
-                dst.set((width - w) / 2, (height - h) / 2, (width + w) / 2, (height + h) / 2)
+                // Same rules as the RPG Maker screen (DisplayPrefs.surfaceSize); the offsets move the picture inside
+                // the free space, or across the overflow when it is larger than the screen.
+                val (w, h) = prefs.surfaceSize(width, height, b.width, b.height)
+                val left = (width - w) / 2f + prefs.offsetX / 100f * kotlin.math.abs(width - w) / 2f
+                val top = (height - h) / 2f + prefs.offsetY / 100f * kotlin.math.abs(height - h) / 2f
+                dst.set(left, top, left + w, top + h)
                 canvas.drawBitmap(b, null, dst, paint)
             }
         }
@@ -520,8 +749,9 @@ class WindowsGameActivity : ComponentActivity() {
             val c = client ?: return true
             if (dst.width() <= 0f) return true
             val a = area()
-            val x = a.left + ((e.x - dst.left) / dst.width() * a.width()).toInt()
-            val y = a.top + ((e.y - dst.top) / dst.height() * a.height()).toInt()
+            // Touches on the borders around the picture go to the nearest edge of the game's window.
+            val x = (a.left + ((e.x - dst.left) / dst.width() * a.width()).toInt()).coerceIn(a.left, a.right - 1)
+            val y = (a.top + ((e.y - dst.top) / dst.height() * a.height()).toInt()).coerceIn(a.top, a.bottom - 1)
             val button = if (rightClick || e.pointerCount > 1) 4 else 1
             val action = e.actionMasked
             val mask = when (action) {
@@ -536,9 +766,6 @@ class WindowsGameActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "AceArcadeWindows"
-        /** Size of the runtime's virtual display; the game's window inside it is what's shown. */
-        const val DISPLAY_W = 1600
-        const val DISPLAY_H = 1200
         /** Input events go to the display connection in order, off the UI thread. */
         private val INPUT = java.util.concurrent.Executors.newSingleThreadExecutor()
     }

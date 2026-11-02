@@ -126,7 +126,8 @@ class LaunchCoordinator(
             canRescan = true, fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
         )
         val s = settings.current()
-        val overrides = if (engine.family == EngineFamily.RGSS) importDisplayChanges(game) else games.overrides(game)
+        val overrides = if (engine.family == EngineFamily.RGSS || engine.family == EngineFamily.WINDOWS) importDisplayChanges(game)
+            else games.overrides(game)
         val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), overrides, engine).snapshot()
         val accent = accentArgbFor(s.theme)
         if (engine.family == EngineFamily.RGSS) {
@@ -289,6 +290,12 @@ class LaunchCoordinator(
             com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Launcher ready (Windows program ${exe.name})")
             com.acecore.app.runtime.windows.WindowsLaunchSpec.intent(context, com.acecore.app.runtime.windows.WindowsLaunchSpec(
                 gameId = game.id, title = game.title, exe = exe.absolutePath, helperDir = helperDir.absolutePath,
+                dataDir = dataDir.absolutePath,
+                display = com.acecore.app.runtime.rgss.DisplayPrefs.from(config).toJson(),
+                smooth = (config[ConfigKey.FILTERING.id] ?: "smooth") != "sharp",
+                showFps = ConfigKey.SHOW_FPS.bool(config[ConfigKey.SHOW_FPS.id] ?: "false"),
+                cursor = ConfigKey.WINDOWS_CURSOR.bool(config[ConfigKey.WINDOWS_CURSOR.id] ?: "true"),
+                screen = config[ConfigKey.WINDOWS_SCREEN.id] ?: ConfigKey.WINDOWS_SCREEN.default,
                 buttonMap = config[ConfigKey.BUTTON_MAP.id].orEmpty(), accentArgb = accent,
                 gamepadMode = config[ConfigKey.GAMEPAD_MODE.id] ?: "auto",
                 opacity = ConfigKey.GAMEPAD_OPACITY.int(config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55"),

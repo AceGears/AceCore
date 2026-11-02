@@ -100,6 +100,8 @@ data class DisplayPrefs(
             ConfigKey.FF_SPEED.id, ConfigKey.FF_MODE.id, ConfigKey.FF_AUDIO.id, ConfigKey.PAD_FF.id, ConfigKey.PAD_QS.id,
             ConfigKey.PAD_QL.id, ConfigKey.TOOLS_SCALE.id, ConfigKey.TOOLS_OPACITY.id, ConfigKey.GAMEPAD_OPACITY.id,
             ConfigKey.CHEAT_SHORTCUT.id,
+            // Windows programs' ☰ › Display panel (WindowsGameActivity).
+            ConfigKey.FILTERING.id, ConfigKey.SHOW_FPS.id, ConfigKey.WINDOWS_CURSOR.id,
         )
 
         fun file(dataDir: File) = File(RgssRuntime.helperDir(dataDir), FILE_NAME)

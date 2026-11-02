@@ -630,6 +630,7 @@ Windows runtime (only in APKs built with it; runs as separate programs)
   PRoot — GPL-2.0, STMicroelectronics / the PRoot authors, Termux fork (https://github.com/termux/proot)
   talloc — LGPL-3.0-or-later, the Samba team
   TigerVNC (Xvnc) — GPL-2.0, the TigerVNC developers; PulseAudio — LGPL-2.1-or-later
+  xdotool — BSD-3-Clause, Jordan Sissel and contributors
   Debian GNU/Linux packages — each under its own licence (see /usr/share/common-licenses inside the runtime);
   sources: https://sources.debian.org/
 

@@ -94,7 +94,7 @@ object RuntimeRegistry {
             formats = "Windows programs (.exe), 32- and 64-bit",
             status = "Detected, but this APK was built without the Windows runtime.",
             blocker = "AceArcade's CI builds it (job \"windows-runtime\": Wine, Box64 and PRoot); use an APK that includes it.",
-            license = "LGPL-2.1+ (Wine), MIT (Box64), GPL-2.0 (PRoot), GPL-2.0 (TigerVNC), LGPL-2.1+ (PulseAudio), Debian packages under their own licences",
+            license = "LGPL-2.1+ (Wine), MIT (Box64), GPL-2.0 (PRoot), GPL-2.0 (TigerVNC), LGPL-2.1+ (PulseAudio), BSD-3-Clause (xdotool), Debian packages under their own licences",
         ),
         RuntimeId.NONE to RuntimeInfo(
             RuntimeId.NONE, bundled = false,

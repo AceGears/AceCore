@@ -12,6 +12,8 @@ import java.net.Socket
  * Minimal VNC (RFB 3.8) client for the Windows runtime's display: the X server inside the runtime (TigerVNC Xvnc)
  * listens on 127.0.0.1 only. Supports what a local connection needs: no authentication, 32-bit true colour, Raw and
  * CopyRect rectangles, and DesktopSize (a game switching its screen resolution). Pointer and key events go back.
+ * With [cursorHidden] the client takes the Cursor pseudo-encoding (the server then leaves the mouse pointer out of the
+ * picture and sends its shape separately) and ignores the shape, so no pointer is shown.
  *
  * The frame buffer is [pixels] (0xFFRRGGBB per pixel, row-major, [width] x [height]); [onFrame] runs on the reader
  * thread after each complete update, while [lock] is held by nobody.
@@ -20,7 +22,9 @@ class RfbClient(
     private val port: Int,
     private val onFrame: () -> Unit,
     private val onResize: (Int, Int) -> Unit,
+    cursorHidden: Boolean = false,
 ) {
+    @Volatile var cursorHidden = cursorHidden; private set
     @Volatile var width = 0; private set
     @Volatile var height = 0; private set
     @Volatile var pixels = IntArray(0); private set
@@ -62,6 +66,7 @@ class RfbClient(
                                 synchronized(lock) { copyRect(sx, sy, x, y, w, h) }
                             }
                             ENC_DESKTOP_SIZE -> resize(w, h)
+                            ENC_CURSOR -> skipFully(input, w * h * 4 + (w + 7) / 8 * h) // pointer shape + mask: not drawn
                             else -> throw IOException("Unexpected VNC encoding $enc")
                         }
                     }
@@ -70,13 +75,20 @@ class RfbClient(
                 }
                 1 -> { // SetColourMapEntries (not used with true colour)
                     input.readUnsignedByte(); input.readUnsignedShort()
-                    val n = input.readUnsignedShort(); input.skipBytes(n * 6)
+                    val n = input.readUnsignedShort(); skipFully(input, n * 6)
                 }
                 2 -> Unit // Bell
-                3 -> { input.skipBytes(3); val n = input.readInt(); input.skipBytes(n) } // ServerCutText
+                3 -> { skipFully(input, 3); val n = input.readInt(); skipFully(input, n) } // ServerCutText
                 else -> throw IOException("Unexpected VNC message $type")
             }
         }
+    }
+
+    /** Skips exactly [n] bytes (DataInputStream.skipBytes may skip fewer). */
+    private fun skipFully(input: DataInputStream, n: Int) {
+        val scratch = ByteArray(minOf(n, 1 shl 16).coerceAtLeast(1))
+        var left = n
+        while (left > 0) { val k = minOf(left, scratch.size); input.readFully(scratch, 0, k); left -= k }
     }
 
     private fun connect(timeoutMs: Long): Socket {
@@ -109,19 +121,32 @@ class RfbClient(
         if (input.readInt() != 0) throw IOException("VNC security handshake failed")
         o.writeByte(1); o.flush() // ClientInit: shared
         val w = input.readUnsignedShort(); val h = input.readUnsignedShort()
-        input.skipBytes(16) // server pixel format (we set ours below)
-        val nameLen = input.readInt(); input.skipBytes(nameLen)
+        skipFully(input, 16) // server pixel format (we set ours below)
+        val nameLen = input.readInt(); skipFully(input, nameLen)
         resize(w, h)
         // SetPixelFormat: 32 bpp, depth 24, little endian, true colour, 8 bits per channel, R<<16 G<<8 B.
         o.writeByte(0); o.write(ByteArray(3))
         o.writeByte(32); o.writeByte(24); o.writeByte(0); o.writeByte(1)
         o.writeShort(255); o.writeShort(255); o.writeShort(255)
         o.writeByte(16); o.writeByte(8); o.writeByte(0); o.write(ByteArray(3))
-        // SetEncodings: CopyRect, Raw, DesktopSize.
-        val encodings = intArrayOf(ENC_COPYRECT, ENC_RAW, ENC_DESKTOP_SIZE)
+        writeEncodings(o)
+        o.flush()
+    }
+
+    /** SetEncodings: CopyRect, Raw, DesktopSize, and Cursor while the pointer is hidden. */
+    private fun writeEncodings(o: DataOutputStream) {
+        val encodings = if (cursorHidden) intArrayOf(ENC_COPYRECT, ENC_RAW, ENC_DESKTOP_SIZE, ENC_CURSOR)
+            else intArrayOf(ENC_COPYRECT, ENC_RAW, ENC_DESKTOP_SIZE)
         o.writeByte(2); o.writeByte(0); o.writeShort(encodings.size)
         encodings.forEach { o.writeInt(it) }
-        o.flush()
+    }
+
+    /** Shows or hides the mouse pointer in the picture (takes effect with the next update). */
+    fun setCursorHidden(hidden: Boolean) {
+        if (hidden == cursorHidden) return
+        cursorHidden = hidden
+        send { writeEncodings(this) }
+        if (connected) requestUpdate(incremental = false)
     }
 
     private fun resize(w: Int, h: Int) {
@@ -189,6 +214,7 @@ class RfbClient(
         private const val OPAQUE = -0x1000000 // 0xFF000000: pixels are stored ready for an ARGB bitmap
         const val ENC_COPYRECT = 1
         const val ENC_DESKTOP_SIZE = -223
+        const val ENC_CURSOR = -239
     }
 }
 
