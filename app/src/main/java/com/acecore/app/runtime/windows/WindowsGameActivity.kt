@@ -164,6 +164,7 @@ class WindowsGameActivity : ComponentActivity() {
             val exe = File(spec.exe)
             if (!exe.isFile) throw IllegalStateException("The program ${exe.absolutePath} isn't there any more.")
             WindowsRuntime.status(this).let { it.deleteRecursively(); it.mkdirs() }
+            WindowsRuntime.writeEnv(this, emptyMap())
             stage = "Starting Windows"
             detail = null
             val p = WindowsRuntime.processBuilder(this, exe, DISPLAY_W, DISPLAY_H).start()
@@ -178,7 +179,9 @@ class WindowsGameActivity : ComponentActivity() {
             if (!finishing) onRuntimeEnded(rc)
         } catch (e: Throwable) {
             Log.e(TAG, "Windows runtime failed", e)
-            fail("The Windows runtime couldn't start: ${e.message ?: e.javaClass.simpleName}")
+            val m = "The Windows runtime couldn't start: ${e.message ?: e.javaClass.simpleName}"
+            saveReport(m + "\n" + Log.getStackTraceString(e), -1)
+            fail(m)
         }
     }
 
@@ -222,7 +225,7 @@ class WindowsGameActivity : ComponentActivity() {
                         gameStartedAt = System.currentTimeMillis()
                         LaunchTimeline.mark(helperDir, "Windows program started")
                     }
-                    st.startsWith("failed") -> fail(st.removePrefix("failed:").trim())
+                    st.startsWith("failed") -> st.removePrefix("failed:").trim().let { m -> saveReport(m, -1); fail(m) }
                 }
             }
             val win = runCatching { File(dir, "window").readText().trim().split(' ').map { it.toInt() } }.getOrNull()
@@ -257,12 +260,42 @@ class WindowsGameActivity : ComponentActivity() {
             runOnUiThread { exitGame() }
             return
         }
-        val logs = listOf("wine.log", "wineboot.log", "xvnc.log").mapNotNull { n ->
-            File(dir, n).takeIf { it.isFile && it.length() > 0 }?.let { f -> "== $n ==\n" + f.readLines().takeLast(25).joinToString("\n") }
-        } + listOfNotNull(File(helperDir, "windows.log").takeIf { it.isFile }?.let { "== runtime ==\n" + it.readLines().takeLast(25).joinToString("\n") })
-        logs.forEach { runCatching { File(helperDir, "windows-failure.txt").appendText(it + "\n") } }
-        fail("The Windows program closed before its window appeared (exit code ${exitFile ?: rc}).", logs.joinToString("\n\n"))
+        val message = "The Windows program closed before its window appeared (exit code ${exitFile ?: rc})."
+        // On screen: the end of each log without Box64's start-up banner (the cause is usually in the last lines).
+        val shortLogs = logFiles().mapNotNull { (n, f) ->
+            val lines = f.readLines().filterNot { it.startsWith("[BOX64]") || it.startsWith(" BOX64_") }.takeLast(30)
+            if (lines.isEmpty()) null else "== $n ==\n" + lines.joinToString("\n")
+        }
+        val report = saveReport(message, exitFile ?: rc)
+        fail(message + (report?.let { "\nFull logs saved in Settings › Advanced › Crash reports." } ?: ""), shortLogs.joinToString("\n\n"))
     }
+
+    /** The runtime's logs, the most telling first. */
+    private fun logFiles(): List<Pair<String, File>> {
+        val dir = WindowsRuntime.status(this)
+        return (listOf("wine.log", "wineboot.log", "xvnc.log", "pulse.log").map { it to File(dir, it) } +
+            listOf("runtime (PRoot)" to File(helperDir, "windows.log")))
+            .filter { it.second.isFile && it.second.length() > 0 }
+    }
+
+    /** A crash report with everything needed to find the cause (shown in Settings › Advanced › Crash reports). */
+    private fun saveReport(message: String, code: Int): File? = runCatching {
+        val cr = com.acecore.app.runtime.CrashReports
+        val text = buildString {
+            append(cr.header(spec.title, "Native Windows program", runCatching { File(WindowsRuntime.status(this@WindowsGameActivity), "stage").readText().trim() }.getOrDefault("?")))
+            appendLine("Runtime: Windows runtime · ${WindowsRuntime.bundledVersion(this@WindowsGameActivity)?.lines()?.take(3)?.joinToString(" · ")}")
+            appendLine("Program: ${spec.exe}")
+            appendLine("Cause: $message (exit code $code)")
+            appendLine()
+            File(helperDir, "timeline").takeIf { it.isFile }?.let { appendLine("== Launch timeline =="); appendLine(it.readText()) }
+            for ((n, f) in logFiles()) {
+                appendLine("== $n ==")
+                f.readLines().takeLast(300).forEach { appendLine(it) }
+                appendLine()
+            }
+        }
+        cr.save(this, spec.gameId, cr.redact(text))
+    }.getOrNull()
 
     private fun fail(message: String, logs: String? = null) {
         if (finishing) return
@@ -391,8 +424,6 @@ class WindowsGameActivity : ComponentActivity() {
                             Text(it, color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
-                    Text("The full log is in the game's crash report (Settings › Advanced › Crash reports).",
-                        color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                     MenuRow("Close", accent) { exitGame() }
                 }
                 if (f == null) MenuRow("Cancel", accent) { exitGame() }

@@ -9,9 +9,13 @@ mkdir -p "$S" /tmp/.X11-unix
 stage() { echo "$1" > "$S/stage.tmp" && mv "$S/stage.tmp" "$S/stage"; echo "[run] $1"; }
 export HOME=/root USER=root LANG=C.UTF-8 TMPDIR=/tmp DISPLAY=:0
 export PATH=/opt/wine/bin:/usr/local/bin:/usr/bin:/bin
-export WINEPREFIX=/root/.wine WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" WINEESYNC=0 WINEFSYNC=0
+export WINEPREFIX=/root/.wine WINEDLLOVERRIDES="mscoree,mshtml=" WINEESYNC=0 WINEFSYNC=0
 export PULSE_SERVER="unix:$S/pulse.sock"
-export BOX64_NOBANNER=1 BOX64_LOG=1
+export BOX64_NOBANNER=1 BOX64_LOG=0
+# Wine's own errors are logged (not its warnings); the app can override any of these settings for a game in
+# /tmp/acearcade-env (written before each launch).
+export WINEDEBUG=err+all,fixme-all
+[ -f /tmp/acearcade-env ] && . /tmp/acearcade-env
 rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 "$S/exit" "$S/window"
 
 stage display

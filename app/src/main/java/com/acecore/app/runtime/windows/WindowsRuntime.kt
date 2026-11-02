@@ -155,6 +155,18 @@ object WindowsRuntime {
         }
     }
 
+    /**
+     * Settings for one launch, read by run.sh after its defaults (/tmp/acearcade-env): lets a game get different
+     * Wine/Box64 settings without rebuilding the runtime. Values are single-quoted for the shell.
+     */
+    fun writeEnv(context: Context, vars: Map<String, String>) {
+        val f = File(tmp(context).apply { mkdirs() }, "acearcade-env")
+        f.writeText(vars.entries.joinToString("") { (k, v) ->
+            require(k.matches(Regex("[A-Z_][A-Z0-9_]*"))) { "bad variable name $k" }
+            "export $k='${v.replace("'", "'\\''")}'\n"
+        })
+    }
+
     private class CountingStream(private val inner: java.io.InputStream, private val report: (Long) -> Unit) : java.io.InputStream() {
         private var count = 0L
         private var lastReport = 0L
