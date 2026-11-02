@@ -108,7 +108,17 @@ script = <<~'RUBY'
     rescue Exception => e
       e.class.to_s
     end
-    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal} layout=#{layout}")
+    # Live key states for games that read keys with GetAsyncKeyState and never call the engine's Input.update
+    # (Essentials v16/v17: Pokémon Axon, Ópalo): the engine call must exist and be what GetAsyncKeyState reads.
+    keys = begin
+      live = Input.acearcade_key_states
+      ga = Win32API.new('user32', 'GetAsyncKeyState', 'i', 'i').call(0x0D)
+      (live.is_a?(Array) && live.size >= 512 && ga.is_a?(Integer) &&
+        AceCoreCompat::Win32.key_states.size == live.size) ? "ok" : "size=#{live.size rescue '?'}"
+    rescue Exception => e
+      e.class.to_s
+    end
+    mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal} layout=#{layout} keys=#{keys}")
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")

@@ -912,8 +912,22 @@ module AceCoreCompat
       nil
     end
 
+    # GetAsyncKeyState reads the keyboard as it is right now. Input.acearcade_key_states (engine) is that live state;
+    # Input.raw_key_states is only refreshed by the engine's Input.update, which games with their own Win32 Input
+    # module (Essentials v16/v17: Axon, Ópalo) never call, so it is only the fallback for engines without it.
+    # Games query each key separately (up to 256 calls in one frame), so one read serves the calls made within 2 ms;
+    # a loop that waits for a key without drawing a frame still sees the key once it is pressed.
+    def key_states
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return @key_states if @key_states && @key_states_at && now - @key_states_at < 0.002
+      @key_states_at = now
+      @key_states = Input.respond_to?(:acearcade_key_states) ? Input.acearcade_key_states : Input.raw_key_states
+    rescue StandardError
+      nil
+    end
+
     def key_state(vk)
-      states = (Input.raw_key_states rescue nil) or return false
+      states = key_states or return false
       # Windows virtual-key -> SDL scancode for the keys games query most (letters, digits, arrows, common keys)
       vk = vk.to_i
       sc = case vk

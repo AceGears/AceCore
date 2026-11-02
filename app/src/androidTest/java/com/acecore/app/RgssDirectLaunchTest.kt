@@ -87,6 +87,7 @@ class RgssDirectLaunchTest {
         assertTrue("Marshal.load from a reader returning more than asked must load intact (Pokémon Flux): '$rgss1'", rgss1.contains("marshal=ok"))
         assertTrue("Essentials Win32API start-up calls must work: '$rgss1'", rgss1.contains(" win32=true "))
         assertTrue("Display layout modes (Fill / Zoom / Original, position) must be available in the engine: '$rgss1'", rgss1.contains("layout=ok"))
+        assertTrue("Live key states for GetAsyncKeyState games (Pokémon Axon, Ópalo) must come from the engine: '$rgss1'", rgss1.contains("keys=ok"))
         assertTrue("Deep recursion through C methods must reach 3000 levels: '$probe' " + diagnostics(helper), probe.startsWith("3000 "))
         assertTrue("Marshal.load of 2000-deep data must work: '$probe'", probe.split(" ").getOrNull(1) == "true")
         Thread.sleep(1500)
