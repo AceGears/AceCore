@@ -18,12 +18,16 @@ docker run --rm --platform linux/arm64 -v "$T:/test" acearcade-windows:smoke /bi
   sleep 3
   box64 --version
   timeout 2400 box64 wine wineboot -i > /test/wineboot.log 2>&1; echo "wineboot rc=$?"
-  cd /test && timeout 900 box64 wine /test/smoke32.exe > /test/wine.log 2>&1; echo "smoke rc=$?"
+  # Started the way run.sh starts games: the program'"'"'s folder is drive G:.
+  ln -sfn /test "$WINEPREFIX/dosdevices/g:"
+  cd /test && timeout 900 box64 wine '"'"'G:\smoke32.exe'"'"' > /test/wine.log 2>&1; echo "smoke rc=$?"
   box64 wineserver -k 2>/dev/null
 ' 2>&1 | tail -20
 secs=$(( $(date +%s) - start ))
-if [ -f "$T/smoke-ok.txt" ]; then
+if [ -f "$T/smoke-ok.txt" ] && grep -qiF 'cwd=G:\ ' "$T/smoke-ok.txt"; then
   echo "pass: $(cat "$T/smoke-ok.txt") (${secs}s on QEMU)" > "$RES"
+elif [ -f "$T/smoke-ok.txt" ]; then
+  echo "fail: the program ran but not from drive G: ($(cat "$T/smoke-ok.txt"), ${secs}s on QEMU)" > "$RES"
 else
   { echo "fail: no output from the test program (${secs}s on QEMU)"; tail -15 "$T/wineboot.log" "$T/wine.log" 2>/dev/null; } > "$RES"
 fi

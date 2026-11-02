@@ -41,14 +41,24 @@ fi
 
 stage game
 DIR=$(dirname "$EXE")
+NAME=$(basename "$EXE")
+# The game's folder is drive G: (G:\ is the folder itself). On Z: (the whole Linux file system) the game would see
+# Android's /storage/emulated above its folder, which apps aren't allowed to open, and programs that check each
+# folder of a path (Ruby's realpath, for one) fail there with "No such file or directory". Wine names a folder by
+# the drive whose root is closest, so the working folder becomes G:\ too.
+mkdir -p "$WINEPREFIX/dosdevices"
+rm -f "$WINEPREFIX/dosdevices/g:"
+ln -s "$DIR" "$WINEPREFIX/dosdevices/g:"
 cd "$DIR" || true
-if [ -f "$DIR/Game.rb" ] && [ -f "$DIR/ruby.exe" ] && [ -d "$DIR/psdk" ] && [ "$(basename "$EXE")" = Game.exe ]; then
+: > "$S/wine.log"
+if [ -f "$DIR/Game.rb" ] && [ -f "$DIR/ruby.exe" ] && [ -d "$DIR/psdk" ] && [ "$NAME" = Game.exe ]; then
   # Pokémon SDK: Game.exe only starts "rubyw.exe --disable=gems,rubyopt,did_you_mean Game.rb" (no console). The same
   # command with ruby.exe keeps Ruby's own error output, so a script error shows up in the log.
-  echo "[run] Pokemon SDK game: ruby.exe Game.rb" >> "$S/wine.log"
-  box64 wine "$DIR/ruby.exe" --disable=gems,rubyopt,did_you_mean Game.rb >> "$S/wine.log" 2>&1
+  printf '%s\n' '[run] Pokemon SDK game: G:\ruby.exe Game.rb' >> "$S/wine.log"
+  box64 wine 'G:\ruby.exe' --disable=gems,rubyopt,did_you_mean Game.rb >> "$S/wine.log" 2>&1
 else
-  box64 wine "$EXE" > "$S/wine.log" 2>&1
+  printf '[run] G:\\%s\n' "$NAME" >> "$S/wine.log"
+  box64 wine "G:\\$NAME" >> "$S/wine.log" 2>&1
 fi
 RC=$?
 [ -f "$DIR/Error.log" ] && [ "$DIR/Error.log" -nt "$S/stage" ] && { echo "== Error.log (written by the game) =="; cat "$DIR/Error.log"; } >> "$S/wine.log"
