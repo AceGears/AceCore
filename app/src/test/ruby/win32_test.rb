@@ -268,6 +268,20 @@ Dir.mktmpdir do |d|
     check 'system of another program: Ruby\'s normal nil', system('notepad.exe'), nil
   end
 end
+# GetUserName: no Windows account on Android -> fails like Windows (0), Essentials then suggests a name itself.
+gun = Win32API.new('advapi32.dll', 'GetUserName', 'pp', 'i')
+check 'GetUserName fails (no Windows user)', [gun.call("\0" * 100, [100].pack('V')), Win32API.new('kernel32', 'GetLastError', '', 'i').call], [0, 120]
+# Essentials TextEntry: GetKeyboardState + MapVirtualKey + ToUnicode (US layout).
+mvk = Win32API.new('user32.dll', 'MapVirtualKey', 'ii', 'i')
+tu = Win32API.new('user32.dll', 'ToUnicode', 'iippii', 'i')
+check 'MapVirtualKey VK->scan', [mvk.call(0x41, 0), mvk.call(0x0D, 0), mvk.call(0x31, 0), mvk.call(0x25, 0)], [0x1E, 0x1C, 0x02, 0x4B]
+check 'MapVirtualKey scan->VK / char', [mvk.call(0x1E, 1), mvk.call(0x41, 2), mvk.call(0xBD, 2)], [0x41, 0x41, '-'.ord]
+kbs = "\0" * 256
+type = ->(vk, st = kbs) { b = "\0" * 8; n = tu.call(vk, mvk.call(vk, 0), st, b, 4, 0); b.byteslice(0, n * 2).force_encoding('UTF-16LE').encode('UTF-8') }
+shifted = kbs.dup; shifted.setbyte(0x10, 0x80)
+caps = kbs.dup; caps.setbyte(0x14, 0x01)
+check 'ToUnicode letters/digits/punctuation', [type[0x41], type[0x41, shifted], type[0x41, caps], type[0x32], type[0x32, shifted], type[0xBE], type[0x20]], ['a', 'A', 'A', '2', '@', '.', ' ']
+check 'ToUnicode keys that type nothing', [type[0x25], type[0x10], type[0x70]], ['', '', '']
 # Language (Xenoverse picks its text language from these): the device locale as Windows reports it.
 AceCoreCompat.const_set(:LOCALE, 'es-MX')
 check 'GetUserDefaultLangID = device language', Win32API.new('kernel32', 'GetUserDefaultLangID', '', 'i').call, 0x080A

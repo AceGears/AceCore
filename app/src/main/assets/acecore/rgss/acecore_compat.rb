@@ -943,6 +943,60 @@ module AceCoreCompat
       sc ? !!states[sc] : false
     end
 
+    # US keyboard layout: virtual key -> set-1 scan code (MapVirtualKey MAPVK_VK_TO_VSC).
+    VK_SCAN = {
+      0x08 => 0x0E, 0x09 => 0x0F, 0x0D => 0x1C, 0x10 => 0x2A, 0x11 => 0x1D, 0x12 => 0x38, 0x13 => 0x45, 0x14 => 0x3A,
+      0x1B => 0x01, 0x20 => 0x39, 0x21 => 0x49, 0x22 => 0x51, 0x23 => 0x4F, 0x24 => 0x47, 0x25 => 0x4B, 0x26 => 0x48,
+      0x27 => 0x4D, 0x28 => 0x50, 0x2D => 0x52, 0x2E => 0x53, 0x30 => 0x0B, 0xA0 => 0x2A, 0xA1 => 0x36, 0xA2 => 0x1D,
+      0xA3 => 0x1D, 0xA4 => 0x38, 0xA5 => 0x38, 0x6A => 0x37, 0x6B => 0x4E, 0x6D => 0x4A, 0x6E => 0x53, 0x6F => 0x35,
+      0x7A => 0x57, 0x7B => 0x58, 0xBA => 0x27, 0xBB => 0x0D, 0xBC => 0x33, 0xBD => 0x0C, 0xBE => 0x34, 0xBF => 0x35,
+      0xC0 => 0x29, 0xDB => 0x1A, 0xDC => 0x2B, 0xDD => 0x1B, 0xDE => 0x28,
+    }.merge((0x31..0x39).to_h { |vk| [vk, 0x02 + vk - 0x31] })
+     .merge((0x70..0x79).to_h { |vk| [vk, 0x3B + vk - 0x70] })
+     .merge([0x52, 0x4F, 0x50, 0x51, 0x4B, 0x4C, 0x4D, 0x47, 0x48, 0x49].each_with_index.to_h { |sc, i| [0x60 + i, sc] })
+     .merge('QWERTYUIOP'.chars.each_with_index.to_h { |c, i| [c.ord, 0x10 + i] })
+     .merge('ASDFGHJKL'.chars.each_with_index.to_h { |c, i| [c.ord, 0x1E + i] })
+     .merge('ZXCVBNM'.chars.each_with_index.to_h { |c, i| [c.ord, 0x2C + i] }).freeze
+    # Keys that type a character: [unshifted, shifted].
+    VK_CHARS = {
+      0x20 => [' ', ' '], 0x08 => ["\b", "\b"], 0x09 => ["\t", "\t"], 0x0D => ["\r", "\r"], 0x1B => ["\e", "\e"],
+      0xBA => [';', ':'], 0xBB => ['=', '+'], 0xBC => [',', '<'], 0xBD => ['-', '_'], 0xBE => ['.', '>'], 0xBF => ['/', '?'],
+      0xC0 => ['`', '~'], 0xDB => ['[', '{'], 0xDC => ['\\', '|'], 0xDD => [']', '}'], 0xDE => ["'", '"'],
+      0x6A => ['*', '*'], 0x6B => ['+', '+'], 0x6D => ['-', '-'], 0x6E => ['.', '.'], 0x6F => ['/', '/'],
+    }.merge((0x30..0x39).to_h { |vk| [vk, [(vk - 0x30).to_s, ')!@#$%^&*('[vk - 0x30]]] })
+     .merge((0x60..0x69).to_h { |vk| [vk, [(vk - 0x60).to_s] * 2] })
+     .merge((0x41..0x5A).to_h { |vk| [vk, [(vk + 0x20).chr, vk.chr]] }).freeze
+
+    def map_virtual_key(code, type)
+      code = code.to_i
+      case type.to_i
+      when 0 then VK_SCAN[code] || 0                                             # MAPVK_VK_TO_VSC
+      when 1, 3 then VK_SCAN.find { |vk, sc| sc == code && vk < 0xA0 }&.first || 0 # MAPVK_VSC_TO_VK(_EX)
+      when 2 then (c = VK_CHARS[code]) && c[0].size == 1 ? (code.between?(0x41, 0x5A) ? code : c[0].ord) : 0 # MAPVK_VK_TO_CHAR
+      else 0
+      end
+    end
+
+    # ToUnicode with the US layout: the character a key types given the keyboard state the game passed (Shift,
+    # Ctrl, Caps Lock toggle). Writes UTF-16 into buf and returns the number of characters (0: the key types none).
+    def to_unicode(vk, state, buf, cch)
+      vk = vk.to_i
+      st = state.is_a?(String) ? state.b : ''.b
+      down = ->(k) { (st.getbyte(k) || 0) & 0x80 != 0 }
+      shift = down[0x10] || down[0xA0] || down[0xA1]
+      ctrl = down[0x11] || down[0xA2] || down[0xA3]
+      chars = VK_CHARS[vk] or return 0
+      text = if ctrl && vk.between?(0x41, 0x5A) then (vk - 0x40).chr
+             elsif ctrl && vk != 0x0D && vk != 0x08 && vk != 0x1B then return 0
+             elsif vk.between?(0x41, 0x5A) then (shift ^ ((st.getbyte(0x14) || 0) & 1 == 1)) ? chars[1] : chars[0]
+             else shift ? chars[1] : chars[0]
+             end
+      n = [text.size, cch.to_i].min
+      return 0 if n <= 0
+      fill(buf, text[0, n].encode(Encoding::UTF_16LE).b)
+      n
+    end
+
     # Text up to the first NUL (or [len] bytes when len >= 0).
     def c_string(src, len)
       str = src.is_a?(String) ? src.b : ''.b
@@ -1322,6 +1376,12 @@ module AceCoreCompat
       'getkeyboardstate' => proc { |buf|
         Win32.fill(buf, (0...256).map { |vk| Win32.key_state(vk) ? 0x80 : 0 }.pack('C*')); 1
       },
+      # Keyboard text translation for typed name entry (Essentials TextEntry): the US keyboard layout, as Windows
+      # translates it with that layout active.
+      'mapvirtualkey' => (mvk = proc { |code, type = 0| Win32.map_virtual_key(code, type) }),
+      'mapvirtualkeya' => mvk, 'mapvirtualkeyw' => mvk,
+      'tounicode' => proc { |vk, _sc, state, buf, cch, _flags = 0| Win32.to_unicode(vk, state, buf, cch) },
+      'tounicodeex' => proc { |vk, _sc, state, buf, cch, _flags = 0, _hkl = 0| Win32.to_unicode(vk, state, buf, cch) },
       'getcursorpos' => proc { |buf| Win32.fill(buf, [(Input.mouse_x rescue 0), (Input.mouse_y rescue 0)].pack('l2')); 1 },
       'messagebox' => (mb = proc { |_hwnd, text, caption = nil, *_| (print(text.to_s) rescue nil); 1 }),
       'messageboxa' => mb, 'messageboxw' => mb,
@@ -1373,6 +1433,11 @@ module AceCoreCompat
       'regqueryvalueexw' => proc { |h, name, _r = 0, type = nil, data = nil, size = nil| Win32.reg_query(h, name, type, data, size, true) },
       'regenumkeyex' => (ren = proc { |h, *_| Win32.reg_enum(h) }), 'regenumkeyexa' => ren, 'regenumkeyexw' => ren,
       'regenumvalue' => ren, 'regenumvaluea' => ren, 'regenumvaluew' => ren,
+      # GetUserName: there is no Windows user account on Android, so the call fails as Windows does when it can't
+      # provide the name (0, GetLastError set). Essentials' pbGetUserName then returns "" and the game suggests a name
+      # its own way (registered owner, then a random name).
+      'getusername' => (gun = proc { |*_| Win32.unsupported('advapi32!GetUserName (no Windows user account on Android)') }),
+      'getusernamea' => gun, 'getusernamew' => gun,
     },
     'winhttp' => {
       'winhttpopen' => proc { |agent, *_| WinHttp.open_session(agent) },
@@ -2340,16 +2405,21 @@ module AceCoreCompat
         return(count > 0 ? [src, count] : nil) unless kind
         line_no = error_line(err) or return(count > 0 ? [src, count] : nil)
         lines = src.lines
-        line = (lines[line_no - 1] or return nil)
-        b = bin(line)
+        return nil unless lines[line_no - 1]
+        # The compiler reports the line where the statement ends; the word itself can be a few lines above it
+        # ("next if a &&\n   b").
         positions = []
-        b.scan(JUMP_WORD) { positions << [$~.begin(0), $1] if $1 == kind }
-        done = positions.any? do |pos, word|
+        line_no.downto([line_no - 8, 1].max) do |ln|
+          b = bin(lines[ln - 1])
+          b.scan(JUMP_WORD) { positions << [ln, $~.begin(0), $1] if $1 == kind }
+        end
+        done = positions.any? do |ln, pos, word|
+          b = bin(lines[ln - 1])
           rest = b.byteslice(pos + word.size..).to_s
-          bare = rest.match?(/\A[ \t]*(?:$|;|\}|\)|\bif\b|\bunless\b|\bwhile\b|\buntil\b|\bend\b|#)/)
+          bare = rest.match?(/\A[ \t]*(?:$|;|\}|\)|\]|,|:\s|#|\b(?:if|unless|while|until|end|and|or|then|else|elsif|rescue|do)\b)/)
           call = bare ? "::AceCoreCompat::Ruby18Syntax.jump(:#{word})" : "::AceCoreCompat::Ruby18Syntax.jump :#{word},"
           candidate = lines.dup
-          candidate[line_no - 1] = utf8(b.byteslice(0, pos) + call.b + rest)
+          candidate[ln - 1] = utf8(b.byteslice(0, pos) + call.b + rest)
           trial = candidate.join
           e2 = compile_error(trial, name)
           next false unless e2.nil? || error_line(e2) != line_no || !e2.message.to_s.b.include?("Invalid #{word}")
@@ -2365,6 +2435,35 @@ module AceCoreCompat
     end
 
     def jump(kind, *_value) = ::Kernel.raise(::LocalJumpError, "unexpected #{kind}")
+
+    # ---- "else" in a begin/def body without "rescue" (Ruby 1.8: a warning, the else part simply runs after the body;
+    # since 2.6 the script doesn't compile: "else without rescue is useless", HGSS Sevii Islands' Cable Club). A rescue
+    # clause for an exception nothing raises is inserted before that else, on the same line: the body and the else
+    # part run exactly as in 1.8 and line numbers stay the game's own.
+    class NoRescue < ::Exception; end
+    ELSE_WORD = /(?<![\w.:$@])else(?![\w?!:])/
+
+    def adapt_else(src, name)
+      return nil unless src.is_a?(String) && bin(src).include?('else'.b)
+      count = 0
+      100.times do
+        err = compile_error(src, name)
+        break unless err && err.message.to_s.b.include?('else without rescue is useless'.b)
+        line_no = error_line(err) or break
+        lines = src.lines
+        b = bin(lines[line_no - 1] || (return nil))
+        pos = (b =~ ELSE_WORD) or return nil
+        lines[line_no - 1] = utf8(b.byteslice(0, pos) + 'rescue ::AceCoreCompat::Ruby18Syntax::NoRescue; '.b + b.byteslice(pos..))
+        trial = lines.join
+        e2 = compile_error(trial, name)
+        return nil if e2 && error_line(e2) == line_no && e2.message.to_s.b.include?('else without rescue'.b)
+        src = trial
+        count += 1
+      end
+      count > 0 ? [src, count] : nil
+    rescue StandardError
+      nil
+    end
 
     # ---- "retry" inside a block or for loop (Ruby 1.8: restarts that iterator call from the beginning, receiver and
     # arguments re-evaluated; since 1.9 retry is only allowed in rescue, so the script doesn't compile: "Invalid
@@ -2459,6 +2558,7 @@ module AceCoreCompat
     FIXERS = [
       [:adapt, '"when ...:"'], [:adapt_regexp_bytes, 'byte escapes in a regexp'],
       [:adapt_jumps, '"next"/"break" outside a loop'], [:adapt_retry, '"retry" in an iterator'],
+      [:adapt_else, '"else" without "rescue"'],
     ].freeze
 
     # Applies the syntax adaptations until the script compiles: the compiler reports one problem at a time, and a
@@ -2481,8 +2581,14 @@ module AceCoreCompat
         end
         break unless progressed
       end
-      # Partly adapted but still not compiling: run the script as written, so the game reports its own error.
-      return [src, Hash.new(0)] unless notes.empty? || compiles?(out, name)
+      # Still not compiling: run the script as written, so the game reports its own error; the engine log says what
+      # was tried and what the compiler still rejects (the next Ruby 1.8 difference to adapt).
+      unless compiles?(out, name)
+        left = compile_error(out, name)&.message.to_s.b.lines.first.to_s.strip
+        tried = notes.empty? ? 'no adaptation applies' : "adapted #{notes_text(notes)}, reverted"
+        ($stderr.puts("AceArcade: Ruby 1.8 syntax: #{name} still doesn't compile (#{tried}): #{left.force_encoding(Encoding::UTF_8).scrub}") rescue nil)
+        return [src, Hash.new(0)]
+      end
       [out, notes]
     end
 

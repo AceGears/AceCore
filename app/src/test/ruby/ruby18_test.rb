@@ -159,5 +159,26 @@ Process.kill('USR2', Process.pid)
 sleep 0.2
 check 'Thread.critical in trap context (finalizer)', trap_result, :ok
 check 'lock free after the trap', Thread.critical, false
+
+# HGSS Sevii Islands, Cable Club: "else" in a begin body without rescue (Ruby 1.8: the else part runs after the body).
+S18 = AceCoreCompat::Ruby18Syntax
+else_src = "def pbCableElse(log)\n  begin\n    log << :body\n  else\n    log << :else\n  end\n  log\nend\n" \
+           "def pbCableDefElse\n  1\nelse\n  :else_ran\nend\n"
+out, notes = S18.fix_syntax(else_src, '230:Cable Club #1')
+check '"else" without rescue adapted', [S18.compiles?(out, 'x'), notes.values.sum, out.lines.size], [true, 2, else_src.lines.size]
+eval(out)
+check 'begin/else runs body then else', pbCableElse([]), [:body, :else]
+check 'def/else returns the else value', pbCableDefElse, :else_ran
+check 'exceptions from the body still propagate', (begin; eval(S18.fix_syntax("begin\n  raise IOError\nelse\n  1\nend\n", 'y')[0]); rescue IOError; :raised; end), :raised
+# "next" in a ternary outside a loop: LocalJumpError when reached, the other branch unchanged.
+tern, = S18.fix_syntax("def pbTernNext(x)\n  x > 0 ? next : :neg\nend\n", 'Savestate')
+eval(tern)
+check 'ternary next adapted', [pbTernNext(-1), (begin; pbTernNext(1); rescue LocalJumpError; :jump; end)], [:neg, :jump]
+# A script that still can't be adapted is left as written (the game reports its own error) and the log says why.
+bad = "def pbBad\n  x = (1\nend\n"
+old_err = $stderr; $stderr = StringIO.new
+check 'unfixable script returned unchanged', S18.fix_syntax(bad, '9:Bad')[0], bad
+logged = $stderr.string; $stderr = old_err
+check 'unfixable script logged', logged.include?("9:Bad still doesn't compile"), true
 puts($fail ? 'SOME FAILED' : 'ALL PASSED')
 exit($fail ? 1 : 0)
