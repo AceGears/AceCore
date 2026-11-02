@@ -13,37 +13,19 @@ export CC="$TC/aarch64-linux-android$API-clang" AR="$TC/llvm-ar" RANLIB="$TC/llv
 export OBJCOPY="$TC/llvm-objcopy" OBJDUMP="$TC/llvm-objdump"
 W=$(mktemp -d); cd "$W"
 
-# talloc (static), cross-compiled with waf's cross answers (no target execution).
-curl -fsSL "https://download.samba.org/pub/talloc/talloc-$TALLOC_VERSION.tar.gz" | tar -xz
-cd "talloc-$TALLOC_VERSION"
-cat > cross-answers.txt <<'A'
-Checking uname sysname type: "Linux"
-Checking uname machine type: "dontcare"
-Checking uname release type: "dontcare"
-Checking uname version type: "dontcare"
-Checking simple C program: OK
-rpath library support: OK
--Wl,--version-script support: FAIL
-Checking getconf LFS_CFLAGS: OK
-Checking for large file support without additional flags: OK
-Checking for -D_FILE_OFFSET_BITS=64: OK
-Checking for -D_LARGE_FILES: OK
-Checking correct behavior of strtoll: OK
-Checking for working strptime: OK
-Checking for C99 vsnprintf: OK
-Checking for HAVE_SHARED_MMAP: OK
-Checking for HAVE_MREMAP: OK
-Checking for HAVE_INCOHERENT_MMAP: OK
-Checking for HAVE_SECURE_MKSTEMP: OK
-Checking getconf large file support flags work: OK
-Checking for HAVE_IFACE_IFCONF: FAIL
-A
-mkdir -p mockbin; printf '#!/bin/sh\nexit 1\n' > mockbin/pkg-config; chmod +x mockbin/pkg-config
-PATH="$PWD/mockbin:$PATH" ./configure build --prefix="$W/talloc" --disable-rpath --disable-python \
-  --cross-compile --cross-answers=cross-answers.txt
+# talloc (static): talloc.c compiled directly with a small replace.h (ci/windows/talloc); its waf build can't
+# cross-compile without running target programs.
+if ! curl -fsSL "https://download.samba.org/pub/talloc/talloc-$TALLOC_VERSION.tar.gz" | tar -xz; then
+  git clone -q --depth 1 --filter=blob:none --sparse --branch "talloc-$TALLOC_VERSION" https://github.com/samba-team/samba samba
+  git -C samba sparse-checkout set lib/talloc
+  mkdir -p "talloc-$TALLOC_VERSION" && cp samba/lib/talloc/talloc.[ch] "talloc-$TALLOC_VERSION/"
+fi
+IFS=. read -r TMAJ TMIN TREL <<< "$TALLOC_VERSION"
 mkdir -p "$W/talloc/include" "$W/talloc/lib"
-"$AR" rcs "$W/talloc/lib/libtalloc.a" bin/default/talloc*.o
-cp talloc.h "$W/talloc/include/"
+"$CC" -c -O2 -fPIC -DTALLOC_BUILD_VERSION_MAJOR=$TMAJ -DTALLOC_BUILD_VERSION_MINOR=$TMIN -DTALLOC_BUILD_VERSION_RELEASE=$TREL \
+  -I"$HERE/talloc" -I"talloc-$TALLOC_VERSION" "talloc-$TALLOC_VERSION/talloc.c" -o "$W/talloc.o"
+"$AR" rcs "$W/talloc/lib/libtalloc.a" "$W/talloc.o"
+cp "talloc-$TALLOC_VERSION/talloc.h" "$W/talloc/include/"
 cd "$W"
 
 # termux/proot (Android fixes), loader unbundled.
