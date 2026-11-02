@@ -330,6 +330,10 @@ fun launchDescription(g: GameEntity): List<Pair<String, String>> {
             out += "Runtime" to "Ruffle (Flash) in the web runtime"
             if (g.entry != null && g.entry != g.launchFile) out += "Opens" to g.entry
         }
+        EngineFamily.WINDOWS -> {
+            out += "Runtime" to RuntimeRegistry.info(engine).id.displayName
+            (g.launchFile ?: g.entry)?.let { out += "Program" to it }
+        }
         else -> out += "Runtime" to RuntimeRegistry.info(engine).id.displayName
     }
     return out

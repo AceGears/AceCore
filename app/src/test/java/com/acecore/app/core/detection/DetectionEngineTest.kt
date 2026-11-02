@@ -110,8 +110,35 @@ class DetectionEngineTest {
     @Test fun nativeOnlyExecutableIsExplainedNotCrashed() {
         val r = engine.detect(snap("Launcher.exe", "readme.txt"), "native")
         assertEquals(Engine.NATIVE_WINDOWS, r.engine)
-        assertEquals(CompatStatus.UNSUPPORTED, r.status)
+        assertEquals(CompatStatus.RUNTIME_NOT_BUILT, r.status)
         assertTrue(r.diagnostics.any { it.severity == Severity.ERROR })
+    }
+
+    /** A minimal Windows executable header (MZ + PE, x86 GUI). */
+    private fun pe(machine: Int = 0x014C): ByteArray = ByteArray(0x200).also { b ->
+        b[0] = 'M'.code.toByte(); b[1] = 'Z'.code.toByte(); b[0x3C] = 0x80.toByte()
+        b[0x80] = 'P'.code.toByte(); b[0x81] = 'E'.code.toByte()
+        b[0x84] = (machine and 0xFF).toByte(); b[0x85] = (machine shr 8).toByte()
+        b[0x80 + 24 + 68] = 2
+    }
+
+    @Test fun windowsProgramRunsWithTheWindowsRuntime() {
+        val was = com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable
+        com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable = true
+        try {
+            val r = engine.detect(snap("readme.txt", binary = mapOf("unins000.exe" to pe(), "Renaissance.exe" to pe(), "Config.exe" to pe())), "Renaissance")
+            assertEquals(Engine.NATIVE_WINDOWS, r.engine)
+            assertEquals("Renaissance.exe", r.entry)
+            assertEquals(CompatStatus.PLAYABLE_UNTESTED, r.status)
+            assertTrue(r.launchCandidates.first { it.path == "Renaissance.exe" }.playable)
+            // ARM64-only programs aren't x86 Windows programs Box64 can run.
+            val arm = engine.detect(snap(binary = mapOf("Tool.exe" to pe(0xAA64))), "t")
+            assertEquals(CompatStatus.MISSING_FILES, arm.status)
+            // Unity stays unsupported (3D, needs a PC graphics card).
+            assertEquals(CompatStatus.UNSUPPORTED, engine.detect(snap("Game.exe", "UnityPlayer.dll", "Game_Data/globalgamemanagers"), "u").status)
+        } finally {
+            com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable = was
+        }
     }
 
     @Test fun electronAsarIsReportedAsPacked() {

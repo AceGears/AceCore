@@ -119,6 +119,17 @@ object ButtonMap {
     )
     val GODOT_DEFAULT_ENCODED: String = encode(GODOT_DEFAULT)
 
+    /**
+     * Windows games (Windows runtime): arrows move; Enter confirms and Esc cancels/opens menus (the Windows
+     * convention); Z / X are the confirm / cancel keys of most fan-made and RPG Maker-style PC games.
+     */
+    val WINDOWS_DEFAULT: Map<PadButton, String> = DEFAULT + mapOf(
+        PadButton.A to "ENTER", PadButton.B to "ESCAPE", PadButton.X to "Z", PadButton.Y to "X",
+        PadButton.L1 to "Q", PadButton.R1 to "W", PadButton.L2 to "SHIFT", PadButton.R2 to "CTRL",
+        PadButton.START to "ESCAPE", PadButton.SELECT to "TAB",
+    )
+    val WINDOWS_DEFAULT_ENCODED: String = encode(WINDOWS_DEFAULT)
+
     /** EasyRPG Player (RPG Maker 2000/2003): Enter/Z = OK, X/Esc = cancel and menu, Shift = run/special. */
     val EASYRPG_DEFAULT: Map<PadButton, String> = DEFAULT + mapOf(
         PadButton.A to "ENTER", PadButton.B to "X", PadButton.X to "SHIFT", PadButton.Y to "ESCAPE",

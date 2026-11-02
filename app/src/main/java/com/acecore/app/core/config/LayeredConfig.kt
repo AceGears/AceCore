@@ -160,6 +160,7 @@ enum class ConfigKey(
         this == BUTTON_MAP && engine?.family == EngineFamily.RGSS -> ButtonMap.RGSS_DEFAULT_ENCODED
         this == BUTTON_MAP && engine?.family == EngineFamily.GODOT -> ButtonMap.GODOT_DEFAULT_ENCODED
         this == BUTTON_MAP && engine?.family == EngineFamily.EASYRPG -> ButtonMap.EASYRPG_DEFAULT_ENCODED
+        this == BUTTON_MAP && engine?.family == EngineFamily.WINDOWS -> ButtonMap.WINDOWS_DEFAULT_ENCODED
         else -> default
     }
 

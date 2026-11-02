@@ -33,6 +33,9 @@ class AceCoreApp : Application() {
             val loader = classLoader as? dalvik.system.BaseDexClassLoader
             loader != null && loader.findLibrary("easyrpg_android") != null && loader.findLibrary("SDL3") != null
         }.getOrDefault(false)
+        com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable = com.acecore.app.runtime.windows.WindowsRuntime.isPresent(this)
+        if (com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable) com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeVersion =
+            com.acecore.app.runtime.windows.WindowsRuntime.bundledVersion(this)?.lines()?.take(3)?.joinToString(" · ")
     }
 }
 

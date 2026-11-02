@@ -624,6 +624,15 @@ Apache Commons Compress, Apache Commons IO, Apache Commons Lang (unpacking .zip 
 XZ for Java (LZMA for .7z archives)
   Public domain (0BSD) — Lasse Collin and contributors
 
+Windows runtime (only in APKs built with it; runs as separate programs)
+  Wine — LGPL-2.1-or-later, the Wine project (https://www.winehq.org/), build by Kron4ek/Wine-Builds
+  Box64 — MIT, Sebastien Chevalier (ptitSeb) and contributors (https://github.com/ptitSeb/box64)
+  PRoot — GPL-2.0, STMicroelectronics / the PRoot authors, Termux fork (https://github.com/termux/proot)
+  talloc — LGPL-3.0-or-later, the Samba team
+  TigerVNC (Xvnc) — GPL-2.0, the TigerVNC developers; PulseAudio — LGPL-2.1-or-later
+  Debian GNU/Linux packages — each under its own licence (see /usr/share/common-licenses inside the runtime);
+  sources: https://sources.debian.org/
+
 Material Symbols / Material Icons
   Apache License 2.0 — Google LLC
 

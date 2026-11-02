@@ -66,6 +66,15 @@ class LaunchFileRulesTest {
         assertTrue(eval("Setup.exe", listOf("Setup.exe", "readme.txt")) is LaunchEvaluation.Unsupported)
     }
 
+    @Test fun plainWindowsProgramRunsWithTheWindowsRuntime() {
+        val r = eval("Game/Renaissance.exe", listOf("Renaissance.exe", "readme.txt"), Engine.NATIVE_WINDOWS,
+            avail = { it == EngineFamily.WINDOWS }) as LaunchEvaluation.Supported
+        assertEquals(EngineFamily.WINDOWS, r.family)
+        assertEquals("Game/Renaissance.exe", r.entry)
+        // An RPG Maker XP game's Game.exe still goes to the RGSS runtime, not Wine.
+        assertEquals(EngineFamily.RGSS, (eval("Game.exe", essentialsRoot, avail = { true }) as LaunchEvaluation.Supported).family)
+    }
+
     @Test fun rm2kIsExplained() {
         val r = eval("RPG_RT.exe", listOf("RPG_RT.exe", "RPG_RT.ldb", "RPG_RT.lmt")) as LaunchEvaluation.Unsupported
         assertTrue(r.reason.contains("2000/2003"))

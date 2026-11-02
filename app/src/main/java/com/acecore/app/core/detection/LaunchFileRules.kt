@@ -90,9 +90,14 @@ object LaunchFileRules {
                     has("RPG_RT.ldb") || has("RPG_RT.lmt") -> LaunchEvaluation.Unsupported(
                         "This is an RPG Maker 2000/2003 game. That engine isn't playable in this version of AceArcade.",
                     )
+                    runtimeAvailable(EngineFamily.WINDOWS) -> LaunchEvaluation.Supported(
+                        path, EngineFamily.WINDOWS,
+                        "$name is a Windows program. AceArcade runs it with the Windows runtime (Wine + Box64, experimental; " +
+                            "2D games are the target and it's slower than a PC).",
+                    )
                     else -> LaunchEvaluation.Unsupported(
-                        "$name is a Windows program. Android can't run Windows programs, and AceArcade found no game files it " +
-                            "knows how to start next to it.",
+                        "$name is a Windows program. This build doesn't include the Windows runtime, and AceArcade found no " +
+                            "game files it knows how to start next to it.",
                     )
                 }
             }

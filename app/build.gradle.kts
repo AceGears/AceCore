@@ -79,8 +79,15 @@ android {
     packaging {
         resources { excludes += listOf("/META-INF/{AL2.0,LGPL2.1}", "/META-INF/LICENSE*", "/META-INF/NOTICE*", "/META-INF/DEPENDENCIES") }
         // The RGSS natives ship the NDK's libc++_shared; keep one copy if a library brings its own.
-        jniLibs { pickFirsts += listOf("**/libc++_shared.so", "**/libgodot_android.so") }
+        jniLibs {
+            pickFirsts += listOf("**/libc++_shared.so", "**/libgodot_android.so")
+            // Native libraries are installed as files: the Windows runtime executes PRoot (libproot.so) from the
+            // native library folder, the only place Android lets an app execute files from.
+            useLegacyPackaging = true
+        }
     }
+    // The Windows runtime is already xz-compressed; storing it as is keeps it readable without inflating it first.
+    androidResources { noCompress += listOf("xz") }
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true

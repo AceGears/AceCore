@@ -135,6 +135,7 @@ class LaunchCoordinator(
         }
         if (engine.family == EngineFamily.GODOT) return prepareGodot(game, config, accent, requestedAt)
         if (engine.family == EngineFamily.EASYRPG) return prepareEasyRpg(game, config, accent, requestedAt)
+        if (engine.family == EngineFamily.WINDOWS) return prepareWindows(game, config, accent, requestedAt)
 
         if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
         // The selected entry must still exist (one query per path segment, not a folder scan).
@@ -261,6 +262,45 @@ class LaunchCoordinator(
         }
     }
 
+    // ------------------------------------------------------------------ Windows programs (Wine + Box64)
+
+    /** Windows programs run straight from the user's folder: the runtime sees device storage at the same paths. */
+    private suspend fun prepareWindows(game: GameEntity, config: Map<String, String>, accent: Long, requestedAt: Long): LaunchPreparation {
+        val root = GameLocations.directRoot(context, game) ?: return LaunchPreparation.Blocked(
+            game.id, "Folder can't be opened directly",
+            "Windows programs run straight from your folder, and this folder's storage (for example a cloud drive) has no file " +
+                "path Android can open directly. Move the game to your device storage or SD card and add it again.",
+        )
+        if (!DirectStorage.hasAccess(context)) return LaunchPreparation.NeedsFileAccess(game.id, game.title, directPossible = true)
+        val rel = (game.launchFile?.takeIf { it.endsWith(".exe", true) } ?: game.entry)?.replace('\\', '/')?.trim('/')
+            ?: return LaunchPreparation.Blocked(game.id, "No program to start",
+                "AceArcade didn't find the game's Windows program. Choose it with “Change launch file”.", fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE)
+        val exe = withContext(Dispatchers.IO) { DirectStorage.resolveRelative(root, rel) }
+        if (exe == null || !exe.isFile) return LaunchPreparation.Blocked(
+            game.id, "Program not found",
+            "AceArcade can't find $rel in ${root.absolutePath}. If you moved or renamed the game folder, use “Locate folder” on the game's page.",
+            canRescan = true,
+        )
+        val intent = withContext(Dispatchers.IO) {
+            val dataDir = GameStorage.dataDir(context, game.id)
+            val helperDir = RgssRuntime.helperDir(dataDir).apply { mkdirs() }
+            listOf("ready", "timeline", "windows.log", "windows-error", "windows-failure.txt", "error").forEach { File(helperDir, it).delete() }
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Play tapped", tapElapsed.takeIf { it > 0 } ?: com.acecore.app.runtime.LaunchTimeline.now())
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Launcher ready (Windows program ${exe.name})")
+            com.acecore.app.runtime.windows.WindowsLaunchSpec.intent(context, com.acecore.app.runtime.windows.WindowsLaunchSpec(
+                gameId = game.id, title = game.title, exe = exe.absolutePath, helperDir = helperDir.absolutePath,
+                buttonMap = config[ConfigKey.BUTTON_MAP.id].orEmpty(), accentArgb = accent,
+                gamepadMode = config[ConfigKey.GAMEPAD_MODE.id] ?: "auto",
+                opacity = ConfigKey.GAMEPAD_OPACITY.int(config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55"),
+                scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
+                haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
+            ))
+        }
+        startSession(game.id, requestedAt)
+        games.markLaunched(game.id)
+        return LaunchPreparation.Ready(intent, game.id, game.title)
+    }
+
     // ------------------------------------------------------------------ EasyRPG (RPG Maker 2000/2003)
 
     /**
@@ -354,7 +394,8 @@ class LaunchCoordinator(
         val game = games.get(gameId) ?: return null
         val rgss = game.effectiveEngine.family == EngineFamily.RGSS
         // Godot and EasyRPG report readiness through the same helper folder ("ready").
-        val godot = game.effectiveEngine.family == EngineFamily.GODOT || game.effectiveEngine.family == EngineFamily.EASYRPG
+        val godot = game.effectiveEngine.family == EngineFamily.GODOT || game.effectiveEngine.family == EngineFamily.EASYRPG ||
+            game.effectiveEngine.family == EngineFamily.WINDOWS
         // Keep the game's settings page in step with what was chosen in-game (☰ › Display).
         if (rgss) importDisplayChanges(game)
         val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
@@ -380,6 +421,7 @@ class LaunchCoordinator(
             resultCode == Activity.RESULT_FIRST_USER -> data?.getStringExtra(GameLaunchSpec.RESULT_ERROR) ?: "The game reported an error."
             rubyError != null -> "The game stopped with a script error: ${rubyError.lineSequence().first()}"
             !reached && godot -> "The game closed before it finished starting." + withContext(Dispatchers.IO) {
+                runCatching { File(helperDir, "windows-error").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return@withContext "\n$it" }
                 listOf("godot.log", "easyrpg.log").firstNotNullOfOrNull { n ->
                     runCatching { File(helperDir, n).readLines().lastOrNull { it.contains("ERROR", true) || it.contains("Error:") } }.getOrNull()
                 }?.let { "\n$it" }.orEmpty()

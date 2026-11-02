@@ -311,6 +311,7 @@ class GameRepository(
             current.family == choice.family -> game.engineOverride
             choice.family == com.acecore.app.core.model.EngineFamily.WEB -> Engine.HTML5.name
             choice.family == com.acecore.app.core.model.EngineFamily.FLASH -> Engine.FLASH.name
+            choice.family == com.acecore.app.core.model.EngineFamily.WINDOWS -> Engine.NATIVE_WINDOWS.name
             choice.family == com.acecore.app.core.model.EngineFamily.RGSS -> {
                 val ini = runCatching {
                     val tree = SafTree(resolver, Uri.parse(game.treeUri))

@@ -21,9 +21,9 @@ enum class Engine(val displayName: String, val family: EngineFamily) {
     FLASH("Adobe Flash (SWF)", EngineFamily.FLASH),
     UNITY("Unity", EngineFamily.UNSUPPORTED_NATIVE),
     UNREAL("Unreal Engine", EngineFamily.UNSUPPORTED_NATIVE),
-    GAMEMAKER("GameMaker", EngineFamily.UNSUPPORTED_NATIVE),
-    WOLF_RPG("WOLF RPG Editor", EngineFamily.UNSUPPORTED_NATIVE),
-    NATIVE_WINDOWS("Native Windows program", EngineFamily.UNSUPPORTED_NATIVE),
+    GAMEMAKER("GameMaker", EngineFamily.WINDOWS),
+    WOLF_RPG("WOLF RPG Editor", EngineFamily.WINDOWS),
+    NATIVE_WINDOWS("Native Windows program", EngineFamily.WINDOWS),
     UNKNOWN("Unknown", EngineFamily.UNSUPPORTED_NATIVE);
 
     companion object {
@@ -31,7 +31,8 @@ enum class Engine(val displayName: String, val family: EngineFamily) {
     }
 }
 
-enum class EngineFamily { WEB, RGSS, EASYRPG, RENPY, GODOT, FLASH, UNSUPPORTED_NATIVE }
+/** WINDOWS: native Windows programs, run by the Windows runtime (Wine + Box64) when this build includes it. */
+enum class EngineFamily { WEB, RGSS, EASYRPG, RENPY, GODOT, FLASH, WINDOWS, UNSUPPORTED_NATIVE }
 
 /** Compatibility status shown in the UI. Values mirror the reporting vocabulary in the project brief. */
 enum class CompatStatus(val label: String) {

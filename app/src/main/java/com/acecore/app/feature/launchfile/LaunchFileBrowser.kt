@@ -270,6 +270,7 @@ private fun com.acecore.app.core.model.EngineFamily.representative(): com.acecor
     com.acecore.app.core.model.EngineFamily.EASYRPG -> com.acecore.app.core.model.Engine.RPG_MAKER_2K
     com.acecore.app.core.model.EngineFamily.RENPY -> com.acecore.app.core.model.Engine.RENPY
     com.acecore.app.core.model.EngineFamily.GODOT -> com.acecore.app.core.model.Engine.GODOT
+    com.acecore.app.core.model.EngineFamily.WINDOWS -> com.acecore.app.core.model.Engine.NATIVE_WINDOWS
     com.acecore.app.core.model.EngineFamily.UNSUPPORTED_NATIVE -> com.acecore.app.core.model.Engine.UNKNOWN
 }
 
@@ -277,6 +278,7 @@ private fun runtimeLabel(ev: LaunchEvaluation.Supported): String = when (ev.fami
     com.acecore.app.core.model.EngineFamily.RGSS -> "RGSS-compatible Android runtime (mkxp-z)"
     com.acecore.app.core.model.EngineFamily.FLASH -> "Ruffle (Flash) in the web runtime"
     com.acecore.app.core.model.EngineFamily.WEB -> "AceArcade web runtime"
+    com.acecore.app.core.model.EngineFamily.WINDOWS -> "Windows runtime (Wine + Box64)"
     else -> ev.family.name
 }
 

@@ -11,6 +11,7 @@ enum class RuntimeId(val displayName: String) {
     RENPY("Ren'Py runtime"),
     GODOT("Godot runtime"),
     RUFFLE("Ruffle (Flash)"),
+    WINDOWS("Windows runtime (Wine + Box64)"),
     NONE("No runtime"),
 }
 
@@ -88,11 +89,18 @@ object RuntimeRegistry {
                 "supported; ActionScript 3 support in Ruffle is still incomplete, so some AS3 games may not work.",
             license = "MIT OR Apache-2.0",
         ),
+        RuntimeId.WINDOWS to RuntimeInfo(
+            RuntimeId.WINDOWS, bundled = false,
+            formats = "Windows programs (.exe), 32- and 64-bit",
+            status = "Detected, but this APK was built without the Windows runtime.",
+            blocker = "AceArcade's CI builds it (job \"windows-runtime\": Wine, Box64 and PRoot); use an APK that includes it.",
+            license = "LGPL-2.1+ (Wine), MIT (Box64), GPL-2.0 (PRoot), GPL-2.0 (TigerVNC), LGPL-2.1+ (PulseAudio), Debian packages under their own licences",
+        ),
         RuntimeId.NONE to RuntimeInfo(
             RuntimeId.NONE, bundled = false,
             status = "This kind of game cannot run on Android through AceArcade.",
-            blocker = "Native Windows code (x86/x64) cannot execute on Android without a full Windows " +
-                "compatibility layer, which AceArcade does not include.",
+            blocker = "This engine's PC builds can't run through AceArcade (Unity and Unreal games are 3D programs that need a " +
+                "PC graphics card; unrecognised folders have nothing AceArcade can start).",
         ),
     )
 
@@ -103,6 +111,7 @@ object RuntimeRegistry {
         EngineFamily.RENPY -> RuntimeId.RENPY
         EngineFamily.GODOT -> RuntimeId.GODOT
         EngineFamily.FLASH -> RuntimeId.RUFFLE
+        EngineFamily.WINDOWS -> RuntimeId.WINDOWS
         EngineFamily.UNSUPPORTED_NATIVE -> RuntimeId.NONE
     }
 
@@ -137,7 +146,25 @@ object RuntimeRegistry {
             "Patch support follows EasyRPG's own progress.",
     )
 
+    /** True when this APK contains the Windows runtime (PRoot binaries + the packed Linux user space with Wine). */
+    @Volatile var windowsRuntimeAvailable: Boolean = false
+    @Volatile var windowsRuntimeVersion: String? = null
+
+    private fun windowsAvailableInfo() = RuntimeInfo(
+        RuntimeId.WINDOWS, bundled = true,
+        version = windowsRuntimeVersion,
+        formats = "Windows programs (.exe), 32- and 64-bit: mainly 2D games (GDI, DirectDraw, Direct3D 9 at low resolution)",
+        status = "Bundled (experimental): Wine runs the game's Windows program, Box64 translates its x86 code for the phone's " +
+            "ARM processor, inside a small Linux environment (PRoot). The first launch prepares Windows (a few minutes); " +
+            "later launches start in seconds. 2D games are the target; 3D games run slowly if at all.",
+        limitations = "Much slower than a PC: every instruction is translated. No 3D acceleration (Direct3D runs on the CPU), " +
+            ".NET programs need Wine Mono (not included), anti-cheat and DRM don't run, and some installers or launchers " +
+            "need a PC. Audio goes through PulseAudio and can lag slightly.",
+        license = runtimes.getValue(RuntimeId.WINDOWS).license,
+    )
+
     fun info(id: RuntimeId): RuntimeInfo = when {
+        id == RuntimeId.WINDOWS && windowsRuntimeAvailable -> windowsAvailableInfo()
         id == RuntimeId.RGSS_MKXPZ && rgssNativeAvailable -> rgssAvailableInfo
         id == RuntimeId.EASYRPG && easyRpgNativeAvailable -> easyRpgAvailableInfo
         else -> runtimes.getValue(id)

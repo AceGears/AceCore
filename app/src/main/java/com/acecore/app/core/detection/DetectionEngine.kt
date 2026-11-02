@@ -127,12 +127,21 @@ class DetectionEngine(
                 return result(Engine.HTML5, 30, snap, folderName, null, accs, diagnostics, tags, exeCandidates, CompatStatus.PACKED)
             }
             if (exeCandidates.isNotEmpty()) {
+                val main = mainExe(snap, exeCandidates, folderName)
+                val win = Acc(Engine.NATIVE_WINDOWS).apply { entry = main?.path; add(50, "Windows program ${main?.path ?: ""}".trim()) }
                 diagnostics += Diagnostic(
-                    Severity.ERROR,
-                    "Only native Windows executables were found and no supported engine data was recognised. " +
-                        "Native Windows programs cannot run on Android.",
+                    if (canLaunch(Engine.NATIVE_WINDOWS)) Severity.INFO else Severity.ERROR,
+                    if (canLaunch(Engine.NATIVE_WINDOWS))
+                        "No game engine data was recognised; this is a Windows program. It runs with AceArcade's Windows runtime " +
+                            "(Wine + Box64, experimental): 2D games are the target, and it's much slower than on a PC."
+                    else "Only Windows programs were found and this build doesn't include the Windows runtime.",
                 )
-                return result(Engine.NATIVE_WINDOWS, 50, snap, folderName, null, accs, diagnostics, tags, exeCandidates, CompatStatus.UNSUPPORTED)
+                val status = when {
+                    !canLaunch(Engine.NATIVE_WINDOWS) -> CompatStatus.RUNTIME_NOT_BUILT
+                    win.entry == null -> CompatStatus.MISSING_FILES
+                    else -> CompatStatus.PLAYABLE_UNTESTED
+                }
+                return result(Engine.NATIVE_WINDOWS, 50, snap, folderName, win, accs, diagnostics, tags, exeCandidates, status)
             }
             return result(Engine.UNKNOWN, 0, snap, folderName, null, accs, diagnostics, tags, exeCandidates, CompatStatus.UNSUPPORTED)
         }
@@ -149,6 +158,7 @@ class DetectionEngine(
             diagnostics += Diagnostic(Severity.INFO, "Very large folder: detection looked at a limited number of files.")
         }
 
+        if (best.engine.family == EngineFamily.WINDOWS && best.entry == null) best.entry = mainExe(snap, exeCandidates, folderName)?.path
         val status = when {
             best.engine.family == EngineFamily.UNSUPPORTED_NATIVE -> CompatStatus.UNSUPPORTED
             !canLaunch(best.engine) -> CompatStatus.RUNTIME_NOT_BUILT
@@ -367,6 +377,27 @@ class DetectionEngine(
 
     // ---------------------------------------------------------------- results
 
+    /**
+     * The program that starts a Windows game: not an uninstaller, installer, setup/config tool, crash reporter or
+     * redistributable; a valid x86/x64 Windows program; preferring Game.exe or a name like the folder's, then the
+     * largest file.
+     */
+    private fun mainExe(snap: GameSnapshot, exes: List<SnapshotEntry>, folderName: String): SnapshotEntry? {
+        val skip = Regex("(?i)(unins|uninstall|setup|install|config|crash|report|update|redist|vcredist|dxsetup|directx|dotnet|helper|easyanticheat|be_service|launcherpatch)")
+        val folder = folderName.lowercase().filter { it.isLetterOrDigit() }
+        return exes.asSequence()
+            .filter { !skip.containsMatchIn(it.path.substringAfterLast('/')) }
+            .filter { e ->
+                val pe = snap.readBytes(e.path, 4096)?.let { BinaryHeaders.parsePe(it) }
+                pe != null && (pe.machine == BinaryHeaders.PeMachine.X86 || pe.machine == BinaryHeaders.PeMachine.X64)
+            }
+            .sortedWith(compareByDescending<SnapshotEntry> { it.path.substringAfterLast('/').equals("game.exe", true) }
+                .thenByDescending { folder.isNotEmpty() && it.path.substringAfterLast('/').lowercase().filter { c -> c.isLetterOrDigit() }.removeSuffix("exe").let { n -> n.isNotEmpty() && (folder.contains(n) || n.contains(folder)) } }
+                .thenBy { it.path.count { c -> c == '/' } }
+                .thenByDescending { it.size })
+            .firstOrNull()
+    }
+
     private fun exeCandidates(snap: GameSnapshot): List<SnapshotEntry> =
         snap.files.filter { it.path.count { c -> c == '/' } <= 1 && it.path.endsWith(".exe", ignoreCase = true) }
 
@@ -445,6 +476,13 @@ class DetectionEngine(
                 val pe = snap.readBytes(exe.path, 4096)?.let { BinaryHeaders.parsePe(it) }
                 val note = when {
                     pe == null -> "Not a valid Windows executable"
+                    engine.family == EngineFamily.WINDOWS && canLaunch(engine) &&
+                        (pe.machine == BinaryHeaders.PeMachine.X86 || pe.machine == BinaryHeaders.PeMachine.X64) -> {
+                        add(LaunchCandidate(exe.path, LaunchKind.EXE, exe.path, true,
+                            if (exe.path.equals(entry, true)) "Windows ${pe.machine.label} program – started by the Windows runtime"
+                            else "Windows ${pe.machine.label} program"))
+                        continue
+                    }
                     runnable && engine.family == EngineFamily.RGSS ->
                         "Windows launcher. On Android the RGSS runtime starts the game from ${entry?.substringAfterLast('/')} and the Data folder."
                     runnable -> "Windows launcher. AceArcade opens the game's files ($entry) instead."
