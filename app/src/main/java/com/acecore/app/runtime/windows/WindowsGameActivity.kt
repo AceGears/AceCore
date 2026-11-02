@@ -108,6 +108,8 @@ class WindowsGameActivity : ComponentActivity() {
     private val audio = PcmAudio()
     @Volatile private var finishing = false
     @Volatile private var frames = 0L
+    /** When run.sh started the game's program (0 = not yet). */
+    @Volatile private var gameStartedAt = 0L
 
     private var stage by mutableStateOf("Starting…")
     private var detail by mutableStateOf<String?>(null)
@@ -116,6 +118,7 @@ class WindowsGameActivity : ComponentActivity() {
     private var menuOpen by mutableStateOf(false)
     private var padVisible by mutableStateOf(true)
     private var showing by mutableStateOf(false)
+    private var logView by mutableStateOf<String?>(null)
 
     private val controller = ControllerInput(onButton = ::sendPad, onMenu = { menuOpen = !menuOpen })
 
@@ -207,7 +210,6 @@ class WindowsGameActivity : ComponentActivity() {
     private fun watchStatus() {
         val dir = WindowsRuntime.status(this)
         var lastStage = ""
-        var gameStartedAt = 0L
         while (!finishing && process?.isAlive == true) {
             val st = runCatching { File(dir, "stage").readText().trim() }.getOrDefault("")
             if (st != lastStage) {
@@ -256,11 +258,19 @@ class WindowsGameActivity : ComponentActivity() {
         val dir = WindowsRuntime.status(this)
         val exitFile = runCatching { File(dir, "exit").readText().trim().toInt() }.getOrNull()
         val gameShown = File(helperDir, "ready").exists()
-        if (exitFile == 0 || (gameShown && exitFile != null)) {
+        val ranFor = if (gameStartedAt > 0) (System.currentTimeMillis() - gameStartedAt) / 1000 else -1
+        // A game that played for a while and ended normally (exit code 0) returns to the library. Anything else is
+        // reported with the logs: a failure code, or closing by itself within a minute of starting (the first window
+        // can be Wine's own "updating configuration" dialog, so a window alone doesn't mean the game ran).
+        if (exitFile == 0 && (ranFor < 0 || ranFor >= 60)) {
             runOnUiThread { exitGame() }
             return
         }
-        val message = "The Windows program closed before its window appeared (exit code ${exitFile ?: rc})."
+        val message = when {
+            !gameShown -> "The Windows program closed before its window appeared (exit code ${exitFile ?: rc})."
+            exitFile == 0 -> "The Windows program closed by itself ${ranFor}s after starting (exit code 0)."
+            else -> "The Windows program stopped with exit code ${exitFile ?: rc}" + (if (ranFor >= 0) " after ${ranFor}s." else ".")
+        }
         // On screen: the end of each log without Box64's start-up banner (the cause is usually in the last lines).
         val shortLogs = logFiles().mapNotNull { (n, f) ->
             val lines = f.readLines().filterNot { it.startsWith("[BOX64]") || it.startsWith(" BOX64_") }.takeLast(30)
@@ -381,6 +391,14 @@ class WindowsGameActivity : ComponentActivity() {
                     .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50)).clickable { menuOpen = true }
                     .padding(horizontal = 16.dp, vertical = 6.dp)) { Text("☰", color = Color.White, fontSize = 16.sp) }
             }
+            logView?.let { text ->
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).clickable { logView = null }.padding(24.dp)) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        Text("Windows log (tap to close)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(text, color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
             if (menuOpen) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).clickable { menuOpen = false }) {
                     Column(
@@ -394,6 +412,12 @@ class WindowsGameActivity : ComponentActivity() {
                         MenuRow("Resume", accent) { menuOpen = false }
                         MenuRow(if (padVisible) "Hide on-screen controls" else "Show on-screen controls", accent) { padVisible = !padVisible; menuOpen = false }
                         MenuRow("Right-click mode: ${if (screen.rightClick) "on" else "off"}", accent) { screen.rightClick = !screen.rightClick; menuOpen = false }
+                        MenuRow("Show Windows log", accent) {
+                            menuOpen = false
+                            logView = logFiles().joinToString("\n\n") { (n, f) ->
+                                "== $n ==\n" + f.readLines().filterNot { it.startsWith("[BOX64]") || it.startsWith(" BOX64_") }.takeLast(40).joinToString("\n")
+                            }.ifBlank { "Nothing logged yet." }
+                        }
                         MenuRow("Exit to library", accent) { exitGame() }
                     }
                 }
