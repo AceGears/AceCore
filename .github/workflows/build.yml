@@ -73,6 +73,10 @@ on:
         description: Reuse the Godot engine of an earlier run (run id) - accepted only if built from identical sources
         type: string
         default: ''
+      build_windows:
+        description: Include the Windows runtime (Wine + Box64 under PRoot); rebuilt only if ci/windows changed, else cached
+        type: boolean
+        default: true
 
 # Least privilege: jobs that need more ask for it themselves.
 permissions:
@@ -341,6 +345,61 @@ jobs:
           path: easyrpg-natives/
           retention-days: 90   # reusable by run id
 
+  windows-runtime:
+    name: Build Windows runtime (Wine + Box64 + PRoot, arm64)
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.build_windows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Restore the runtime built from these sources
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: windows-runtime
+          key: windows-runtime-${{ env.ENGINE_CACHE_VERSION }}-${{ hashFiles('ci/windows/**') }}
+      - name: Tools (arm64 emulation for docker, cross compiler, MinGW for the smoke test)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake python3 mingw-w64 file > /dev/null
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        if: steps.cache.outputs.cache-hit != 'true'
+        with: { platforms: arm64 }
+      - name: PRoot for Android (NDK)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash ci/windows/build-proot.sh windows-runtime/jni
+      - name: Linux user space + Box64 + Wine
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 90
+        run: |
+          sudo -E bash ci/windows/build-rootfs.sh "$PWD/windows-runtime/assets"
+          sudo chown -R "$(id -u):$(id -g)" windows-runtime
+      - name: Smoke test on emulated arm64 (Box64 + Wine run a 32-bit Windows program)
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 60
+        run: bash ci/windows/smoke-test.sh windows-runtime/assets/windows-rootfs.tar.xz windows-runtime/SMOKE_TEST.txt
+      - name: Remember this runtime build for unchanged sources
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: windows-runtime
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Summary
+        run: |
+          { echo "### Windows runtime"; echo '```'; cat windows-runtime/assets/WINDOWS_VERSION.txt; cat windows-runtime/jni/PROOT_VERSION.txt
+            echo "Smoke test: $(cat windows-runtime/SMOKE_TEST.txt 2>/dev/null || echo 'not run')"; echo '```'
+            ls -la windows-runtime/assets windows-runtime/jni; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Windows runtime smoke test::$(head -1 windows-runtime/SMOKE_TEST.txt 2>/dev/null || echo 'not run')"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-runtime-arm64
+          path: windows-runtime/
+          retention-days: 90
+
   godot-natives:
     name: Build Godot engine library (arm64-v8a, --main-pack allowed)
     if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.build_godot)
@@ -380,7 +439,7 @@ jobs:
 
   full-apk:
     name: Android APK (all engines)
-    needs: [ app, rgss-natives, easyrpg-natives, godot-natives ]
+    needs: [ app, rgss-natives, easyrpg-natives, godot-natives, windows-runtime ]
     if: always() && needs.app.result == 'success' && needs.rgss-natives.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -435,6 +494,24 @@ jobs:
           else
             echo "::warning title=Godot::engine library not rebuilt; the Maven one refuses --main-pack, so Godot games won't start"
           fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.windows-runtime.result == 'success'
+        continue-on-error: true
+        with:
+          name: windows-runtime-arm64
+          path: windows-runtime
+          run-id: ${{ github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add the Windows runtime (when built)
+        run: |
+          if [ -f windows-runtime/assets/windows-rootfs.tar.xz ] && [ -f windows-runtime/jni/libproot.so ]; then
+            mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/assets/windows
+            cp windows-runtime/jni/libproot.so windows-runtime/jni/libproot-loader.so app/src/main/jniLibs/arm64-v8a/
+            cp windows-runtime/assets/windows-rootfs.tar.xz windows-runtime/assets/WINDOWS_VERSION.txt app/src/main/assets/windows/
+            echo "::notice title=Windows runtime::$(head -3 windows-runtime/assets/WINDOWS_VERSION.txt | tr '\n' ' ')"
+          else
+            echo "::notice title=Windows runtime::not included in this APK"
+          fi
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
@@ -464,7 +541,7 @@ jobs:
           mkdir -p dist && cp "$APK" "dist/AceArcade-v$V-Android-arm64-debug.apk"
           ( cd dist && sha256sum *.apk > "AceArcade-v$V-Android-checksums.sha256" )
           # Engines inside the APK, for the summary and the release check.
-          for l in mkxp-z ruby easyrpg_android SDL3 godot_android; do
+          for l in mkxp-z ruby easyrpg_android SDL3 godot_android proot; do
             unzip -l "$APK" "lib/arm64-v8a/lib$l.so" > /dev/null 2>&1 && echo "lib$l.so: yes" || echo "lib$l.so: MISSING"
           done | tee engines.txt
           { echo "### AceArcade v$V (Android, arm64)"; echo; echo '```'; cat engines.txt; echo '```'; echo "APK: $(du -h "$APK" | cut -f1)"; } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,6 @@
+# AceArcade: Windows programs play into a null sink; its monitor is streamed to the app (raw 16-bit 44.1 kHz stereo)
+# on 127.0.0.1:4713, and the app plays it through Android's audio.
+load-module module-null-sink sink_name=aceout rate=44100 channels=2
+set-default-sink aceout
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/acearcade/pulse.sock
+load-module module-simple-protocol-tcp source=aceout.monitor record=true playback=false port=4713 listen=127.0.0.1 format=s16le rate=44100 channels=2
