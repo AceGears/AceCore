@@ -14,7 +14,7 @@ export PULSE_SERVER="unix:$S/pulse.sock"
 export BOX64_NOBANNER=1 BOX64_LOG=0
 # Wine's own errors are logged (not its warnings); the app can override any of these settings for a game in
 # /tmp/acearcade-env (written before each launch).
-export WINEDEBUG=err+all,fixme-all,+process,+loaddll
+export WINEDEBUG=err+all,fixme-all,+process
 # OpenGL on the CPU (Mesa llvmpipe): games drawing with OpenGL (SFML, SDL, Pokémon SDK's LiteRGSS) get a working
 # context on the VNC display, which has no GPU behind it.
 export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_GL_VERSION_OVERRIDE=3.3 LP_NUM_THREADS=4
@@ -40,9 +40,18 @@ if [ ! -f "$WINEPREFIX/.acearcade-ready" ]; then
 fi
 
 stage game
-cd "$(dirname "$EXE")" || true
-box64 wine "$EXE" > "$S/wine.log" 2>&1
+DIR=$(dirname "$EXE")
+cd "$DIR" || true
+if [ -f "$DIR/Game.rb" ] && [ -f "$DIR/ruby.exe" ] && [ -d "$DIR/psdk" ] && [ "$(basename "$EXE")" = Game.exe ]; then
+  # Pokémon SDK: Game.exe only starts "rubyw.exe --disable=gems,rubyopt,did_you_mean Game.rb" (no console). The same
+  # command with ruby.exe keeps Ruby's own error output, so a script error shows up in the log.
+  echo "[run] Pokemon SDK game: ruby.exe Game.rb" >> "$S/wine.log"
+  box64 wine "$DIR/ruby.exe" --disable=gems,rubyopt,did_you_mean Game.rb >> "$S/wine.log" 2>&1
+else
+  box64 wine "$EXE" > "$S/wine.log" 2>&1
+fi
 RC=$?
+[ -f "$DIR/Error.log" ] && [ "$DIR/Error.log" -nt "$S/stage" ] && { echo "== Error.log (written by the game) =="; cat "$DIR/Error.log"; } >> "$S/wine.log"
 box64 wineserver -w 2>/dev/null
 echo "$RC" > "$S/exit"
 stage "exited $RC"
