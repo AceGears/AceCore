@@ -1111,7 +1111,7 @@ module AceCoreCompat
 
     def langid
       parts = locale_tag.downcase.split('-')
-      LANGIDS[parts.first(2).join('-')] || LANGIDS[parts.first] || 0x0409
+      LANGIDS[parts[0, 2].join("-")] || LANGIDS[parts[0]] || 0x0409
     end
 
     # ---- Registry. Android has no Windows registry. AceArcade provides the part every Windows installation has and
@@ -2416,7 +2416,7 @@ module AceCoreCompat
         done = positions.any? do |ln, pos, word|
           b = bin(lines[ln - 1])
           rest = b.byteslice(pos + word.size..).to_s
-          bare = rest.match?(/\A[ \t]*(?:$|;|\}|\)|\]|,|:\s|#|\b(?:if|unless|while|until|end|and|or|then|else|elsif|rescue|do)\b)/)
+          bare = rest.match?(/\A[ \t\r]*(?:$|;|\}|\)|\]|,|:\s|#|\b(?:if|unless|while|until|end|and|or|then|else|elsif|rescue|do)\b)/)
           call = bare ? "::AceCoreCompat::Ruby18Syntax.jump(:#{word})" : "::AceCoreCompat::Ruby18Syntax.jump :#{word},"
           candidate = lines.dup
           candidate[ln - 1] = utf8(b.byteslice(0, pos) + call.b + rest)
@@ -2682,7 +2682,7 @@ module AceCoreCompat
       # 400 files / 24 MB read). Only that declaration counts: older games loaded from a folder (Xenoverse) don't have it.
       def folder_scripts_modern?
         budget = 24 << 20
-        files = (Dir.glob('Data/Scripts/**/*.rb') + Dir.glob('Scripts/**/*.rb')).sort.first(400)
+        files = (Dir.glob('Data/Scripts/**/*.rb') + Dir.glob('Scripts/**/*.rb')).sort[0, 400]
         files.any? do |f|
           next false if budget <= 0
           t = (File.binread(f) rescue ''.b)
@@ -2707,7 +2707,7 @@ module AceCoreCompat
         return if @seen[key]
         @seen[key] = true
         @diag_left -= 1
-        ($stderr.puts("AceArcade: Ruby 1.8 strings #{game ? 'used' : 'not used'} for calls from #{loc.path}:#{loc.lineno} (String: #{String.ancestors.first(3).inspect})") rescue nil)
+        ($stderr.puts("AceArcade: Ruby 1.8 strings #{game ? 'used' : 'not used'} for calls from #{loc.path}:#{loc.lineno} (String: #{String.ancestors[0, 3].inspect})") rescue nil)
       end
 
       def count! = (@conversions += 1)
@@ -2817,6 +2817,15 @@ module AceCoreCompat
     # The methods are redefined in String / IO themselves (alias + def), not prepended: the Ruby 3.1.0 in the engine
     # kept calling the original String#[] after a module was prepended to String (its method cache wasn't cleared),
     # so a prepended version never ran on the device although it did in tests.
+    # A private Object method defined by a game script (its source is one of the game's scripts, "NNN:Name").
+    def self.game_toplevel_method?(name)
+      return false unless active && Object.private_method_defined?(name.to_sym)
+      file = Object.instance_method(name.to_sym).source_location&.first.to_s
+      file.match?(/\A\d+:/) && !file.include?('acecore')
+    rescue StandardError
+      false
+    end
+
     def self.install
       return if @installed
       @installed = true
@@ -2828,6 +2837,19 @@ module AceCoreCompat
         define_method(:type) { self.class } unless method_defined?(:type)
       end
       ($stderr.puts("AceArcade: Ruby 1.8 Object#id / Object#type for game scripts") rescue nil)
+      # Methods a game script defines at the top level ("def pbSetResizeFactor ... end") were public in RPG Maker XP's
+      # Ruby 1.8 (its scripts are evaluated with eval, which made top-level methods public there); Ruby 3 makes them
+      # private. Essentials checks for them with Kernel.respond_to?("pbSetResizeFactor"), and with the Ruby 3 answer
+      # (false) it replaces them with stand-ins, including Graphics.snap_to_bitmap returning nil (Pokémon Axon's
+      # pause menu: "undefined method `width' for nil"). Kernel.respond_to? answers as Ruby 1.8 did for those methods.
+      class << Kernel
+        unless method_defined?(:__acearcade_respond_to?)
+          alias_method :__acearcade_respond_to?, :respond_to?
+          def respond_to?(name, include_all = false)
+            __acearcade_respond_to?(name, include_all) || AceCoreCompat::Ruby18Strings.game_toplevel_method?(name)
+          end
+        end
+      end
       # str[i] / str[i] = n: C methods from the engine (ci/patches/mkxp-z/binding/acearcade-ruby18.h). They can't be
       # Ruby methods: String#[] with a Regexp sets $~ in the caller's frame, and a Ruby replacement would keep it in
       # its own frame, leaving the game's $~ nil (Xenoverse Game_Player:151, Pokémon Z "Event Size":69).
@@ -2897,7 +2919,7 @@ if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS
   if AceCoreCompat::Ruby18Strings.active
     AceCoreCompat::Ruby18Strings.install
     at_exit do
-      ($stderr.puts("AceArcade: Ruby 1.8 strings: #{AceCoreCompat::Ruby18Strings.conversions} byte reads; String: #{String.ancestors.first(3).inspect}") rescue nil)
+      ($stderr.puts("AceArcade: Ruby 1.8 strings: #{AceCoreCompat::Ruby18Strings.conversions} byte reads; String: #{String.ancestors[0, 3].inspect}") rescue nil)
     end
   end
 end
@@ -3000,3 +3022,46 @@ begin
 rescue StandardError => e
   ($stderr.puts("AceArcade: byte-reader check unavailable: #{e.message}") rescue nil)
 end
+
+#===============================================================================
+# Reset (F12, or the game raising Reset, e.g. Essentials' title screen after a while without input)
+#
+# RPG Maker XP and mkxp-z handle Reset by evaluating all the game's scripts again in the same Ruby. Scripts written
+# for XP alias methods without a guard ("alias mkxp_draw_text draw_text"); evaluated a second time the alias points at
+# the game's own replacement, which then calls itself (Pokémon Ópalo: "stack level too deep" in draw_text right after
+# the title screen reset). Essentials' own "soft-reset fix" (SOFTRESETFIX) restarts Game.exe instead; AceArcade does
+# the same for these games: the game is started again from the beginning, in a fresh engine. Games written for
+# mkxp-z / Ruby 3 keep the engine's in-place reset.
+module AceCoreCompat
+  module SoftReset
+    HOOK = '::AceCoreCompat::SoftReset.pass if defined?(::AceCoreCompat::SoftReset); '
+    module_function
+
+    def pass
+      unless @ran
+        @ran = true
+        return
+      end
+      return unless defined?(AceCoreCompat::Ruby18Strings) && AceCoreCompat::Ruby18Strings.active
+      ($stderr.puts('AceArcade: Reset: the game starts again in a fresh engine (its scripts can\'t be evaluated twice)') rescue nil)
+      AceCoreCompat::Commands.request_restart('Game.exe (reset)')
+      exit
+    end
+
+    # Runs at the start of every pass over the game's scripts: on the first line of the first script (same line, so
+    # its line numbers are unchanged), or at its end when that line can't take a prefix (=begin, magic comment).
+    def install(scripts)
+      entry = scripts.find { |e| e.is_a?(Array) && e[3].is_a?(String) } or return
+      src = entry[3]
+      first = src.b[/\A[^\n]*/]
+      entry[3] = if first.start_with?('=begin'.b) || first.match?(/\A#.*coding[:=]/n)
+                   src + "\n" + HOOK.strip
+                 else
+                   HOOK + src
+                 end
+    rescue StandardError => e
+      ($stderr.puts("AceArcade: reset handling not installed: #{e.message}") rescue nil)
+    end
+  end
+end
+AceCoreCompat::SoftReset.install($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS.is_a?(Array)

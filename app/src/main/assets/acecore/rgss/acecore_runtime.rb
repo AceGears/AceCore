@@ -61,8 +61,8 @@ module AceCore
         return "" unless exc.equal?(e) && b
         me = b.receiver
         out = +"State at #{path}:#{line} (self: #<#{me.class}>):\n"
-        b.local_variables.first(20).each { |n| out << "  #{n} = #{describe(b.local_variable_get(n))}\n" }
-        me.instance_variables.first(30).each { |n| out << "  #{n} = #{describe(me.instance_variable_get(n))}\n" }
+        b.local_variables[0, 20].each { |n| out << "  #{n} = #{describe(b.local_variable_get(n))}\n" }
+        me.instance_variables[0, 30].each { |n| out << "  #{n} = #{describe(me.instance_variable_get(n))}\n" }
         out
       rescue StandardError
         ""
@@ -176,7 +176,7 @@ module AceCore
         seen[c.object_id] = true
         msg = c.message.to_s
         msg = msg[0, 1500] + " ... (#{msg.size} characters)" if msg.size > 1500
-        out << "\nCaused by #{c.class}: #{msg}\n" << (c.backtrace || []).first(12).join("\n") << "\n" << source_line(c)
+        out << "\nCaused by #{c.class}: #{msg}\n" << (c.backtrace || [])[0, 12].join("\n") << "\n" << source_line(c)
         c = c.cause
       end
       out
@@ -188,10 +188,10 @@ module AceCore
       e = $!
       # The game ended itself with exit (a version / file check, a "quit" in its own menu): where it did so goes into
       # the report when the game closed by itself right after starting.
-      write("exit_called", "status #{e.status}\n#{(e.backtrace || []).reject { |f| f.include?('acecore_') }.first(8).join("\n")}") if e.is_a?(SystemExit)
+      write("exit_called", "status #{e.status}\n#{(e.backtrace || []).reject { |f| f.include?('acecore_') }[0, 8].join("\n")}") if e.is_a?(SystemExit)
       if e && !e.is_a?(SystemExit)
         # The first frames: where the game script failed, not only the compatibility layer's line.
-        where = (e.backtrace || []).first(12).join("\n")
+        where = (e.backtrace || [])[0, 12].join("\n")
         write("error", "#{e.class}: #{e.message}\n#{where}\n#{source_line(e)}#{RaiseState.report(e)}#{causes(e)}")
       end
     rescue Exception

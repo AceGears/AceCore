@@ -174,6 +174,10 @@ check 'exceptions from the body still propagate', (begin; eval(S18.fix_syntax("b
 tern, = S18.fix_syntax("def pbTernNext(x)\n  x > 0 ? next : :neg\nend\n", 'Savestate')
 eval(tern)
 check 'ternary next adapted', [pbTernNext(-1), (begin; pbTernNext(1); rescue LocalJumpError; :jump; end)], [:neg, :jump]
+# Pokémon Realidea, Savestate: scripts saved with Windows line endings (CRLF): a bare "next" before "\r\n".
+crlf, crlf_notes = S18.fix_syntax("def pbCrlfNext(x)\r\n  if x < 0\r\n    next\r\n  end\r\n  x\r\nend\r\n", '308:Savestate')
+eval(crlf)
+check 'bare next before CRLF adapted', [crlf_notes.values.sum, pbCrlfNext(3), (begin; pbCrlfNext(-1); rescue LocalJumpError; :jump; end)], [1, 3, :jump]
 # A script that still can't be adapted is left as written (the game reports its own error) and the log says why.
 bad = "def pbBad\n  x = (1\nend\n"
 old_err = $stderr; $stderr = StringIO.new

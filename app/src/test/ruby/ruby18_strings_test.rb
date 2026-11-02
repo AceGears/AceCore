@@ -112,6 +112,22 @@ Dir.mktmpdir do |d|
   r = begin; File.open(d + '/', 'rb') { |f| f.read(1) }; rescue Errno::EACCES, Errno::ENOENT, Errno::EINVAL; :rescued; rescue SystemCallError => e; e.class; end
   check 'opening a folder as a file fails like Windows (EACCES)', r, :rescued
 end
+# Top-level methods of the game's scripts were public in RPG Maker XP's Ruby 1.8: Essentials' PSystem_System checks
+# Kernel.respond_to?("pbSetResizeFactor") and otherwise stubs Graphics.snap_to_bitmap to nil (Pokémon Axon menu).
+eval("def pbSetResizeFactor(factor = 1, norecalc = false) = factor\n", TOPLEVEL_BINDING, '028:Sprite_Resizer')
+check 'Kernel.respond_to? sees a top-level game method (Ruby 1.8)', Kernel.respond_to?("pbSetResizeFactor"), true
+check 'Kernel.respond_to? unchanged for unknown names', Kernel.respond_to?("pbNoSuchMethod"), false
+check 'Kernel.respond_to? unchanged for private core methods', Kernel.respond_to?(:fork_helper_nonexistent), false
+check 'top-level game methods stay private for other objects', 5.respond_to?(:pbSetResizeFactor), false
+# Reset: scripts can't be evaluated twice (unguarded aliases), so the second pass restarts the game.
+check 'reset hook on the first line of the first script (line count unchanged)', [$RGSS_SCRIPTS[0][3].start_with?(AceCoreCompat::SoftReset::HOOK), $RGSS_SCRIPTS[0][3].lines.size], [true, audio.lines.size]
+second = begin
+  eval($RGSS_SCRIPTS[0][3], TOPLEVEL_BINDING, '001:AudioUtilities')
+  :ran_again
+rescue SystemExit
+  :restart
+end
+check 'second pass over the scripts (after Reset) restarts the game', second, :restart
 check 'proc adaptation logged', $stderr.string.include?('(4 "return" in proc)'), true
 check 'file.read(1)[0] is the byte (Ruby 1.8), so .times works', getOggPage(StringIO.new("\x02\x05\x07".b)), [2, 12]
 check '?# literal is a byte and matches str[0]', [pbComment?("# x"), pbComment?("x")], [true, false]
