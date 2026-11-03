@@ -12,13 +12,14 @@ run() { echo; echo "### $1"; shift; "$B/handheld_test" --system "$T/sys" --save 
 fails=0
 MG="$B/libmgba_libretro.so"; DS="$B/libmelondsds_libretro.so"
 MGOPT=(--option mgba_use_bios=OFF --option mgba_sgb_borders=OFF)
+# mGBA renders 16-bit colour (RGB565): the GBA's full green (5 bits) becomes 62/63 on 6 bits, shown as 0xFB.
 
 run "GBA: picture, sound, CodeBreaker cheat, save state, battery save" --core "$MG" --rom "$T/roms/acetest.gba" "${MGOPT[@]}" \
   --size 240x160 --pixel 120,80=FF00FF --counter 0x02000000 --cheat "32000100+0042" --marker 02000100=42 \
-  --cheat-pixel 120,80=00FF00 --state --sram 'ACE!' || fails=$((fails+1))
+  --cheat-pixel 120,80=00FB00 --state --sram 'ACE!' || fails=$((fails+1))
 GSA=$(python3 "$HERE/gsa_encrypt.py" 02000100 00000042)
 run "GBA: encrypted GameShark (v1) cheat $GSA" --core "$MG" --rom "$T/roms/acetest.gba" "${MGOPT[@]}" \
-  --cheat "$GSA" --marker 02000100=42 --cheat-pixel 120,80=00FF00 || fails=$((fails+1))
+  --cheat "$GSA" --marker 02000100=42 --cheat-pixel 120,80=00FB00 || fails=$((fails+1))
 run "Game Boy: picture, GameShark cheat, save state, battery save" --core "$MG" --rom "$T/roms/acetest.gb" "${MGOPT[@]}" \
   --size 160x144 --pixel 80,72=000000 --counter 0xC000 --cheat "014200C1" --marker C100=42 --cheat-pixel 80,72=FFFFFF \
   --state --sram 'ACE!' || fails=$((fails+1))

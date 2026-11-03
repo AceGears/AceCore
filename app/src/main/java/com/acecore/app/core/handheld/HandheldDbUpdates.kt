@@ -34,24 +34,24 @@ object HandheldDbUpdates {
 
     private fun dir(context: Context) = File(HandheldDb.dir(context), "updates")
     private fun currentFile(context: Context) = File(dir(context), "current.db")
-    private fun currentInfo(context: Context) = File(dir(context), "current.json")
+    private fun currentInfoFile(context: Context) = File(dir(context), "current.json")
     private fun previousFile(context: Context) = File(dir(context), "previous.db")
-    private fun previousInfo(context: Context) = File(dir(context), "previous.json")
+    private fun previousInfoFile(context: Context) = File(dir(context), "previous.json")
 
     /** The installed update and its version, if any. */
     fun current(context: Context): Pair<File, String>? {
         val f = currentFile(context)
-        val v = runCatching { JSONObject(currentInfo(context).readText()).getString("db_version") }.getOrNull()
+        val v = runCatching { JSONObject(currentInfoFile(context).readText()).getString("db_version") }.getOrNull()
         return if (f.isFile && v != null) f to v else null
     }
 
     fun installedInfo(context: Context): Installed? = runCatching {
-        val o = JSONObject(currentInfo(context).readText())
+        val o = JSONObject(currentInfoFile(context).readText())
         Installed(o.getString("db_version"), o.optString("changelog"), o.optLong("installed_at"))
     }.getOrNull()
 
     fun previousInfo(context: Context): Installed? = runCatching {
-        val o = JSONObject(previousInfo(context).readText())
+        val o = JSONObject(previousInfoFile(context).readText())
         Installed(o.getString("db_version"), o.optString("changelog"), o.optLong("installed_at"))
     }.getOrNull()
 
@@ -92,11 +92,11 @@ object HandheldDbUpdates {
             // Keep the update being replaced for rollback.
             if (currentFile(context).isFile) {
                 currentFile(context).renameTo(previousFile(context).also { it.delete() })
-                currentInfo(context).renameTo(previousInfo(context).also { it.delete() })
+                currentInfoFile(context).renameTo(previousInfoFile(context).also { it.delete() })
             }
             dbFile.renameTo(currentFile(context))
             val changelog = m.optString("changelog")
-            currentInfo(context).writeText(JSONObject().put("db_version", version).put("changelog", changelog)
+            currentInfoFile(context).writeText(JSONObject().put("db_version", version).put("changelog", changelog)
                 .put("installed_at", System.currentTimeMillis()).put("sha256", sha).toString())
             return Result.Ok(version, changelog)
         } catch (e: Exception) {
@@ -111,10 +111,10 @@ object HandheldDbUpdates {
         HandheldDb.reset()
         return if (previousFile(context).isFile) {
             previousFile(context).renameTo(currentFile(context).also { it.delete() })
-            previousInfo(context).renameTo(currentInfo(context).also { it.delete() })
+            previousInfoFile(context).renameTo(currentInfoFile(context).also { it.delete() })
             "Returned to database ${installedInfo(context)?.version}."
         } else {
-            currentFile(context).delete(); currentInfo(context).delete()
+            currentFile(context).delete(); currentInfoFile(context).delete()
             "Returned to the database included with the app."
         }
     }

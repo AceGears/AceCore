@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Writes AceArcade's own tiny test ROMs (no Nintendo code or data; the header logo areas are left empty, which the
-emulators accept without a boot ROM/BIOS) for the handheld core tests:
+Writes AceArcade's own tiny test ROMs (no Nintendo code or data; the header logo areas are left empty except the
+4 bytes mGBA checks to recognise a Game Boy ROM, which the emulators accept without a boot ROM/BIOS) for the handheld core tests:
 
   acetest.gba  ARM code: backdrop magenta (0x7C1F); green (0x03E0) while the byte at 0x02000100 (EWRAM) is 0x42.
                Counts loop iterations in the 32-bit word at 0x02000000. Writes "ACE!" to SRAM 0x0E000000 at start
@@ -24,7 +24,7 @@ GBA_CODE = bytes.fromhex(
 
 
 def gba_rom():
-    rom = bytearray(0x10000)
+    rom = bytearray(0x80000)  # > 256 KB: smaller images with this code would be taken for multiboot programs
     rom[0:4] = bytes.fromhex("2e0000ea")            # b 0xC0
     rom[0xA0:0xAC] = b"ACETEST\0\0\0\0\0"          # title
     rom[0xAC:0xB0] = b"ZACE"                       # game code (not a real one)
@@ -57,6 +57,7 @@ def gb_code():
 def gb_rom(cgb):
     rom = bytearray(0x8000)
     rom[0x100:0x104] = bytes([0x00, 0xC3, 0x50, 0x01])          # nop ; jp 0150h
+    rom[0x104:0x108] = bytes([0xCE, 0xED, 0x66, 0x66])          # the 4 bytes emulators check to recognise a GB ROM
     rom[0x134:0x13B] = b"ACETEST"
     rom[0x143] = 0xC0 if cgb else 0x00
     rom[0x147] = 0x03                                           # MBC1 + RAM + battery

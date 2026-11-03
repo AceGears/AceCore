@@ -146,8 +146,9 @@ int main(int argc, char **argv) {
         size_t n = fe_sram_size();
         const char *d = fe_sram_data();
         size_t l = strlen(sram);
-        CHECK(n >= l && d && memcmp(d, sram, l) == 0, "battery save: %zu bytes, starts with \"%.*s\" (expected \"%s\")",
-              n, (int)(d && n >= l ? l : 0), d ? d : "", sram);
+        char hex[3 * 16 + 1] = "";
+        for (size_t i = 0; d && i < n && i < 16; i++) snprintf(hex + i * 3, 4, "%02X ", (unsigned char)d[i]);
+        CHECK(n >= l && d && memcmp(d, sram, l) == 0, "battery save: %zu bytes, first bytes %s(expected \"%s\")", n, hex, sram);
     }
 
     fe_close();
