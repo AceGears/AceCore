@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.acecore.app.feature.library
 
 import android.net.Uri
@@ -60,6 +62,12 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.acecore.app.core.database.CategoryEntity
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.foundation.layout.heightIn
@@ -174,6 +182,18 @@ fun HomeScreen(
     val categoryId: Long? = selectedCategory?.takeIf { it >= 0 }
     fun selectCategory(id: Long) { scope.launch { settingsRepo.updateLibrary { it.copy(selectedCategory = id) } } }
     var creatingCategory by remember { mutableStateOf(false) }
+    var categoryActions by remember { mutableStateOf<CategoryWithCount?>(null) }
+    var editingCategory by remember { mutableStateOf<CategoryEntity?>(null) }
+    var deletingCategory by remember { mutableStateOf<CategoryWithCount?>(null) }
+    var fabExpanded by remember { mutableStateOf(true) }
+    val fabScroll = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                if (available.y < -4f) fabExpanded = false else if (available.y > 4f) fabExpanded = true
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
     var createError by remember { mutableStateOf<String?>(null) }
     var pickGamesFor by remember { mutableStateOf<CategoryEntity?>(null) }
 
@@ -251,6 +271,53 @@ fun HomeScreen(
         }
     }
 
+    categoryActions?.let { cw ->
+        val c = cw.category
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { categoryActions = null }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(c.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                val order = visibleCategories.map { it.category.id }
+                val i = order.indexOf(c.id)
+                val all = categories.map { it.category.id }
+                SheetAction(Icons.Rounded.Checklist, "Add or remove games") { categoryActions = null; pickGamesFor = c }
+                SheetAction(Icons.Rounded.Edit, "Rename, icon and colour") { categoryActions = null; createError = null; editingCategory = c }
+                if (i > 0) SheetAction(Icons.Rounded.ChevronLeft, "Move left") {
+                    categoryActions = null
+                    scope.launch { catRepo.reorder(all.toMutableList().apply { val j = indexOf(c.id); add(j - 1, removeAt(j)) }) }
+                }
+                if (i in 0 until order.size - 1) SheetAction(Icons.Rounded.ChevronRight, "Move right") {
+                    categoryActions = null
+                    scope.launch { catRepo.reorder(all.toMutableList().apply { val j = indexOf(c.id); add(j + 1, removeAt(j)) }) }
+                }
+                SheetAction(if (c.hidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, if (c.hidden) "Show in the category bar" else "Hide from the category bar") {
+                    categoryActions = null; scope.launch { catRepo.setHidden(c.id, !c.hidden) }
+                }
+                SheetAction(Icons.Rounded.Tune, "All categories, folders and order") { categoryActions = null; onManageCategories() }
+                SheetAction(Icons.Rounded.Delete, "Delete category") { categoryActions = null; deletingCategory = cw }
+            }
+        }
+    }
+    editingCategory?.let { c ->
+        com.acecore.app.feature.categories.CategoryEditDialog(c, createError, onDismiss = { editingCategory = null; createError = null }) { name, icon, color ->
+            scope.launch {
+                runCatching { catRepo.update(c.copy(name = name, icon = icon, color = color)) }
+                    .onSuccess { editingCategory = null; createError = null }.onFailure { createError = it.message }
+            }
+        }
+    }
+    deletingCategory?.let { cw ->
+        AlertDialog(
+            onDismissRequest = { deletingCategory = null },
+            title = { Text("Delete “${cw.category.name}”?") },
+            text = { Text("The category is removed. Its ${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"} stay in your library, and no files are deleted.") },
+            confirmButton = { TextButton(onClick = { val c = cw.category; deletingCategory = null; scope.launch { catRepo.delete(c) } }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { deletingCategory = null }) { Text("Cancel") } },
+        )
+    }
+
+
     val games = all
     val visible = remember(games, query, selectedCategory, membership, lib.sort, lib.showHidden) {
         games.orEmpty()
@@ -281,12 +348,14 @@ fun HomeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
         floatingActionButton = {
+            // Compact: shrinks to its icon while the library scrolls down, so it covers less artwork.
             if (!inSelection && games?.isNotEmpty() == true) ExtendedFloatingActionButton(
                 onClick = { addChooser = true },
-                icon = { Icon(Icons.Rounded.Add, null) },
+                icon = { Icon(Icons.Rounded.Add, "Add game") },
                 text = { Text("Add game") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+                expanded = fabExpanded,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
             )
         },
@@ -337,9 +406,10 @@ fun HomeScreen(
                     onSelect = { selectCategory(it ?: LibrarySettings.ALL_GAMES) },
                     onManage = onManageCategories,
                     onNew = { createError = null; creatingCategory = true },
+                    onLongPress = { categoryActions = it },
                 )
             }
-            Box(Modifier.weight(1f)) {
+            Box(Modifier.weight(1f).nestedScroll(fabScroll)) {
                 when {
                     games == null -> Unit
                     games.isEmpty() -> EmptyState(
@@ -486,6 +556,7 @@ private fun SelectionBar(
 private fun CategoryBar(
     categories: List<CategoryWithCount>, total: Int, otherCount: Int?, showAll: Boolean, selected: Long?, style: CategoryBarStyle,
     showCounts: Boolean, onSelect: (Long?) -> Unit, onManage: () -> Unit, onNew: () -> Unit,
+    onLongPress: (CategoryWithCount) -> Unit = {},
 ) {
     val state = rememberLazyListState()
     val first = if (showAll) 1 else 0
@@ -506,7 +577,8 @@ private fun CategoryBar(
         }
         items(categories, key = { it.category.id }) { cw ->
             val c = cw.category
-            CategoryTab(CategoryIcons.of(c.icon), c.name, if (showCounts) cw.gameCount else null, Color(c.color.toInt()), selected == c.id, style, c.hidden) { onSelect(c.id) }
+            CategoryTab(CategoryIcons.of(c.icon), c.name, if (showCounts) cw.gameCount else null, Color(c.color.toInt()), selected == c.id, style, c.hidden,
+                onLongClick = { onLongPress(cw) }) { onSelect(c.id) }
         }
         if (otherCount != null) item(key = "other") {
             CategoryTab(Icons.Rounded.Apps, "Other", if (showCounts) otherCount else null, AceTheme.tokens.glow, selected == LibrarySettings.OTHER, style, false) {
@@ -525,7 +597,7 @@ private fun CategoryBar(
 @Composable
 private fun CategoryTab(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int?, color: Color, selected: Boolean,
-    style: CategoryBarStyle, hidden: Boolean, onClick: () -> Unit,
+    style: CategoryBarStyle, hidden: Boolean, onLongClick: (() -> Unit)? = null, onClick: () -> Unit,
 ) {
     val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, label = "tab")
     val mod = when (style) {
@@ -534,9 +606,16 @@ private fun CategoryTab(
             .border(1.dp, if (selected) color else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
         CategoryBarStyle.TABS -> Modifier.clip(RoundedCornerShape(12.dp))
     }
-    Column(mod.clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val indicatorWidth by androidx.compose.animation.core.animateDpAsState(if (selected) 28.dp else 0.dp, label = "indicator")
+    Column(
+        mod.combinedClickable(onClick = onClick, onLongClick = onLongClick?.let { lc ->
+            { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); lc() }
+        }).heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = if (selected) color else fg.copy(alpha = if (hidden) 0.5f else 1f), modifier = Modifier.size(18.dp))
+            Icon(icon, null, tint = if (selected) color else fg.copy(alpha = if (hidden) 0.45f else 0.75f), modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 label, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -547,13 +626,15 @@ private fun CategoryTab(
                 Spacer(Modifier.width(6.dp))
                 Text(
                     "$count", style = MaterialTheme.typography.labelSmall, color = if (selected) color else fg,
-                    modifier = Modifier.background((if (selected) color else fg).copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 6.dp, vertical = 1.dp),
+                    modifier = Modifier.background((if (selected) color else fg).copy(alpha = 0.12f), RoundedCornerShape(50)).widthIn(min = 22.dp)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
         }
         if (style == CategoryBarStyle.TABS) {
             Spacer(Modifier.height(5.dp))
-            Box(Modifier.height(3.dp).width(28.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) color else Color.Transparent))
+            Box(Modifier.height(3.dp).width(indicatorWidth).clip(RoundedCornerShape(2.dp)).background(color))
         }
     }
 }
@@ -601,29 +682,30 @@ private fun LibraryContent(
 private fun CategoryBanner(cw: CategoryWithCount, onEditGames: () -> Unit) {
     val c = cw.category
     val color = Color(c.color.toInt())
+    val cs = MaterialTheme.colorScheme
+    val hasCover = c.coverPath != null
     Box(
-        Modifier.fillMaxWidth().padding(bottom = 6.dp).height(if (c.coverPath != null) 96.dp else 52.dp).clip(RoundedCornerShape(18.dp))
-            .background(Brush.horizontalGradient(listOf(color.copy(alpha = 0.35f), MaterialTheme.colorScheme.surfaceContainer)))
-            .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
+        Modifier.fillMaxWidth().padding(bottom = 8.dp).height(if (hasCover) 88.dp else 56.dp).clip(RoundedCornerShape(16.dp))
+            .background(cs.surfaceContainer).border(1.dp, cs.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
     ) {
-        if (c.coverPath != null) {
-            AsyncImage(model = java.io.File(c.coverPath), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent))))
+        if (hasCover) {
+            AsyncImage(model = java.io.File(c.coverPath!!), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.8f), Color.Black.copy(alpha = 0.2f)))))
         }
-        Row(Modifier.align(Alignment.CenterStart).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(CategoryIcons.of(c.icon), null, tint = color, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(c.name, style = MaterialTheme.typography.titleMedium, color = if (c.coverPath != null) Color.White else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall,
-                    color = if (c.coverPath != null) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxSize().padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(32.dp).background(color.copy(alpha = 0.16f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(CategoryIcons.of(c.icon), null, tint = color, modifier = Modifier.size(18.dp))
             }
-        }
-        TextButton(onClick = onEditGames, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
-            Icon(Icons.Rounded.Checklist, null, tint = if (c.coverPath != null) Color.White else color)
-            Spacer(Modifier.width(6.dp))
-            Text("Add or remove games", color = if (c.coverPath != null) Color.White else color)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(c.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                    color = if (hasCover) Color.White else cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall,
+                    color = if (hasCover) Color.White.copy(alpha = 0.75f) else cs.onSurfaceVariant)
+            }
+            IconButton(onClick = onEditGames) {
+                Icon(Icons.Rounded.Checklist, "Add or remove games", tint = if (hasCover) Color.White else cs.onSurfaceVariant)
+            }
         }
     }
 }
@@ -696,4 +778,14 @@ private fun CategoryGamesDialog(
         confirmButton = { TextButton(onClick = { onSave(chosen - initial, initial - chosen) }) { Text("Save (${chosen.size})") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+private fun SheetAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(16.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+    }
 }

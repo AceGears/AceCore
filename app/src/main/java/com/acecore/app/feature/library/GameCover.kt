@@ -32,6 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -54,7 +57,10 @@ import com.acecore.app.core.designsystem.aceGlow
 import com.acecore.app.core.designsystem.pressScale
 import com.acecore.app.core.model.Engine
 
-/** Cover art with graceful fallback (engine monogram) when no image is available. */
+/**
+ * Cover art. Without artwork (or while it loads) a neutral graphite card shows the game's title and its system or
+ * engine, instead of a coloured block with initials; loading shows a slow shimmer (still with reduced motion).
+ */
 @Composable
 fun CoverImage(game: GameEntity, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
@@ -65,28 +71,55 @@ fun CoverImage(game: GameEntity, modifier: Modifier = Modifier) {
         SubcomposeAsyncImage(
             model = model, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier,
             error = { CoverFallback(game, Modifier.fillMaxSize()) },
-            loading = { Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh)) },
+            loading = { CoverShimmer(Modifier.fillMaxSize()) },
         )
+    }
+}
+
+@Composable
+private fun CoverShimmer(modifier: Modifier) {
+    val base = MaterialTheme.colorScheme.surfaceContainerHigh
+    if (AceTheme.tokens.reduceMotion) { Box(modifier.background(base)); return }
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
+    val x by transition.animateFloat(
+        -1f, 2f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1400, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "shimmer-x",
+    )
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.background(base)) {
+        val w = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(
+            listOf(Color.Transparent, Color.White.copy(alpha = 0.06f), Color.Transparent),
+            start = androidx.compose.ui.geometry.Offset(w * x - w * 0.5f, 0f), end = androidx.compose.ui.geometry.Offset(w * x + w * 0.5f, constraints.maxHeight.toFloat()),
+        )))
     }
 }
 
 @Composable
 private fun CoverFallback(game: GameEntity, modifier: Modifier) {
     val t = AceTheme.tokens
+    val cs = MaterialTheme.colorScheme
     Box(
-        modifier.background(
-            Brush.linearGradient(
-                listOf(MaterialTheme.colorScheme.surfaceContainerHighest, t.glow.copy(alpha = 0.55f), MaterialTheme.colorScheme.surfaceContainerLow),
-            ),
-        ),
-        contentAlignment = Alignment.Center,
+        modifier
+            .background(Brush.verticalGradient(listOf(cs.surfaceContainerHighest, cs.surfaceContainerLow)))
+            .drawBehind {
+                // A faint diagonal sheen and a thin accent line at the top: depth without colour noise.
+                drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent),
+                    start = androidx.compose.ui.geometry.Offset.Zero, end = androidx.compose.ui.geometry.Offset(size.width, size.height * 0.6f)))
+                drawRect(t.glow.copy(alpha = 0.55f), size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+            }
+            .padding(10.dp),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                game.title.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() },
-                style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Black,
-            )
-        }
+        Text(
+            game.title, style = MaterialTheme.typography.titleSmall, color = cs.onSurface.copy(alpha = 0.92f),
+            fontWeight = FontWeight.SemiBold, maxLines = 4, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
+        Text(
+            game.effectiveEngine.shortLabel(), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.BottomStart)
+                .background(cs.surfaceContainerLowest.copy(alpha = 0.7f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 
@@ -124,12 +157,14 @@ fun GameTile(
         Box(
             Modifier.fillMaxWidth().aspectRatio(lib.aspect.ratio)
                 .pressScale(interaction)
-                .then(if (lib.coverGlow && playable && !selectionMode) Modifier.aceGlow(borderColor, t.glowIntensity * 0.7f, lib.coverRadius.dp, 10.dp) else Modifier)
+                // Depth from a soft shadow; the accent glow is kept faint (it used to outline every cover in bright red).
+                .shadow(6.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
+                .then(if (lib.coverGlow && playable && !selectionMode) Modifier.aceGlow(borderColor, t.glowIntensity * 0.25f, lib.coverRadius.dp, 8.dp) else Modifier)
                 .clip(shape)
                 .then(
                     when {
-                        selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
-                        lib.coverBorder -> Modifier.border(t.borderWidth.coerceAtLeast(1.dp), Brush.linearGradient(listOf(borderColor.copy(alpha = 0.9f), t.glowAlt.copy(alpha = 0.5f))), shape)
+                        selected -> Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, shape)
+                        lib.coverBorder -> Modifier.border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.14f), borderColor.copy(alpha = 0.28f))), shape)
                         else -> Modifier
                     },
                 )
