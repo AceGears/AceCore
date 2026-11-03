@@ -316,6 +316,9 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
         update { it.copy(categoryBar = com.acecore.app.core.datastore.CategoryBarStyle.valueOf(v)) }
     }
     SwitchRow("Show game counts", null, lib.showCategoryCounts) { v -> update { it.copy(showCategoryCounts = v) } }
+    SwitchRow("Show the “All games” tab", "Off: the library shows your categories, plus “Other” for games that are in none.", lib.showAllGames) { v ->
+        update { it.copy(showAllGames = v) }
+    }
     SwitchRow("Show hidden categories", "Hidden categories stay out of the library's category bar unless this is on.", lib.showHiddenCategories) { v ->
         update { it.copy(showHiddenCategories = v) }
     }

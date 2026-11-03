@@ -95,8 +95,14 @@ data class LibrarySettings(
     val showHiddenCategories: Boolean = false,
     val categoryBar: CategoryBarStyle = CategoryBarStyle.TABS,
     val showCategoryCounts: Boolean = true,
+    /** Show an "All games" tab. Off: the library shows the user's categories, plus "Other" for games in none. */
+    val showAllGames: Boolean = false,
 ) {
-    companion object { const val ALL_GAMES = -1L }
+    companion object {
+        const val ALL_GAMES = -1L
+        /** The automatic tab with the games that are in no category. */
+        const val OTHER = -2L
+    }
 }
 
 data class AppSettings(
@@ -150,6 +156,7 @@ class SettingsRepository(private val context: Context) {
         val showHiddenCategories = booleanPreferencesKey("library.showHiddenCategories")
         val categoryBar = stringPreferencesKey("library.categoryBar")
         val showCategoryCounts = booleanPreferencesKey("library.showCategoryCounts")
+        val showAllGames = booleanPreferencesKey("library.showAllGames")
 
         val reduceMotion = booleanPreferencesKey("app.reduceMotion")
         val webDebugging = booleanPreferencesKey("app.webDebugging")
@@ -203,6 +210,7 @@ class SettingsRepository(private val context: Context) {
             showHiddenCategories = p[K.showHiddenCategories] ?: l.showHiddenCategories,
             categoryBar = enumOr(p[K.categoryBar], l.categoryBar),
             showCategoryCounts = p[K.showCategoryCounts] ?: l.showCategoryCounts,
+            showAllGames = p[K.showAllGames] ?: l.showAllGames,
         )
         val global = ConfigKey.entries.mapNotNull { k -> p[K.global(k)]?.let { k.id to it } }.toMap()
         val engines = Engine.entries.associateWith { e ->
@@ -254,6 +262,7 @@ class SettingsRepository(private val context: Context) {
             p[K.columns] = l.columns; p[K.aspect] = l.aspect.name; p[K.borderColor] = l.borderColor
             p[K.selectedCategory] = l.selectedCategory; p[K.showHiddenCategories] = l.showHiddenCategories
             p[K.categoryBar] = l.categoryBar.name; p[K.showCategoryCounts] = l.showCategoryCounts
+            p[K.showAllGames] = l.showAllGames
         }
     }
 

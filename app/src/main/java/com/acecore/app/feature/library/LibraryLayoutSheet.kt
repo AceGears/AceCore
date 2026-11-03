@@ -101,6 +101,7 @@ fun LibraryLayoutSheet(lib: LibrarySettings, onDismiss: () -> Unit) {
             Label("Category bar")
             ChipRow(CategoryBarStyle.entries.map { it to it.label }, lib.categoryBar) { v -> update { it.copy(categoryBar = v) } }
             ToggleRow("Show game counts on categories", lib.showCategoryCounts) { v -> update { it.copy(showCategoryCounts = v) } }
+            ToggleRow("Show the “All games” tab", lib.showAllGames) { v -> update { it.copy(showAllGames = v) } }
             ToggleRow("Show hidden categories", lib.showHiddenCategories) { v -> update { it.copy(showHiddenCategories = v) } }
             ToggleRow("Show hidden games", lib.showHidden) { v -> update { it.copy(showHidden = v) } }
             Spacer(Modifier.height(8.dp))

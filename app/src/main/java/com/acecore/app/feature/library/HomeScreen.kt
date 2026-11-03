@@ -60,6 +60,11 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
+import com.acecore.app.core.database.CategoryEntity
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -151,12 +156,29 @@ fun HomeScreen(
     val visibleCategories = remember(categories, lib.showHiddenCategories) {
         categories.filter { !it.category.hidden || lib.showHiddenCategories }
     }
-    // The selected category must still exist and be visible; otherwise show all games.
-    val selectedCategory = lib.selectedCategory.takeIf { id -> visibleCategories.any { it.category.id == id } }
+    // Games in no category (shown under "Other" when the "All games" tab is off).
+    val uncategorized = remember(all, membership, lib.showHidden) {
+        all.orEmpty().count { g -> (!g.hidden || lib.showHidden) && membership[g.id].isNullOrEmpty() }
+    }
+    val showAllTab = lib.showAllGames || visibleCategories.isEmpty()
+    val showOtherTab = !showAllTab && uncategorized > 0
+    // The selected tab: a visible category, "Other", or (when shown) all games. Without the "All games" tab, the
+    // first category (or "Other") is shown when the saved choice no longer exists.
+    val selectedCategory: Long? = when {
+        lib.selectedCategory == LibrarySettings.OTHER && showOtherTab -> LibrarySettings.OTHER
+        visibleCategories.any { it.category.id == lib.selectedCategory } -> lib.selectedCategory
+        showAllTab -> null
+        else -> visibleCategories.firstOrNull()?.category?.id ?: if (showOtherTab) LibrarySettings.OTHER else null
+    }
+    /** The selected real category (not "All games" or "Other"), e.g. for adding new games to it. */
+    val categoryId: Long? = selectedCategory?.takeIf { it >= 0 }
     fun selectCategory(id: Long) { scope.launch { settingsRepo.updateLibrary { it.copy(selectedCategory = id) } } }
+    var creatingCategory by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
+    var pickGamesFor by remember { mutableStateOf<CategoryEntity?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) { repo.takePermission(uri); onImport(uri, selectedCategory) }
+        if (uri != null) { repo.takePermission(uri); onImport(uri, categoryId) }
     }
     // Adding a game that is one file (.zip / .7z / self-extracting .exe): pick the file, then where to unpack it.
     var addChooser by remember { mutableStateOf(false) }
@@ -164,7 +186,7 @@ fun HomeScreen(
     val pickDestination = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { dest ->
         val f = archiveFile
         archiveFile = null
-        if (dest != null && f != null) { repo.takePermission(dest); onImportFile(f, dest, selectedCategory) }
+        if (dest != null && f != null) { repo.takePermission(dest); onImportFile(f, dest, categoryId) }
     }
     var askDestination by remember { mutableStateOf(false) }
     // Nintendo handheld ROMs picked as files: each file is its own game, played from where it is (read-only access).
@@ -173,7 +195,7 @@ fun HomeScreen(
             runCatching { ctx.contentResolver.takePersistableUriPermission(u, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }.isSuccess
         }
         if (uris.isNotEmpty() && granted.isEmpty()) android.widget.Toast.makeText(ctx, "Android didn't let AceArcade keep access to those files.", android.widget.Toast.LENGTH_LONG).show()
-        if (granted.isNotEmpty()) onImportRoms(granted, selectedCategory)
+        if (granted.isNotEmpty()) onImportRoms(granted, categoryId)
     }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { archiveFile = uri; askDestination = true }
@@ -208,11 +230,38 @@ fun HomeScreen(
         dismissButton = { TextButton(onClick = { askDestination = false; archiveFile = null }) { Text("Cancel") } },
     )
 
+    if (creatingCategory) com.acecore.app.feature.categories.CategoryEditDialog(null, createError, onDismiss = { creatingCategory = false }) { name, icon, color ->
+        scope.launch {
+            runCatching { catRepo.create(name, icon, color) }
+                .onSuccess { id ->
+                    creatingCategory = false
+                    selectCategory(id)
+                    pickGamesFor = catRepo.get(id)
+                }
+                .onFailure { createError = it.message }
+        }
+    }
+    pickGamesFor?.let { cat ->
+        CategoryGamesDialog(cat, all.orEmpty().filter { !it.hidden || lib.showHidden }, membership, onDismiss = { pickGamesFor = null }) { add, remove ->
+            scope.launch {
+                if (add.isNotEmpty()) catRepo.addGames(cat.id, add)
+                if (remove.isNotEmpty()) catRepo.removeGames(cat.id, remove)
+            }
+            pickGamesFor = null
+        }
+    }
+
     val games = all
     val visible = remember(games, query, selectedCategory, membership, lib.sort, lib.showHidden) {
         games.orEmpty()
             .filter { !it.hidden || lib.showHidden }
-            .filter { g -> selectedCategory == null || membership[g.id]?.contains(selectedCategory) == true }
+            .filter { g ->
+                when (selectedCategory) {
+                    null -> true
+                    LibrarySettings.OTHER -> membership[g.id].isNullOrEmpty()
+                    else -> membership[g.id]?.contains(selectedCategory) == true
+                }
+            }
             .filter { g ->
                 query.isBlank() || g.title.contains(query, true) || g.effectiveEngine.displayName.contains(query, true) || g.folderLabel.contains(query, true)
             }
@@ -246,12 +295,12 @@ fun HomeScreen(
             if (inSelection) {
                 SelectionBar(
                     count = selection.size,
-                    inCategory = selectedCategory != null,
+                    inCategory = categoryId != null,
                     onClose = { selecting = false; selection = emptySet() },
                     onSelectAll = { selection = visible.map { it.id }.toSet() },
                     onCategories = { if (selection.isNotEmpty()) assignMode = CategoryAssignMode.ADD },
                     onRemoveFromCategory = {
-                        val c = selectedCategory ?: return@SelectionBar
+                        val c = categoryId ?: return@SelectionBar
                         scope.launch { catRepo.removeGames(c, selection) }
                         selecting = false; selection = emptySet()
                     },
@@ -280,11 +329,14 @@ fun HomeScreen(
                 CategoryBar(
                     categories = visibleCategories,
                     total = games.count { !it.hidden || lib.showHidden },
+                    otherCount = if (showOtherTab) uncategorized else null,
+                    showAll = showAllTab,
                     selected = selectedCategory,
                     style = lib.categoryBar,
                     showCounts = lib.showCategoryCounts,
                     onSelect = { selectCategory(it ?: LibrarySettings.ALL_GAMES) },
                     onManage = onManageCategories,
+                    onNew = { createError = null; creatingCategory = true },
                 )
             }
             Box(Modifier.weight(1f)) {
@@ -298,12 +350,13 @@ fun HomeScreen(
                         ExtendedFloatingActionButton(onClick = { addChooser = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add a game") })
                     }
                     visible.isEmpty() && query.isNotBlank() -> EmptyState(Icons.Rounded.Search, "No matches", "No game matches “$query”.", Modifier.padding(top = 24.dp))
-                    visible.isEmpty() && selectedCategory != null -> {
-                        val c = visibleCategories.first { it.category.id == selectedCategory }.category
+                    visible.isEmpty() && categoryId != null -> {
+                        val c = visibleCategories.first { it.category.id == categoryId }.category
                         EmptyState(CategoryIcons.of(c.icon), "No games in ${c.name} yet",
-                            "Long-press games in “All games” and choose Category, add a game here with “Add game”, or link a folder to this category.",
+                            "Pick games from your library, add a new game here with “Add game”, or link a folder to this category.",
                             Modifier.padding(top = 24.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { pickGamesFor = c }) { Icon(Icons.Rounded.Checklist, null); Spacer(Modifier.width(6.dp)); Text("Add games") }
                                 OutlinedButton(onClick = { addChooser = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Add game") }
                                 OutlinedButton(onClick = onManageCategories) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(6.dp)); Text("Link folder") }
                             }
@@ -311,7 +364,8 @@ fun HomeScreen(
                     }
                     else -> LibraryContent(
                         games = visible, lib = lib, selecting = inSelection, selection = selection,
-                        banner = selectedCategory?.let { id -> visibleCategories.firstOrNull { it.category.id == id } },
+                        banner = categoryId?.let { id -> visibleCategories.firstOrNull { it.category.id == id } },
+                        onEditCategoryGames = { cw -> pickGamesFor = cw.category },
                         onClick = { g ->
                             if (inSelection) selection = if (g.id in selection) selection - g.id else selection + g.id
                             else launcher.launch(g)
@@ -430,11 +484,16 @@ private fun SelectionBar(
 /** "All games" plus the user's categories, as tabs (underlined) or pills. */
 @Composable
 private fun CategoryBar(
-    categories: List<CategoryWithCount>, total: Int, selected: Long?, style: CategoryBarStyle, showCounts: Boolean,
-    onSelect: (Long?) -> Unit, onManage: () -> Unit,
+    categories: List<CategoryWithCount>, total: Int, otherCount: Int?, showAll: Boolean, selected: Long?, style: CategoryBarStyle,
+    showCounts: Boolean, onSelect: (Long?) -> Unit, onManage: () -> Unit, onNew: () -> Unit,
 ) {
     val state = rememberLazyListState()
-    val selIndex = if (selected == null) 0 else categories.indexOfFirst { it.category.id == selected } + 1
+    val first = if (showAll) 1 else 0
+    val selIndex = when (selected) {
+        null -> 0
+        LibrarySettings.OTHER -> first + categories.size
+        else -> categories.indexOfFirst { it.category.id == selected } + first
+    }
     LaunchedEffect(selIndex) { if (selIndex >= 0) runCatching { state.animateScrollToItem(selIndex) } }
     LazyRow(
         state = state,
@@ -442,12 +501,20 @@ private fun CategoryBar(
         horizontalArrangement = Arrangement.spacedBy(if (style == CategoryBarStyle.PILLS) 8.dp else 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        item(key = "all") {
+        if (showAll) item(key = "all") {
             CategoryTab(Icons.Rounded.Apps, "All games", if (showCounts) total else null, AceTheme.tokens.glow, selected == null, style, false) { onSelect(null) }
         }
         items(categories, key = { it.category.id }) { cw ->
             val c = cw.category
             CategoryTab(CategoryIcons.of(c.icon), c.name, if (showCounts) cw.gameCount else null, Color(c.color.toInt()), selected == c.id, style, c.hidden) { onSelect(c.id) }
+        }
+        if (otherCount != null) item(key = "other") {
+            CategoryTab(Icons.Rounded.Apps, "Other", if (showCounts) otherCount else null, AceTheme.tokens.glow, selected == LibrarySettings.OTHER, style, false) {
+                onSelect(LibrarySettings.OTHER)
+            }
+        }
+        item(key = "new") {
+            IconButton(onClick = onNew) { Icon(Icons.Rounded.Add, "New category", tint = MaterialTheme.colorScheme.primary) }
         }
         item(key = "manage") {
             IconButton(onClick = onManage) { Icon(Icons.Rounded.Tune, "Manage categories", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -495,12 +562,12 @@ private fun CategoryTab(
 @Composable
 private fun LibraryContent(
     games: List<GameEntity>, lib: LibrarySettings, selecting: Boolean, selection: Set<Long>, banner: CategoryWithCount?,
-    onClick: (GameEntity) -> Unit, onLongClick: (GameEntity) -> Unit,
+    onClick: (GameEntity) -> Unit, onLongClick: (GameEntity) -> Unit, onEditCategoryGames: (CategoryWithCount) -> Unit = {},
 ) {
     val bottom = PaddingValues(bottom = 110.dp)
     if (lib.layout == LibraryLayout.LIST) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = bottom) {
-            banner?.let { b -> item(key = "banner") { CategoryBanner(b) } }
+            banner?.let { b -> item(key = "banner") { CategoryBanner(b) { onEditCategoryGames(b) } } }
             items(games, key = { it.id }) { g ->
                 GameListRow(g, selecting, g.id in selection, onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.animateItem())
             }
@@ -518,7 +585,7 @@ private fun LibraryContent(
             horizontalArrangement = Arrangement.spacedBy(lib.spacing.dp),
             verticalArrangement = Arrangement.spacedBy(lib.spacing.dp + if (lib.showTitles) 2.dp else 0.dp),
         ) {
-            banner?.let { b -> item(key = "banner", span = { GridItemSpan(maxLineSpan) }) { CategoryBanner(b) } }
+            banner?.let { b -> item(key = "banner", span = { GridItemSpan(maxLineSpan) }) { CategoryBanner(b) { onEditCategoryGames(b) } } }
             items(games, key = { it.id }) { g ->
                 GameTile(
                     game = g, lib = lib, selected = g.id in selection, selectionMode = selecting,
@@ -531,7 +598,7 @@ private fun LibraryContent(
 
 /** Slim header for the selected category, using its cover image when it has one. */
 @Composable
-private fun CategoryBanner(cw: CategoryWithCount) {
+private fun CategoryBanner(cw: CategoryWithCount, onEditGames: () -> Unit) {
     val c = cw.category
     val color = Color(c.color.toInt())
     Box(
@@ -552,6 +619,11 @@ private fun CategoryBanner(cw: CategoryWithCount) {
                 Text("${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall,
                     color = if (c.coverPath != null) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        TextButton(onClick = onEditGames, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+            Icon(Icons.Rounded.Checklist, null, tint = if (c.coverPath != null) Color.White else color)
+            Spacer(Modifier.width(6.dp))
+            Text("Add or remove games", color = if (c.coverPath != null) Color.White else color)
         }
     }
 }
@@ -581,4 +653,47 @@ private fun GameListRow(game: GameEntity, selecting: Boolean, selected: Boolean,
             androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onClick() })
         } else GameStateChip(game)
     }
+}
+
+
+/** Choose which library games are in [category]: every game with a checkbox (search to narrow the list). */
+@Composable
+private fun CategoryGamesDialog(
+    category: CategoryEntity, games: List<GameEntity>, membership: Map<Long, Set<Long>>,
+    onDismiss: () -> Unit, onSave: (add: Set<Long>, remove: Set<Long>) -> Unit,
+) {
+    val initial = remember(category.id) { games.filter { membership[it.id]?.contains(category.id) == true }.map { it.id }.toSet() }
+    var chosen by remember(category.id) { mutableStateOf(initial) }
+    var filter by remember { mutableStateOf("") }
+    val shown = games.filter { filter.isBlank() || it.title.contains(filter, true) || it.effectiveEngine.displayName.contains(filter, true) }
+        .sortedBy { it.title.lowercase() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Games in ${category.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(filter, { filter = it }, singleLine = true, placeholder = { Text("Search your games") }, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { chosen = chosen + shown.map { it.id } }) { Text("Select shown") }
+                    TextButton(onClick = { chosen = chosen - shown.map { it.id }.toSet() }) { Text("Clear shown") }
+                }
+                if (games.isEmpty()) Text("Your library has no games yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                    items(shown, key = { it.id }) { g ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                            chosen = if (g.id in chosen) chosen - g.id else chosen + g.id
+                        }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(g.id in chosen, { on -> chosen = if (on) chosen + g.id else chosen - g.id })
+                            Column(Modifier.weight(1f)) {
+                                Text(g.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(g.effectiveEngine.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(chosen - initial, initial - chosen) }) { Text("Save (${chosen.size})") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

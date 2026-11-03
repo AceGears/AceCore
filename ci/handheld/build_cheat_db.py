@@ -226,12 +226,15 @@ def build(db_dir, out_path, revision):
         cdir = os.path.join(db_dir, "cht", folder)
         if os.path.isdir(cdir):
             for fn in sorted(os.listdir(cdir)):
-                if not fn.lower().endswith(".cht"):
+                path = os.path.join(cdir, fn)
+                # Cheat files normally end in .cht, but a few in the source have no extension (e.g. "Pokemon Unbound"):
+                # anything that parses as a cheat file counts.
+                if not os.path.isfile(path):
                     continue
-                cheats = cheats_of(parse_cht(os.path.join(cdir, fn)))
+                cheats = cheats_of(parse_cht(path))
                 if not cheats:
                     continue
-                name = fn[:-4]
+                name = fn[:-4] if fn.lower().endswith(".cht") else fn
                 data = json.dumps(cheats, ensure_ascii=False, separators=(",", ":")).encode()
                 digest = hashlib.sha1(data).hexdigest()
                 row = con.execute("SELECT id FROM cheat_blob WHERE sha1 = ?", (digest,)).fetchone()
