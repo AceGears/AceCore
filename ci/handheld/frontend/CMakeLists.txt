@@ -1,0 +1,17 @@
+# AceArcade's libretro frontend for the handheld cores (see frontend.c).
+#   Android: libacehandheld.so (JNI bridge + AAudio output) for com.acecore.app.runtime.handheld.HandheldCore
+#   Linux:   handheld_test, the CI test runner (ci/handheld/test/run-tests.sh)
+cmake_minimum_required(VERSION 3.18)
+project(acehandheld C)
+set(CMAKE_C_STANDARD 11)
+set(LIBRETRO_INCLUDE "" CACHE PATH "Folder with libretro.h")
+add_compile_options(-O2 -Wall -Wextra -Wno-unused-parameter)
+if (ANDROID)
+  add_library(acehandheld SHARED frontend.c android_jni.c)
+  target_include_directories(acehandheld PRIVATE ${LIBRETRO_INCLUDE})
+  target_link_libraries(acehandheld PRIVATE dl log aaudio android m)
+else ()
+  add_executable(handheld_test frontend.c handheld_test.c)
+  target_include_directories(handheld_test PRIVATE ${LIBRETRO_INCLUDE})
+  target_link_libraries(handheld_test PRIVATE dl m pthread)
+endif ()

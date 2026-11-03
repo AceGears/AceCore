@@ -77,6 +77,10 @@ on:
         description: Include the Windows runtime (Wine + Box64 under PRoot); rebuilt only if ci/windows changed, else cached
         type: boolean
         default: true
+      build_handheld:
+        description: Include Game Boy / GBA / DS emulation (mGBA, melonDS DS) and the cheat database; rebuilt only if ci/handheld changed
+        type: boolean
+        default: true
 
 # Least privilege: jobs that need more ask for it themselves.
 permissions:
@@ -437,9 +441,90 @@ jobs:
           path: godot-natives/
           retention-days: 90   # reusable by run id
 
+  handheld-natives:
+    name: Build handheld emulation (mGBA + melonDS DS, cheat database)
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.build_handheld)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Restore the build made from these sources
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: handheld-natives
+          key: handheld-natives-${{ env.ENGINE_CACHE_VERSION }}-${{ hashFiles('ci/handheld/**') }}
+      - name: Tools (Ninja, NDK r27)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build python3 > /dev/null
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;27.2.12479018" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Cores and frontend for Linux (for the tests)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash ci/handheld/build-cores.sh host handheld-host
+      - name: Core tests (AceArcade's test ROMs + a melonDS DS homebrew test program)
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: bash ci/handheld/test/run-tests.sh handheld-host handheld-build/melonds-ds handheld-test.txt
+      - name: Cores and frontend for Android (arm64-v8a)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          bash ci/handheld/build-cores.sh android handheld-natives/jni
+          cp handheld-test.txt handheld-natives/HANDHELD_TESTS.txt 2>/dev/null || echo "tests not run" > handheld-natives/HANDHELD_TESTS.txt
+          python3 - <<'PY'
+          import subprocess, sys
+          for f in ["libmgba_libretro.so", "libmelondsds_libretro.so", "libacehandheld.so"]:
+              out = subprocess.run(["readelf", "-lW", "handheld-natives/jni/" + f], capture_output=True, text=True).stdout
+              aligns = [l.split()[-1] for l in out.splitlines() if l.strip().startswith("LOAD")]
+              bad = [a for a in aligns if int(a, 16) < 0x4000]
+              print(f, aligns, "OK" if not bad else "NOT 16 KB ALIGNED")
+              if bad: sys.exit(1)
+          PY
+      - name: Cheat and ROM database (libretro-database, CC BY-SA 4.0)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          . ci/handheld/versions.env
+          git init -q lrdb && git -C lrdb remote add origin "$LIBRETRO_DB_REPO"
+          git -C lrdb sparse-checkout set --no-cone '/LICENSE' '/cht/Nintendo - Game Boy*' '/cht/Nintendo - Nintendo DS/' \
+            '/metadat/no-intro/Nintendo - Game Boy*' '/metadat/no-intro/Nintendo - Nintendo DS.dat' \
+            '/metadat/hacks/Nintendo - Game Boy*' '/metadat/hacks/Nintendo - Nintendo DS.dat' '/metadat/homebrew/Nintendo - Game Boy*'
+          git -C lrdb fetch -q --depth 1 --filter=blob:none origin "$LIBRETRO_DB_REF" && git -C lrdb checkout -q FETCH_HEAD
+          mkdir -p handheld-natives/assets
+          python3 ci/handheld/build_cheat_db.py lrdb handheld-natives/assets/handheld.db "$LIBRETRO_DB_REF" | tee db-stats.txt
+          V=$(python3 -c "import sqlite3;print(sqlite3.connect('handheld-natives/assets/handheld.db').execute(\"select value from meta where key='db_version'\").fetchone()[0])")
+          echo "$V" > handheld-natives/assets/HANDHELD_DB_VERSION.txt
+          # The same database as an update package (.acedb) for Settings > Handheld > Update the cheat database.
+          SHA=$(sha256sum handheld-natives/assets/handheld.db | cut -d' ' -f1)
+          mkdir -p pkg && cp handheld-natives/assets/handheld.db pkg/
+          printf '{"db_version":"%s","schema_version":1,"sha256":"%s","changelog":"libretro-database %s"}' "$V" "$SHA" "$LIBRETRO_DB_REF" > pkg/manifest.json
+          (cd pkg && zip -q -X ../handheld-natives/handheld-db-$V.acedb manifest.json handheld.db)
+          cp lrdb/LICENSE handheld-natives/assets/LIBRETRO_DATABASE_LICENSE.txt
+      - name: Remember this build for unchanged sources
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: handheld-natives
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Summary
+        if: always()
+        run: |
+          echo "::notice title=Handheld cores::$(tr '\n' ' ' < handheld-natives/jni/HANDHELD_VERSION.txt 2>/dev/null)"
+          echo "::notice title=Handheld tests::$(tail -1 handheld-natives/HANDHELD_TESTS.txt 2>/dev/null || echo 'not run')"
+          echo "::notice title=Cheat database::$(cat handheld-natives/assets/HANDHELD_DB_VERSION.txt 2>/dev/null) $(du -h handheld-natives/assets/handheld.db 2>/dev/null | cut -f1)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: handheld-natives-arm64
+          path: handheld-natives/
+          retention-days: 90
+
   full-apk:
     name: Android APK (all engines)
-    needs: [ app, rgss-natives, easyrpg-natives, godot-natives, windows-runtime ]
+    needs: [ app, rgss-natives, easyrpg-natives, godot-natives, windows-runtime, handheld-natives ]
     if: always() && needs.app.result == 'success' && needs.rgss-natives.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -512,6 +597,24 @@ jobs:
           else
             echo "::notice title=Windows runtime::not included in this APK"
           fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.handheld-natives.result == 'success'
+        continue-on-error: true
+        with:
+          name: handheld-natives-arm64
+          path: handheld-natives
+          run-id: ${{ github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add handheld emulation and the cheat database (when built)
+        run: |
+          if [ -f handheld-natives/jni/libacehandheld.so ] && [ -f handheld-natives/assets/handheld.db ]; then
+            mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/assets/handheld
+            cp handheld-natives/jni/*.so app/src/main/jniLibs/arm64-v8a/
+            cp handheld-natives/assets/* handheld-natives/jni/HANDHELD_VERSION.txt app/src/main/assets/handheld/
+            echo "::notice title=Handheld emulation::$(tr '\n' ' ' < handheld-natives/jni/HANDHELD_VERSION.txt) · tests: $(tail -1 handheld-natives/HANDHELD_TESTS.txt)"
+          else
+            echo "::notice title=Handheld emulation::not included in this APK"
+          fi
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
@@ -541,7 +644,7 @@ jobs:
           mkdir -p dist && cp "$APK" "dist/AceArcade-v$V-Android-arm64-debug.apk"
           ( cd dist && sha256sum *.apk > "AceArcade-v$V-Android-checksums.sha256" )
           # Engines inside the APK, for the summary and the release check.
-          for l in mkxp-z ruby easyrpg_android SDL3 godot_android proot; do
+          for l in mkxp-z ruby easyrpg_android SDL3 godot_android proot acehandheld mgba_libretro melondsds_libretro; do
             unzip -l "$APK" "lib/arm64-v8a/lib$l.so" > /dev/null 2>&1 && echo "lib$l.so: yes" || echo "lib$l.so: MISSING"
           done | tee engines.txt
           { echo "### AceArcade v$V (Android, arm64)"; echo; echo '```'; cat engines.txt; echo '```'; echo "APK: $(du -h "$APK" | cut -f1)"; } >> "$GITHUB_STEP_SUMMARY"
