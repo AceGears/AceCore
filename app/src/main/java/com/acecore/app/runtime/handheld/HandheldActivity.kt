@@ -105,7 +105,7 @@ class HandheldActivity : ComponentActivity() {
     private var fastForward by mutableStateOf(false)
     private var toast by mutableStateOf<String?>(null)
     private var toastSerial by mutableIntStateOf(0)
-    private var display by mutableStateOf(DisplayPrefs())
+    private var displayPrefs by mutableStateOf(DisplayPrefs())
     private var smooth by mutableStateOf(false)
     private var dsLayout by mutableStateOf(DsLayout.VERTICAL)
     private var dsGap by mutableIntStateOf(0)
@@ -122,7 +122,7 @@ class HandheldActivity : ComponentActivity() {
     private val saveDir by lazy { File(spec.saveDir).apply { mkdirs() } }
     private val batteryFile by lazy { File(saveDir, "$romBase.sav") }
     private val statesDir by lazy { File(saveDir, "states").apply { mkdirs() } }
-    private val dataDir by lazy { saveDir.parentFile ?: saveDir }
+    private val gameDataDir by lazy { saveDir.parentFile ?: saveDir }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,7 +131,7 @@ class HandheldActivity : ComponentActivity() {
         spec = s
         LaunchTimeline.mark(File(s.helperDir), "Game process started (${s.platform.displayName})")
         padMap = parseButtonMap(s.buttonMap)
-        display = DisplayPrefs.from(DisplayPrefs.parse(s.display))
+        displayPrefs = DisplayPrefs.from(DisplayPrefs.parse(s.display))
         smooth = s.smooth; showFps = s.showFps
         dsLayout = DsLayout.byId(s.dsLayout)
         padVisible = when (s.gamepadMode) { "never" -> false; "always" -> true; else -> !ControllerInput.controllerConnected() }
@@ -139,7 +139,7 @@ class HandheldActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         screen = HandheldScreen(this, s.platform).apply {
-            prefs = this@HandheldActivity.display; smooth = this@HandheldActivity.smooth; layout = this@HandheldActivity.dsLayout
+            prefs = this@HandheldActivity.displayPrefs; smooth = this@HandheldActivity.smooth; layout = this@HandheldActivity.dsLayout
             onTouch = { x, y, pressed -> core?.setPointer(x, y, pressed) }
         }
         val root = FrameLayout(this).apply { setBackgroundColor(AColor.BLACK) }
@@ -359,7 +359,7 @@ class HandheldActivity : ComponentActivity() {
                 sha1 = hashes.sha1
                 ident = db?.identify(spec.platform, hashes, header)
             }
-            val store = CheatStore(CheatStore.file(dataDir))
+            val store = CheatStore(CheatStore.file(gameDataDir))
             val ctl = CheatController(spec.platform, store, db, ident, sha1, spec.title)
             cheats = ctl
             applyCheats(showMessage = false)
@@ -510,13 +510,13 @@ class HandheldActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
         controller.handleMotion(event) || super.dispatchGenericMotionEvent(event)
 
-    // ------------------------------------------------------------------ display settings (saved for the game)
+    // ------------------------------------------------------------------ displayPrefs settings (saved for the game)
 
-    private fun saveForGame(values: Map<String, String>) = Thread { DisplayPrefs.writePending(dataDir, values) }.start()
+    private fun saveForGame(values: Map<String, String>) = Thread { DisplayPrefs.writePending(gameDataDir, values) }.start()
 
     private fun updateDisplay(next: DisplayPrefs) {
         val n = next.normalized()
-        display = n; screen.prefs = n
+        displayPrefs = n; screen.prefs = n
         saveForGame(n.values() - ConfigKey.SCREEN_FILTER.id)
     }
 
@@ -661,14 +661,14 @@ class HandheldActivity : ComponentActivity() {
             listOf(DisplayPrefs.FIT to "Fit", DisplayPrefs.INTEGER to "Pixel-perfect", DisplayPrefs.FILL to "Stretch",
                 DisplayPrefs.COVER to "Fill", DisplayPrefs.ORIGINAL to "Original").chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (m, l) -> Choice(l, display.fit == m, accent, Modifier.weight(1f)) { updateDisplay(display.copy(fit = m)) } }
+                    row.forEach { (m, l) -> Choice(l, displayPrefs.fit == m, accent, Modifier.weight(1f)) { updateDisplay(displayPrefs.copy(fit = m)) } }
                 }
             }
-            Text("Game size ${display.sizePercent}%", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-            androidx.compose.material3.Slider(value = display.sizePercent.toFloat(), onValueChange = { updateDisplay(display.copy(sizePercent = (it / 5).toInt() * 5)) },
+            Text("Game size ${displayPrefs.sizePercent}%", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            androidx.compose.material3.Slider(value = displayPrefs.sizePercent.toFloat(), onValueChange = { updateDisplay(displayPrefs.copy(sizePercent = (it / 5).toInt() * 5)) },
                 valueRange = 50f..100f, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
-            Text("Picture position (vertical) ${display.offsetY}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-            androidx.compose.material3.Slider(value = display.offsetY.toFloat(), onValueChange = { updateDisplay(display.copy(offsetY = (it / 5).toInt() * 5)) },
+            Text("Picture position (vertical) ${displayPrefs.offsetY}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            androidx.compose.material3.Slider(value = displayPrefs.offsetY.toFloat(), onValueChange = { updateDisplay(displayPrefs.copy(offsetY = (it / 5).toInt() * 5)) },
                 valueRange = -100f..100f, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
             Text("Scaling", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
