@@ -139,7 +139,7 @@ class HandheldActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         screen = HandheldScreen(this, s.platform).apply {
-            prefs = display; smooth = this@HandheldActivity.smooth; layout = dsLayout
+            prefs = this@HandheldActivity.display; smooth = this@HandheldActivity.smooth; layout = this@HandheldActivity.dsLayout
             onTouch = { x, y, pressed -> core?.setPointer(x, y, pressed) }
         }
         val root = FrameLayout(this).apply { setBackgroundColor(AColor.BLACK) }
@@ -457,7 +457,7 @@ class HandheldActivity : ComponentActivity() {
     private fun stopMicrophone() { mic?.let { runCatching { it.stop(); it.release() } }; mic = null }
 
     @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == MIC_REQUEST) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startMicrophone()
