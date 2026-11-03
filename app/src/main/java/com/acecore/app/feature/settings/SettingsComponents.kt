@@ -248,8 +248,11 @@ fun ColorPickerDialog(title: String, initial: Long, onDismiss: () -> Unit, onPic
 
 /** Visual controller mapping editor: each controller button → the keyboard key the game receives. */
 @Composable
-fun ButtonMapDialog(encoded: String, resetTo: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var map by remember { mutableStateOf(ButtonMap.decode(encoded)) }
+fun ButtonMapDialog(encoded: String, resetTo: String, onDismiss: () -> Unit, handheld: Boolean = false, onSave: (String) -> Unit) {
+    // Handheld games map pad buttons to console buttons, every other engine to keyboard keys.
+    val decode: (String?) -> Map<PadButton, String> = if (handheld) ButtonMap::decodeHandheld else { v -> ButtonMap.decode(v) }
+    val keys = if (handheld) WebKey.HANDHELD else WebKey.ALL
+    var map by remember { mutableStateOf(decode(encoded)) }
     var editing by remember { mutableStateOf<PadButton?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -270,7 +273,8 @@ fun ButtonMapDialog(encoded: String, resetTo: String, onDismiss: () -> Unit, onS
                 }
                 item {
                     Text(
-                        "Defaults follow RPG Maker conventions: A = Z (confirm), B = X (cancel/menu), X = Shift (dash), L1/R1 = Q/W (page).",
+                        if (handheld) "Each controller button presses the console button you choose. By default every button is the console button of the same name; L2 and R2 are free."
+                        else "Defaults follow RPG Maker conventions: A = Z (confirm), B = X (cancel/menu), X = Shift (dash), L1/R1 = Q/W (page).",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
                     )
                 }
@@ -279,7 +283,7 @@ fun ButtonMapDialog(encoded: String, resetTo: String, onDismiss: () -> Unit, onS
         confirmButton = { TextButton(onClick = { onSave(ButtonMap.encode(map)) }) { Text("Save") } },
         dismissButton = {
             Row {
-                TextButton(onClick = { map = ButtonMap.decode(resetTo) }) { Text("Reset") }
+                TextButton(onClick = { map = decode(resetTo) }) { Text("Reset") }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
@@ -287,11 +291,11 @@ fun ButtonMapDialog(encoded: String, resetTo: String, onDismiss: () -> Unit, onS
     editing?.let { b ->
         AlertDialog(
             onDismissRequest = { editing = null },
-            title = { Text("Key for ${b.label}") },
+            title = { Text(if (handheld) "Console button for ${b.label}" else "Key for ${b.label}") },
             text = {
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(Modifier.verticalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    WebKey.ALL.forEach { k ->
+                    keys.forEach { k ->
                         val sel = map[b] == k.id
                         Text(
                             k.label,

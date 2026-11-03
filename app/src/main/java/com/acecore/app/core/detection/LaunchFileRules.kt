@@ -111,6 +111,10 @@ object LaunchFileRules {
             "pck" -> unavailable("Godot")
             "rpy", "rpyc", "rpa" -> unavailable("Ren'Py")
             "ldb", "lmt" -> unavailable("RPG Maker 2000/2003")
+            in com.acecore.app.core.handheld.HandheldPlatform.ALL_EXTENSIONS -> LaunchEvaluation.Unsupported(
+                "“$name” is a ${com.acecore.app.core.handheld.HandheldPlatform.byExtension(name)?.displayName ?: "handheld"} ROM. " +
+                    "ROMs are separate games in your library: add the file (or its folder) with Add game › ROM files.",
+            )
             "" -> LaunchEvaluation.Unsupported("“$name” has no file extension, so AceArcade can't tell how to start it.")
             else -> LaunchEvaluation.Unsupported("AceArcade can't start games from .$ext files.")
         }

@@ -11,6 +11,9 @@ import com.acecore.app.core.detection.DetectionEngine
 import com.acecore.app.core.detection.DetectionResult
 import com.acecore.app.core.detection.CollectionRules
 import com.acecore.app.core.detection.LaunchCandidate
+import com.acecore.app.core.detection.RomRules
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import com.acecore.app.core.filesystem.SafTree
 import com.acecore.app.core.model.CompatStatus
 import com.acecore.app.core.model.Engine
@@ -136,7 +139,9 @@ class GameRepository(
         val rootId = tree.rootDocId
         val rootName = SafTree.displayName(resolver, tree.documentUri(rootId)) ?: "Game"
         progress("Analysing $rootName…")
-        val root = scanFolder(tree, rootId, rootName, depth = 4)
+        val (root, nodes) = scanFolderWalk(tree, rootId, rootName, depth = 4)
+        // Nintendo handheld ROMs: each ROM file is its own game, unless the folder is confidently one game of another engine.
+        romOutcome(tree, root, nodes, rootName, progress)?.let { return@withContext it }
         if (!CollectionRules.mayBeCollection(root.detection, root.truncated)) return@withContext ScanOutcome.Single(root)
 
         // A library folder ("AceArcade/") holds several games, each in its own sub-folder: every sub-folder is
@@ -158,12 +163,16 @@ class GameRepository(
 
     /** Scans one folder inside a granted tree (a game just unpacked from an archive into a new sub-folder). */
     suspend fun scanAt(treeUri: Uri, docId: String, name: String): ScanOutcome = withContext(Dispatchers.IO) {
-        val c = scanFolder(SafTree(resolver, treeUri), docId, name, depth = 4)
+        val tree = SafTree(resolver, treeUri)
+        val (c, nodes) = scanFolderWalk(tree, docId, name, depth = 4)
+        romOutcome(tree, c, nodes, name, subfolderGames = false)?.let { return@withContext it }
         if (c.detection.engine == Engine.UNKNOWN) ScanOutcome.NothingFound("No recognisable game files were found in the unpacked “$name” folder.")
         else ScanOutcome.Single(c)
     }
 
-    private fun scanFolder(tree: SafTree, docId: String, name: String, depth: Int): ScanCandidate {
+    private fun scanFolder(tree: SafTree, docId: String, name: String, depth: Int): ScanCandidate = scanFolderWalk(tree, docId, name, depth).first
+
+    private fun scanFolderWalk(tree: SafTree, docId: String, name: String, depth: Int): Pair<ScanCandidate, List<com.acecore.app.core.filesystem.SafNode>> {
         val walk = tree.walk(docId, maxDepth = depth, maxEntries = 6000)
         val idByPath = walk.nodes.associate { it.path to it.docId }
         val snapshot = com.acecore.app.core.detection.GameSnapshot(
@@ -173,7 +182,171 @@ class GameRepository(
         )
         val detection = detector.detect(snapshot, name)
         val covers = detection.coverCandidates.mapNotNull { p -> idByPath[p]?.let { p to it } }.toMap()
-        return ScanCandidate(tree.treeUri, docId, name, detection, covers, walk.truncated)
+        return ScanCandidate(tree.treeUri, docId, name, detection, covers, walk.truncated) to walk.nodes
+    }
+
+    // ------------------------------------------------------------------ handheld ROMs
+
+    /**
+     * The ROM files of a scanned folder as library entries, when they win over the folder's own detection (see
+     * [com.acecore.app.core.detection.RomRules.romsTakePrecedence]); null to continue with the normal folder rules.
+     * Games of other engines in top-level sub-folders are kept next to the ROMs (and ROMs inside them are skipped).
+     */
+    private fun romOutcome(
+        tree: SafTree, root: ScanCandidate, nodes: List<com.acecore.app.core.filesystem.SafNode>, rootName: String,
+        progress: (String) -> Unit = {}, subfolderGames: Boolean = true,
+    ): ScanOutcome? {
+        val files = RomRules.romFileCandidates(nodes, { it.path }, { it.isDirectory })
+        if (!RomRules.romsTakePrecedence(root.detection, files.size)) return null
+        progress("Reading ROMs in $rootName…")
+        val roms = files.take(MAX_ROMS).mapIndexedNotNull { i, n ->
+            if (i % 25 == 0 && i > 0) progress("Reading ROMs in $rootName… $i / ${files.size}")
+            runCatching { romCandidate(tree.treeUri, n.docId, tree.documentUri(n.docId), n.name, n.path, n.size, n.lastModified, RomRules.parentFolderName(n.path, rootName)) }.getOrNull()
+        }
+        if (!RomRules.romsTakePrecedence(root.detection, roms.size)) return null
+        val found = if (!subfolderGames) emptyList() else {
+            val romTops = roms.mapNotNull { it.detection.rom?.path?.substringBefore('/', "")?.ifEmpty { null } }.toSet()
+            tree.children(root.rootDocId, "").filter { it.isDirectory }.take(MAX_COLLECTION)
+                .mapIndexedNotNull { i, d ->
+                    // Folders that hold only ROMs come out as "unknown" anyway; skip the work for them.
+                    if (d.name in romTops && nodes.none { it.path.startsWith(d.name + "/") && !it.isDirectory && !RomRules.isRomName(it.name) && !RomRules.isZipName(it.name) }) return@mapIndexedNotNull null
+                    progress("Scanning ${d.name} (${i + 1})…")
+                    runCatching { scanFolder(tree, d.docId, d.name, depth = 3) }.getOrNull()
+                        ?.takeIf { it.detection.engine != Engine.UNKNOWN && it.detection.engine.family != com.acecore.app.core.model.EngineFamily.HANDHELD }
+                }
+        }
+        val names = found.map { it.folderName }.toSet()
+        val all = found + roms.filter { RomRules.outsideGameFolders(it.detection.rom?.path ?: "", names) }
+        return when {
+            all.isEmpty() -> null
+            all.size == 1 -> ScanOutcome.Single(all.first())
+            else -> ScanOutcome.Collection(all)
+        }
+    }
+
+    /** One ROM (or a zip holding exactly one ROM) as a scan candidate, or null when it isn't one. */
+    private fun romCandidate(
+        treeUri: Uri, docId: String, docUri: Uri, name: String, path: String, size: Long, modified: Long, folderName: String,
+    ): ScanCandidate? {
+        val zipEntry = if (RomRules.isZipName(name)) {
+            RomRules.zipRomEntry(HandheldRoms.zipEntries(resolver, docUri, size) ?: return null) ?: return null
+        } else null
+        val romName = zipEntry ?: name
+        if (!RomRules.isRomName(romName)) return null
+        val header = if (RomRules.needsHeader(romName)) {
+            if (zipEntry != null) HandheldRoms.zipEntryHead(resolver, docUri, zipEntry, com.acecore.app.core.handheld.RomInfo.HEADER_BYTES)
+            else HandheldRoms.readHead(resolver, docUri, com.acecore.app.core.handheld.RomInfo.HEADER_BYTES)
+        } else null
+        val platform = RomRules.platformFor(romName, header) ?: return null
+        val detection = RomRules.detection(platform, name, zipEntry, path, size, modified, com.acecore.app.runtime.RuntimeRegistry::canLaunch)
+        return ScanCandidate(treeUri, docId, folderName, detection, emptyMap())
+    }
+
+    /**
+     * ROM files the user picked one by one (Android's file picker, persistable read access already taken): each becomes
+     * a candidate whose treeUri is the file's own document URI.
+     */
+    suspend fun scanRomFiles(uris: List<Uri>, progress: (String) -> Unit = {}): ScanOutcome = withContext(Dispatchers.IO) {
+        val skipped = mutableListOf<String>()
+        val found = uris.mapIndexedNotNull { i, uri ->
+            val info = HandheldRoms.docInfo(resolver, uri)
+            val name = info?.name ?: SafTree.displayName(resolver, uri) ?: uri.lastPathSegment ?: "ROM"
+            progress("Reading $name (${i + 1}/${uris.size})…")
+            val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: uri.toString()
+            val folder = com.acecore.app.core.storage.DirectStorage.realPath(context, uri, docId)?.parentFile?.name ?: "Picked files"
+            runCatching { romCandidate(uri, docId, uri, name, name, info?.size ?: -1, info?.lastModified ?: 0, folder) }.getOrNull()
+                ?: run { skipped += name; null }
+        }
+        when {
+            found.isEmpty() -> ScanOutcome.NothingFound(
+                if (skipped.isEmpty()) "No files were picked."
+                else "${skipped.joinToString()} ${if (skipped.size == 1) "isn't" else "aren't"} a Game Boy, Game Boy Color, Game Boy Advance or Nintendo DS ROM " +
+                    "(.gb, .gbc, .gba, .nds, or a .zip holding exactly one of them).",
+            )
+            found.size == 1 -> ScanOutcome.Single(found.first())
+            else -> ScanOutcome.Collection(found)
+        }
+    }
+
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val identifyLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Games whose ROM is being hashed right now (for the game page). */
+    val identifying = kotlinx.coroutines.flow.MutableStateFlow<Set<Long>>(emptySet())
+
+    /**
+     * Hashes and identifies handheld ROMs in the background, one at a time (a DS ROM can be 512 MB). The result goes to
+     * the game's handheld.json ([HandheldRoms.identityFile]); the database's release name becomes the title when the
+     * user hasn't renamed the game.
+     */
+    fun identifyInBackground(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        background.launch {
+            identifyLock.withLock {
+                for (id in ids) {
+                    val g = dao.get(id)?.takeIf { HandheldRoms.isHandheld(it) } ?: continue
+                    val (platform, zipEntry) = HandheldRoms.romOf(this@GameRepository, g) ?: continue
+                    identifying.value = identifying.value + id
+                    runCatching {
+                        val identity = HandheldRoms.identify(context, g, platform, zipEntry)
+                        HandheldRoms.writeIdentity(context, id, identity)
+                        identity.releaseName?.let { applyReleaseTitle(id, it, previousRelease = null) }
+                    }
+                    identifying.value = identifying.value - id
+                }
+            }
+        }
+    }
+
+    /** Uses [releaseName] as the title when the user hasn't renamed the game (title = file name or a release name). */
+    private suspend fun applyReleaseTitle(id: Long, releaseName: String, previousRelease: String?) {
+        val fresh = dao.get(id) ?: return
+        val auto = decodeDetection(fresh)?.title
+        if (fresh.title == auto || (previousRelease != null && fresh.title == previousRelease)) {
+            if (fresh.title != releaseName) dao.update(fresh.copy(title = releaseName))
+        }
+    }
+
+    /** The user's choice in "Identify game": stored as a manual (not checksum-verified) identification. */
+    suspend fun setHandheldRelease(game: GameEntity, release: com.acecore.app.core.handheld.KnownRelease) = withContext(Dispatchers.IO) {
+        val platform = HandheldRoms.romOf(this@GameRepository, game)?.first ?: release.platform
+        val current = HandheldRoms.readIdentity(context, game.id)
+        val db = runCatching { com.acecore.app.core.handheld.HandheldDb.open(context) }.getOrNull()
+        HandheldRoms.writeIdentity(context, game.id, HandheldRoms.manualIdentity(current, platform, release, db?.version))
+        applyReleaseTitle(game.id, release.name, current?.releaseName)
+    }
+
+    /** Releases matching [text] for the "Identify game" search; empty when this APK has no handheld database. */
+    suspend fun searchHandheldReleases(game: GameEntity, text: String): List<com.acecore.app.core.handheld.KnownRelease> = withContext(Dispatchers.IO) {
+        val platform = HandheldRoms.romOf(this@GameRepository, game)?.first ?: return@withContext emptyList()
+        val db = runCatching { com.acecore.app.core.handheld.HandheldDb.open(context) }.getOrNull() ?: return@withContext emptyList()
+        val platforms = if (platform == com.acecore.app.core.handheld.HandheldPlatform.GB || platform == com.acecore.app.core.handheld.HandheldPlatform.GBC)
+            listOf(platform, if (platform == com.acecore.app.core.handheld.HandheldPlatform.GB) com.acecore.app.core.handheld.HandheldPlatform.GBC else com.acecore.app.core.handheld.HandheldPlatform.GB)
+        else listOf(platform)
+        platforms.flatMap { p -> runCatching { db.searchReleases(p, text.trim()) }.getOrDefault(emptyList()) }.take(80)
+    }
+
+    /** True when this APK carries a handheld database (for showing "Identify game"). */
+    fun handheldDbAvailable(): Boolean = com.acecore.app.core.handheld.HandheldDb.isBundled(context) ||
+        com.acecore.app.core.handheld.HandheldDbUpdates.current(context) != null
+
+    /** Re-reads a ROM entry (platform from the header, zip contents), keeps title and settings, and identifies it again. */
+    private suspend fun rescanRom(game: GameEntity): GameEntity {
+        val docUri = HandheldRoms.documentUri(game)
+        val info = HandheldRoms.docInfo(resolver, docUri)
+        val old = decodeDetection(game)?.rom
+        val name = info?.name ?: old?.fileName ?: game.entry ?: "ROM"
+        val c = romCandidate(Uri.parse(game.treeUri), game.rootDocId, docUri, name, old?.path ?: name, info?.size ?: -1, info?.lastModified ?: 0, game.folderLabel)
+            ?: error(if (info == null) "The ROM file can't be opened any more (moved, renamed or deleted)." else "$name is no longer a ROM AceArcade recognises.")
+        val fresh = dao.get(game.id) ?: return game
+        val updated = fresh.copy(
+            entry = c.detection.entry, launchFile = null, engine = c.detection.engine.name, confidence = c.detection.confidence,
+            status = c.detection.status.name, detectionJson = json.encodeToString(c.detection.copy(title = decodeDetection(fresh)?.title ?: c.detection.title)),
+            lastError = null,
+        ).let { it.copy(status = runtimeStatus(it).name) }
+        dao.update(updated)
+        identifyInBackground(listOf(game.id))
+        return updated
     }
 
     // ------------------------------------------------------------------ import
@@ -191,6 +364,8 @@ class GameRepository(
                 val entity = toEntity(c, launch)
                 runCatching { added += dao.insert(entity) }.onFailure { failed += "${c.folderName}: ${it.message}" }
             }
+            // Handheld ROMs are hashed and identified afterwards (can take a while for big ROMs; nothing waits for it).
+            if (candidates.any { it.detection.rom != null }) identifyInBackground(added.filter { id -> dao.get(id)?.let(HandheldRoms::isHandheld) == true })
             ImportReport(added, dupes, failed, existing)
         }
 
@@ -219,6 +394,7 @@ class GameRepository(
         if (entry != null && entry.endsWith(".html", true)) entry.substringBeforeLast('/', "") else d.contentRoot
 
     suspend fun rescan(game: GameEntity): GameEntity = withContext(Dispatchers.IO) {
+        if (HandheldRoms.isHandheld(game)) return@withContext rescanRom(game)
         val tree = SafTree(resolver, Uri.parse(game.treeUri))
         val c = scanFolder(tree, game.rootDocId, game.folderLabel, depth = 4)
         // A launch file the user chose by hand is kept as long as it still exists.
@@ -263,6 +439,7 @@ class GameRepository(
      * when it exists in the new folder.
      */
     suspend fun relink(game: GameEntity, treeUri: Uri): GameEntity = withContext(Dispatchers.IO) {
+        require(!HandheldRoms.isHandheld(game)) { "ROM files can't be relinked to a folder. Remove the game and add the ROM again." }
         takePermission(treeUri)
         val tree = SafTree(resolver, treeUri)
         val rootId = tree.rootDocId
@@ -359,6 +536,12 @@ class GameRepository(
      * folder through the Storage Access Framework. The result is cached in the library.
      */
     suspend fun measureFolderSize(game: GameEntity): Long = withContext(Dispatchers.IO) {
+        if (HandheldRoms.isHandheld(game)) {
+            // A ROM entry is one file.
+            val bytes = HandheldRoms.directFile(context, game)?.length() ?: HandheldRoms.docInfo(resolver, HandheldRoms.documentUri(game))?.size ?: -1L
+            if (bytes >= 0) dao.setFolderSize(game.id, bytes)
+            return@withContext bytes.coerceAtLeast(0)
+        }
         val direct = com.acecore.app.core.storage.DirectStorage.realPath(context, game.treeUri, game.rootDocId)
             ?.takeIf { com.acecore.app.core.storage.DirectStorage.hasAccess(context) && com.acecore.app.core.storage.DirectStorage.canList(it) }
         val bytes = if (direct != null) {
@@ -473,7 +656,7 @@ class GameRepository(
     /** Model for Coil: custom cover file, or the discovered cover inside the game folder. */
     fun coverModel(game: GameEntity): Any? = when {
         game.customCoverPath != null -> File(game.customCoverPath)
-        game.coverDocId != null -> DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.coverDocId)
+        game.coverDocId != null && !HandheldRoms.isHandheld(game) -> DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.coverDocId)
         else -> null
     }
 
@@ -603,6 +786,8 @@ class GameRepository(
 
     companion object {
         const val MAX_COLLECTION = 300
+        /** ROM files read from one picked folder. */
+        const val MAX_ROMS = 3000
         fun isPlayable(game: GameEntity): Boolean =
             game.compatStatus == CompatStatus.PLAYABLE || game.compatStatus == CompatStatus.PLAYABLE_UNTESTED
     }

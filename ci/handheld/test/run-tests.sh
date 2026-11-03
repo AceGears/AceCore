@@ -21,7 +21,7 @@ GSA=$(python3 "$HERE/gsa_encrypt.py" 02000100 00000042)
 run "GBA: encrypted GameShark (v1) cheat $GSA" --core "$MG" --rom "$T/roms/acetest.gba" "${MGOPT[@]}" \
   --cheat "$GSA" --marker 02000100=42 --cheat-pixel 120,80=00FB00 || fails=$((fails+1))
 run "Game Boy: picture, GameShark cheat, save state, battery save" --core "$MG" --rom "$T/roms/acetest.gb" "${MGOPT[@]}" \
-  --size 160x144 --pixel 80,72=000000 --counter 0xC000 --cheat "014200C1" --marker C100=42 --cheat-pixel 80,72=FFFFFF \
+  --size 160x144 --pixel 80,72=000000 --counter 0xC000 --cheat "014200C1" --marker C100=42 --cheat-pixel 80,72=FFFBFF \
   --state --sram 'ACE!' || fails=$((fails+1))
 run "Game Boy Color: GameShark cheat, save state, battery save" --core "$MG" --rom "$T/roms/acetest.gbc" "${MGOPT[@]}" \
   --size 160x144 --counter 0xC000 --cheat "014200C1" --marker C100=42 --state --sram 'ACE!' || fails=$((fails+1))

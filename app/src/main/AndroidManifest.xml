@@ -7,6 +7,8 @@
          (Settings > Advanced > Allow game network access). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Nintendo DS microphone (HandheldActivity asks for it at runtime, only when a DS game uses the microphone). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Optional, user-granted direct file access for engines that open game files by path (mkxp-z). Lets RPG Maker
          XP/VX/VX Ace games run in place instead of from a private copy. AceCore only opens folders in the user's
@@ -89,6 +91,16 @@
             android:name=".runtime.windows.WindowsGameActivity"
             android:exported="false"
             android:process=":windows"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.AceCore.Game"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|density|keyboard|navigation|screenLayout|uiMode" />
+
+        <!-- Nintendo handhelds (mGBA, melonDS DS as libretro cores). Own process, ended when the game closes. -->
+        <activity
+            android:name=".runtime.handheld.HandheldActivity"
+            android:exported="false"
+            android:process=":handheld"
             android:hardwareAccelerated="true"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.AceCore.Game"

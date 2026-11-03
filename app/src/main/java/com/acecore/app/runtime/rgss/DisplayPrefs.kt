@@ -102,6 +102,10 @@ data class DisplayPrefs(
             ConfigKey.CHEAT_SHORTCUT.id,
             // Windows programs' ☰ › Display panel (WindowsGameActivity).
             ConfigKey.FILTERING.id, ConfigKey.SHOW_FPS.id, ConfigKey.WINDOWS_CURSOR.id,
+            // Handheld games' in-game menu (HandheldActivity).
+            ConfigKey.HANDHELD_DS_LAYOUT.id, ConfigKey.HANDHELD_GB_PALETTE.id, ConfigKey.HANDHELD_FF_SPEED.id,
+            ConfigKey.HANDHELD_VOLUME.id, ConfigKey.HANDHELD_VIBRATION.id, ConfigKey.HANDHELD_BACKUPS.id, ConfigKey.HAPTICS.id,
+            ConfigKey.GAMEPAD_SCALE.id,
         )
 
         fun file(dataDir: File) = File(RgssRuntime.helperDir(dataDir), FILE_NAME)

@@ -12,6 +12,7 @@ enum class RuntimeId(val displayName: String) {
     GODOT("Godot runtime"),
     RUFFLE("Ruffle (Flash)"),
     WINDOWS("Windows runtime (Wine + Box64)"),
+    HANDHELD("Handheld emulation (mGBA, melonDS DS)"),
     NONE("No runtime"),
 }
 
@@ -96,6 +97,13 @@ object RuntimeRegistry {
             blocker = "AceArcade's CI builds it (job \"windows-runtime\": Wine, Box64 and PRoot); use an APK that includes it.",
             license = "LGPL-2.1+ (Wine), MIT (Box64), GPL-2.0 (PRoot), GPL-2.0 (TigerVNC), LGPL-2.1+ (PulseAudio), BSD-3-Clause (xdotool), Debian packages under their own licences",
         ),
+        RuntimeId.HANDHELD to RuntimeInfo(
+            RuntimeId.HANDHELD, bundled = false,
+            formats = "Game Boy / Game Boy Color (.gb, .gbc), Game Boy Advance (.gba), Nintendo DS (.nds) ROM files, also inside .zip",
+            status = "Detected, but this APK was built without the handheld emulation cores.",
+            blocker = "AceArcade's CI builds them (mGBA and melonDS DS as libretro cores plus AceArcade's frontend, libacehandheld.so); use an APK that includes them.",
+            license = "MPL-2.0 (mGBA), GPL-3.0 (melonDS, melonDS DS)",
+        ),
         RuntimeId.NONE to RuntimeInfo(
             RuntimeId.NONE, bundled = false,
             status = "This kind of game cannot run on Android through AceArcade.",
@@ -112,6 +120,7 @@ object RuntimeRegistry {
         EngineFamily.GODOT -> RuntimeId.GODOT
         EngineFamily.FLASH -> RuntimeId.RUFFLE
         EngineFamily.WINDOWS -> RuntimeId.WINDOWS
+        EngineFamily.HANDHELD -> RuntimeId.HANDHELD
         EngineFamily.UNSUPPORTED_NATIVE -> RuntimeId.NONE
     }
 
@@ -163,13 +172,55 @@ object RuntimeRegistry {
         license = runtimes.getValue(RuntimeId.WINDOWS).license,
     )
 
+    /** This APK contains AceArcade's handheld frontend and mGBA (Game Boy, Game Boy Color, Game Boy Advance). */
+    @Volatile var handheldGbaAvailable: Boolean = false
+    /** This APK contains AceArcade's handheld frontend and melonDS DS (Nintendo DS). Can differ from [handheldGbaAvailable]. */
+    @Volatile var handheldDsAvailable: Boolean = false
+    /** Contents of assets/handheld/HANDHELD_VERSION.txt (first lines), when the APK has it. */
+    @Volatile var handheldVersion: String? = null
+
+    private fun handheldAvailableInfo(): RuntimeInfo {
+        val parts = listOfNotNull(
+            "Game Boy / GBA: mGBA 0.10.5".takeIf { handheldGbaAvailable },
+            "DS: melonDS DS 1.4.0 (experimental)".takeIf { handheldDsAvailable },
+        )
+        return RuntimeInfo(
+            RuntimeId.HANDHELD, bundled = true,
+            version = handheldVersion ?: parts.joinToString(" · "),
+            formats = buildList {
+                if (handheldGbaAvailable) add("Game Boy / Game Boy Color (.gb, .gbc) and Game Boy Advance (.gba) ROMs")
+                if (handheldDsAvailable) add("Nintendo DS (.nds) ROMs")
+            }.joinToString("; ") + ", also inside .zip archives",
+            status = "Bundled: " + parts.joinToString(" · ") + ". ROMs are played from where they are (or a private copy when " +
+                "AceArcade can't open them by path); saves and save states stay in AceArcade's own storage." +
+                (if (!handheldDsAvailable) " Nintendo DS emulation isn't in this APK." else "") +
+                (if (!handheldGbaAvailable) " Game Boy / Game Boy Advance emulation isn't in this APK." else ""),
+            limitations = "Nintendo DS emulation is experimental: it needs a fast phone, and some games run slowly or have " +
+                "graphics glitches. Game Boy Advance link-cable play and DS Wi-Fi aren't supported. AceArcade doesn't include " +
+                "games or BIOS files; it plays ROM files you provide.",
+            license = runtimes.getValue(RuntimeId.HANDHELD).license,
+        )
+    }
+
+    /** Whether this APK can run games of [engine] when it is a handheld engine (GB/GBC/GBA and DS are separate cores). */
+    private fun handheldCanRun(engine: Engine): Boolean = when (engine) {
+        Engine.NINTENDO_DS -> handheldDsAvailable
+        else -> handheldGbaAvailable
+    }
+
     fun info(id: RuntimeId): RuntimeInfo = when {
+        id == RuntimeId.HANDHELD && (handheldGbaAvailable || handheldDsAvailable) -> handheldAvailableInfo()
         id == RuntimeId.WINDOWS && windowsRuntimeAvailable -> windowsAvailableInfo()
         id == RuntimeId.RGSS_MKXPZ && rgssNativeAvailable -> rgssAvailableInfo
         id == RuntimeId.EASYRPG && easyRpgNativeAvailable -> easyRpgAvailableInfo
         else -> runtimes.getValue(id)
     }
-    fun info(engine: Engine): RuntimeInfo = info(runtimeFor(engine))
+    fun info(engine: Engine): RuntimeInfo =
+        if (engine.family == EngineFamily.HANDHELD && !handheldCanRun(engine)) runtimes.getValue(RuntimeId.HANDHELD).let {
+            if (handheldGbaAvailable || handheldDsAvailable) it.copy(
+                status = "This APK includes handheld emulation, but not for ${engine.displayName} games.",
+            ) else it
+        } else info(runtimeFor(engine))
     fun canLaunch(engine: Engine): Boolean = info(engine).bundled
     fun all(): List<RuntimeInfo> = runtimes.keys.map { info(it) }
 }

@@ -42,7 +42,23 @@ data class WebKey(val id: String, val label: String, val keyCode: Int, val key: 
             (0..9).forEach { add(digit(it)) }
             (1..12).forEach { add(fn(it)) }
         }
-        private val byId = ALL.associateBy { it.id }
+
+        /**
+         * Console buttons of a Nintendo handheld, used as the "keys" of handheld games' controller mapping (AceArcade's
+         * virtual pad buttons map 1:1 to console buttons). Not keyboard keys: never offered for other engines.
+         */
+        val HANDHELD: List<WebKey> = listOf(
+            WebKey("NONE", "— None —", 0, "", ""),
+            WebKey("HH_A", "A", 0, "", ""), WebKey("HH_B", "B", 0, "", ""),
+            WebKey("HH_X", "X", 0, "", ""), WebKey("HH_Y", "Y", 0, "", ""),
+            WebKey("HH_L", "L", 0, "", ""), WebKey("HH_R", "R", 0, "", ""),
+            WebKey("HH_START", "Start", 0, "", ""), WebKey("HH_SELECT", "Select", 0, "", ""),
+            WebKey("HH_UP", "↑", 0, "", ""), WebKey("HH_DOWN", "↓", 0, "", ""),
+            WebKey("HH_LEFT", "←", 0, "", ""), WebKey("HH_RIGHT", "→", 0, "", ""),
+        )
+        private val byId = (ALL + HANDHELD).associateBy { it.id }
+        /** Ids of [HANDHELD] (including "NONE"). */
+        val HANDHELD_IDS: Set<String> = HANDHELD.mapTo(LinkedHashSet()) { it.id }
 
         /** android.view.KeyEvent constants (kept numeric so this file stays free of Android imports). */
         private val ANDROID_KEYS = mapOf(
@@ -137,6 +153,28 @@ object ButtonMap {
         PadButton.START to "ESCAPE", PadButton.SELECT to "F",
     )
     val EASYRPG_DEFAULT_ENCODED: String = encode(EASYRPG_DEFAULT)
+
+    /**
+     * Nintendo handhelds: each pad button is the console button of the same name ([WebKey.HANDHELD] ids). L2/R2 and
+     * the stick clicks are free (the emulator's own functions, e.g. fast-forward, are on AceArcade's menu).
+     */
+    val HANDHELD_DEFAULT: Map<PadButton, String> = mapOf(
+        PadButton.A to "HH_A", PadButton.B to "HH_B", PadButton.X to "HH_X", PadButton.Y to "HH_Y",
+        PadButton.L1 to "HH_L", PadButton.R1 to "HH_R", PadButton.L2 to "NONE", PadButton.R2 to "NONE",
+        PadButton.START to "HH_START", PadButton.SELECT to "HH_SELECT", PadButton.L3 to "NONE", PadButton.R3 to "NONE",
+        PadButton.UP to "HH_UP", PadButton.DOWN to "HH_DOWN", PadButton.LEFT to "HH_LEFT", PadButton.RIGHT to "HH_RIGHT",
+    )
+    val HANDHELD_DEFAULT_ENCODED: String = encode(HANDHELD_DEFAULT)
+
+    /**
+     * A handheld game's mapping: [s] decoded over [HANDHELD_DEFAULT], with anything that isn't a console button
+     * (a keyboard key inherited from another engine's mapping) replaced by the default for that button.
+     */
+    fun decodeHandheld(s: String?): Map<PadButton, String> =
+        decode(s, HANDHELD_DEFAULT).mapValues { (b, v) -> if (v in WebKey.HANDHELD_IDS) v else HANDHELD_DEFAULT.getValue(b) }
+
+    /** [decodeHandheld], encoded again ("A=HH_A;B=HH_B;…"): what HandheldLaunchSpec.buttonMap carries. */
+    fun normalizeHandheld(s: String?): String = encode(decodeHandheld(s))
 
     fun defaultFor(rgss: Boolean) = if (rgss) RGSS_DEFAULT else DEFAULT
 

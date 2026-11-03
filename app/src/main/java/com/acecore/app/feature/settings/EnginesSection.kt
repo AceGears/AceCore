@@ -54,6 +54,7 @@ private val GROUPS = listOf(
     EngineGroup("RPG Maker", listOf(Engine.RPG_MAKER_2K, Engine.RPG_MAKER_XP, Engine.RPG_MAKER_VX, Engine.RPG_MAKER_VX_ACE, Engine.RPG_MAKER_MV, Engine.RPG_MAKER_MZ, Engine.POKEMON_ESSENTIALS)),
     EngineGroup("Visual novel engines", listOf(Engine.RENPY, Engine.TYRANO)),
     EngineGroup("Web-based engines", listOf(Engine.HTML5, Engine.CONSTRUCT_2, Engine.CONSTRUCT_3)),
+    EngineGroup("Nintendo handhelds", listOf(Engine.GAME_BOY, Engine.GAME_BOY_COLOR, Engine.GAME_BOY_ADVANCE, Engine.NINTENDO_DS)),
     EngineGroup("Other engines", listOf(Engine.GODOT, Engine.FLASH, Engine.GAMEMAKER, Engine.WOLF_RPG, Engine.UNITY, Engine.UNREAL)),
 )
 
@@ -72,6 +73,7 @@ private fun Engine.iconLabel(): String = when (this) {
     Engine.RPG_MAKER_MV -> "MV"; Engine.RPG_MAKER_MZ -> "MZ"; Engine.POKEMON_ESSENTIALS -> "PKMN"; Engine.RENPY -> "RPY"
     Engine.TYRANO -> "TYR"; Engine.HTML5 -> "HTML"; Engine.CONSTRUCT_2 -> "C2"; Engine.CONSTRUCT_3 -> "C3"; Engine.GODOT -> "GD"
     Engine.FLASH -> "SWF"; Engine.GAMEMAKER -> "GM"; Engine.WOLF_RPG -> "WOLF"; Engine.UNITY -> "UNITY"; Engine.UNREAL -> "UE"
+    Engine.GAME_BOY -> "GB"; Engine.GAME_BOY_COLOR -> "GBC"; Engine.GAME_BOY_ADVANCE -> "GBA"; Engine.NINTENDO_DS -> "DS"
     else -> shortLabel().take(4)
 }
 

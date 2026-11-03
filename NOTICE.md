@@ -31,4 +31,9 @@ The GPL covers AceArcade's code. It does not by itself grant rights to use the A
 | XZ for Java | Java library (LZMA for .7z) | 0BSD / public domain |
 | WenQuanYi Micro Hei font | embedded in mkxp-z | Apache-2.0 or GPL-3.0 with font exception |
 | Ruffle 0.7.1 | `app/src/main/assets/ruffle` | MIT OR Apache-2.0 |
+| mGBA 0.10.5 (Game Boy / Game Boy Color / Game Boy Advance), Jeffrey Pfau and contributors, https://mgba.io | native lib built by CI (`libmgba_libretro.so`) | MPL-2.0 |
+| melonDS (Nintendo DS emulator), Arisotura and contributors | inside melonDS DS | GPL-3.0 |
+| melonDS DS 1.4.0 (libretro core of melonDS), Jesse Talavera and contributors | native lib built by CI (`libmelondsds_libretro.so`) | GPL-3.0 |
+| libretro API header (`libretro.h`) | AceArcade's handheld frontend (`libacehandheld.so`) | MIT |
+| libretro-database cheats and catalogues (incl. No-Intro catalogue data), libretro contributors | `app/src/main/assets/handheld/handheld.db` (built by CI) | CC BY-SA 4.0 |
 | AndroidX, Kotlin, kotlinx, Coil, Material icons | Gradle dependencies | Apache-2.0 |

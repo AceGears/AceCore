@@ -50,6 +50,8 @@ data class DetectionResult(
     val status: CompatStatus,
     /** Pokémon Essentials / plugin hints etc. */
     val tags: List<String> = emptyList(),
+    /** Set for Nintendo handheld ROMs (one library entry per ROM file); null for game folders. */
+    val rom: RomRef? = null,
 ) {
     val isGame: Boolean get() = engine != Engine.UNKNOWN
 }

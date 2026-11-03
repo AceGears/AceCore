@@ -266,6 +266,16 @@ private fun PrimaryActions(g: GameEntity, onOpenSettings: () -> Unit) {
 private fun Notices(g: GameEntity) {
     val ctx = LocalContext.current
     val access = remember(g.treeUri) { ctx.container.games.hasAccess(g.treeUri) }
+    if (g.effectiveEngine.family == EngineFamily.HANDHELD) {
+        // A ROM entry is one file (its document, or a file inside a granted folder): no folder to locate.
+        val romExists by androidx.compose.runtime.produceState<Boolean?>(null, g.treeUri, g.rootDocId) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.acecore.app.core.data.HandheldRoms.exists(ctx, g) }
+        }
+        if (!access && romExists != true) Warning("AceArcade no longer has permission to read this ROM. Remove the game and add the ROM again.")
+        else if (romExists == false) Warning("The ROM file can't be found at its saved location (${g.folderLabel}). If you moved or renamed it, remove the game and add the ROM again; saves stay in AceArcade until you delete its data.")
+        else if (g.lastLaunchOk == false && g.lastError != null) Warning("Last launch: ${g.lastError}")
+        return
+    }
     if (!access && g.effectiveEngine.family != EngineFamily.RGSS) Warning("AceArcade no longer has permission to read this folder. Remove the game and add its folder again.")
     // Checked when the page opens, so a moved or renamed folder is noticed before Play is pressed.
     val folderExists by androidx.compose.runtime.produceState<Boolean?>(null, g.treeUri, g.rootDocId) {
@@ -280,7 +290,7 @@ private fun Notices(g: GameEntity) {
 
 @Composable
 private fun Sections(g: GameEntity, onOpenCheats: () -> Unit, onDialog: (GameDialog) -> Unit) {
-    LaunchCard(g, onChange = { onDialog(GameDialog.LAUNCH_FILE) })
+    if (g.effectiveEngine.family == EngineFamily.HANDHELD) RomCard(g) else LaunchCard(g, onChange = { onDialog(GameDialog.LAUNCH_FILE) })
     if (g.effectiveEngine.family == EngineFamily.RGSS) GameFilesCard(g)
     StatisticsCard(g)
     if (g.effectiveEngine.family == EngineFamily.RGSS) CheatsCard(g, onOpenCheats)
@@ -334,6 +344,9 @@ fun launchDescription(g: GameEntity): List<Pair<String, String>> {
             out += "Runtime" to RuntimeRegistry.info(engine).id.displayName
             (g.launchFile ?: g.entry)?.let { out += "Program" to it }
         }
+        EngineFamily.HANDHELD -> {
+            out += "Runtime" to if (engine == Engine.NINTENDO_DS) "melonDS DS (Nintendo DS emulator)" else "mGBA (Game Boy / Game Boy Advance emulator)"
+        }
         else -> out += "Runtime" to RuntimeRegistry.info(engine).id.displayName
     }
     return out
@@ -371,6 +384,109 @@ fun ExpandableSection(
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------- handheld ROM
+
+/** A handheld ROM: which system, which file, and which release it is (checksum match or the user's choice). */
+@Composable
+private fun RomCard(g: GameEntity) {
+    val ctx = LocalContext.current
+    val repo = ctx.container.games
+    val identifying by repo.identifying.collectAsStateWithLifecycle()
+    val busy = g.id in identifying
+    var refresh by remember { mutableStateOf(0) }
+    val identity by androidx.compose.runtime.produceState<com.acecore.app.core.data.HandheldIdentity?>(null, g.id, g.title, busy, refresh) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.acecore.app.core.data.HandheldRoms.readIdentity(ctx, g.id) }
+    }
+    val rom = remember(g.detectionJson) { repo.decodeDetection(g)?.rom }
+    val dbAvailable = remember { repo.handheldDbAvailable() }
+    var identify by remember { mutableStateOf(false) }
+    val id = identity
+    val identifyAction: (@Composable () -> Unit)? = if (dbAvailable) {
+        { TextButton(onClick = { identify = true }) { Text("Identify game") } }
+    } else null
+    ExpandableSection(
+        title = "ROM",
+        summary = (rom?.fileName ?: g.entry ?: "ROM") + " · " + when {
+            busy -> "identifying…"
+            id?.releaseName != null && id.exact -> "verified dump"
+            id?.releaseName != null -> "identified by you"
+            id?.sha1 != null -> "not in the database"
+            else -> g.effectiveEngine.displayName
+        },
+        action = identifyAction,
+    ) {
+        KeyValue("System", g.effectiveEngine.displayName)
+        KeyValue("File", rom?.path ?: rom?.fileName ?: g.entry ?: "—")
+        rom?.zipEntry?.let { KeyValue("ROM inside the archive", it) }
+        when {
+            busy -> KeyValue("Identification", "Reading the ROM… (large DS ROMs take a while)")
+            id == null -> KeyValue("Identification", "Not identified yet")
+            id.releaseName != null -> KeyValue(
+                "Release", id.releaseName + if (id.exact) " (checksum matches the catalogue)" else if (id.manual) " (chosen by you; checksum not verified)" else "",
+            )
+            id.sha1 != null -> KeyValue("Release", if (id.sameGameCode.isNotEmpty()) "Unknown dump (possibly a modified ROM of ${id.sameGameCode.first().name})" else "Not in the database (a hack, homebrew or unknown dump)")
+        }
+        id?.headerTitle?.takeIf { it.isNotBlank() }?.let { t -> KeyValue("Header", t + (id?.gameCode?.let { " · $it" } ?: "") + (id?.headerRegion?.let { " · $it" } ?: "")) }
+        id?.headerChecksumOk?.takeIf { !it }?.let { KeyValue("Note", "The header checksum doesn't match: the ROM may be modified or a bad dump.") }
+        id?.sha1?.let { KeyValue("SHA-1", it) }
+        id?.crc32?.let { KeyValue("CRC32", it) }
+        if (id != null && id.size > 0) KeyValue("Size", formatBytes(id.size))
+        if (!dbAvailable) Text("This APK doesn't include the handheld game database, so games can't be identified.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (identify) IdentifyRomDialog(g, onClose = { identify = false; refresh++ })
+}
+
+/** "Identify game": search the handheld database and pick the release (stored as a manual identification). */
+@Composable
+private fun IdentifyRomDialog(g: GameEntity, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val repo = ctx.container.games
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf(g.title.substringBefore(" (").substringBefore(" [").trim()) }
+    var results by remember { mutableStateOf<List<com.acecore.app.core.handheld.KnownRelease>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(query) {
+        kotlinx.coroutines.delay(250)
+        results = if (query.isBlank()) emptyList() else runCatching { repo.searchHandheldReleases(g, query) }.getOrDefault(emptyList())
+    }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Identify game") },
+        text = {
+            Column(Modifier.widthIn(max = 460.dp)) {
+                androidx.compose.material3.OutlinedTextField(query, { query = it }, label = { Text("Search by name") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.height(320.dp).verticalScroll(rememberScrollState())) {
+                    val list = results
+                    when {
+                        list == null -> Text("Searching…", style = MaterialTheme.typography.bodySmall)
+                        list.isEmpty() -> Text("No releases match “$query”.", style = MaterialTheme.typography.bodySmall)
+                        else -> list.forEach { r ->
+                            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                scope.launch {
+                                    runCatching { repo.setHandheldRelease(g, r) }
+                                        .onSuccess { Toast.makeText(ctx, "Identified as ${r.name}", Toast.LENGTH_SHORT).show() }
+                                        .onFailure { Toast.makeText(ctx, "Couldn't save: ${it.message}", Toast.LENGTH_LONG).show() }
+                                    onClose()
+                                }
+                            }.padding(vertical = 8.dp, horizontal = 4.dp)) {
+                                Text(r.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(listOfNotNull(r.platform.displayName, r.serial, r.kind.takeIf { it != "retail" }).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+                Text("Your choice is saved for this game. AceArcade can't check it against the ROM's checksum.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
+    )
 }
 
 // ---------------------------------------------------------------------------------------------- statistics
@@ -507,10 +623,11 @@ private fun ManagementCard(g: GameEntity, onDialog: (GameDialog) -> Unit) {
     SectionHeader("Manage")
     FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 3) {
         val m = Modifier.weight(1f)
-        ActionTile(Icons.Rounded.Description, "Launch file", m) { onDialog(GameDialog.LAUNCH_FILE) }
+        val isRom = g.effectiveEngine.family == EngineFamily.HANDHELD
+        if (!isRom) ActionTile(Icons.Rounded.Description, "Launch file", m) { onDialog(GameDialog.LAUNCH_FILE) }
         ActionTile(Icons.Rounded.Image, "Cover", m) { pickCover() }
         ActionTile(Icons.AutoMirrored.Rounded.Label, "Category", m) { onDialog(GameDialog.CATEGORIES) }
-        ActionTile(Icons.Rounded.FolderOpen, "Open folder", m) { openFolder(ctx, g) }
+        ActionTile(Icons.Rounded.FolderOpen, if (isRom) "File location" else "Open folder", m) { openFolder(ctx, g) }
         ActionTile(Icons.Rounded.Refresh, if (rescanning) "Rescanning…" else "Rescan", m, enabled = !rescanning) {
             rescanning = true
             scope.launch {
@@ -631,7 +748,9 @@ private fun EngineOverrideDialog(g: GameEntity, onClose: () -> Unit) {
                 Row(Modifier.fillMaxWidth().clickable { choice = null }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(choice == null, { choice = null }); Text("Use detected (${Engine.fromName(g.engine).displayName})")
                 }
-                Engine.entries.filter { it != Engine.UNKNOWN }.forEach { e ->
+                // A ROM can only be another handheld system (e.g. Game Boy ↔ Game Boy Color); a folder never a handheld.
+                val rom = Engine.fromName(g.engine).family == EngineFamily.HANDHELD
+                Engine.entries.filter { it != Engine.UNKNOWN && (it.family == EngineFamily.HANDHELD) == rom }.forEach { e ->
                     Row(Modifier.fillMaxWidth().clickable { choice = e }, verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(choice == e, { choice = e })
                         Text(e.displayName + if (RuntimeRegistry.canLaunch(e)) "" else "  (not playable yet)")

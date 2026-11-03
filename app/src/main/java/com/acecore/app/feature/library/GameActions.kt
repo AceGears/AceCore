@@ -133,6 +133,7 @@ fun GameQuickMenu(game: GameEntity, targets: GameMenuTargets, onDismiss: () -> U
     LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 500f)) }
     val playable = GameRepository.isPlayable(game)
     val cheatsSupported = game.effectiveEngine.family == EngineFamily.RGSS
+    val isRom = game.effectiveEngine.family == EngineFamily.HANDHELD
 
     if (dialog == GameDialog.NONE) Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -176,13 +177,13 @@ fun GameQuickMenu(game: GameEntity, targets: GameMenuTargets, onDismiss: () -> U
                     }
                     MenuTile(Icons.AutoMirrored.Rounded.Label, "Category", tile) { dialog = GameDialog.CATEGORIES }
                     MenuTile(Icons.Rounded.Image, "Change cover", tile) { pickCover() }
-                    MenuTile(Icons.Rounded.Description, "Launch file", tile) { dialog = GameDialog.LAUNCH_FILE }
+                    MenuTile(Icons.Rounded.Description, "Launch file", tile, enabled = !isRom) { dialog = GameDialog.LAUNCH_FILE }
                     MenuTile(Icons.Rounded.Gamepad, "Controls", tile) { onDismiss(); targets.onControls() }
                     MenuTile(Icons.Rounded.AutoFixHigh, "Cheats", tile, enabled = cheatsSupported) { onDismiss(); targets.onCheats() }
                     MenuTile(Icons.Rounded.Tune, "Game settings", tile) { onDismiss(); targets.onSettings() }
                     MenuTile(Icons.Rounded.BarChart, "Statistics", tile) { onDismiss(); targets.onStatistics() }
                     MenuTile(Icons.Rounded.Edit, "Rename", tile) { dialog = GameDialog.RENAME }
-                    MenuTile(Icons.Rounded.FolderOpen, "Open folder", tile) { openFolder(ctx, game); onDismiss() }
+                    MenuTile(Icons.Rounded.FolderOpen, if (isRom) "File location" else "Open folder", tile) { openFolder(ctx, game); onDismiss() }
                     MenuTile(Icons.Rounded.Home, "Shortcut", tile) { scope.launch { createShortcut(ctx, game) }; onDismiss() }
                     targets.onSelect?.let { sel -> MenuTile(Icons.Rounded.Checklist, "Select", tile) { onDismiss(); sel() } }
                 }
@@ -261,7 +262,8 @@ fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRem
                 dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
             )
         }
-        GameDialog.LAUNCH_FILE -> LaunchFileBrowser(game, onDismiss = onClose)
+        // A ROM entry is one file: there's no launch file to choose.
+        GameDialog.LAUNCH_FILE -> if (game.effectiveEngine.family == EngineFamily.HANDHELD) androidx.compose.runtime.LaunchedEffect(Unit) { onClose() } else LaunchFileBrowser(game, onDismiss = onClose)
         GameDialog.CATEGORIES -> GameCategoriesDialog(listOf(game.id), onClose = onClose)
         GameDialog.REMOVE -> {
             val installed by androidx.compose.runtime.produceState(initialValue = 0L, game.id) {
@@ -273,7 +275,10 @@ fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRem
                 title = { Text("Remove “${game.title}”?") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("This removes the game from your AceArcade library. The game's own files on your device are not deleted, and you can add the folder again at any time.")
+                        Text(
+                            if (game.effectiveEngine.family == EngineFamily.HANDHELD) "This removes the game from your AceArcade library. The ROM file on your device is not deleted, and you can add it again at any time."
+                            else "This removes the game from your AceArcade library. The game's own files on your device are not deleted, and you can add the folder again at any time.",
+                        )
                         if (installed > 0) Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { deleteData = !deleteData },
                             verticalAlignment = Alignment.CenterVertically,
@@ -337,7 +342,16 @@ fun GameCategoriesDialog(gameIds: List<Long>, initialMode: CategoryAssignMode = 
 }
 
 fun openFolder(ctx: Context, game: GameEntity) {
-    val uri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.rootDocId)
+    if (com.acecore.app.core.data.HandheldRoms.isHandheld(game)) {
+        // A ROM entry is a file, not a folder: say where it is.
+        val where = com.acecore.app.core.storage.DirectStorage.realPath(ctx, game.treeUri, game.rootDocId)?.absolutePath
+            ?: ctx.container.games.decodeDetection(game)?.rom?.path?.let { "${game.folderLabel}: $it" } ?: game.folderLabel
+        Toast.makeText(ctx, "ROM file: $where", Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = runCatching { DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.rootDocId) }.getOrElse {
+        Toast.makeText(ctx, "Folder: ${game.folderLabel}", Toast.LENGTH_LONG).show(); return
+    }
     val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     try {

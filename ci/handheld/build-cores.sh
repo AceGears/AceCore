@@ -27,7 +27,9 @@ if [ "$TARGET" = android ]; then
   : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
   COMMON+=(-DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a
            -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static
-           -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384 -Wl,--build-id=sha1")
+           -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
+           -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384 -Wl,--build-id=sha1"
+           -DCMAKE_MODULE_LINKER_FLAGS="-Wl,-z,max-page-size=16384 -Wl,--build-id=sha1")
   SUFFIX=""
 else
   SUFFIX=""

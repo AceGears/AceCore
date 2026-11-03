@@ -637,6 +637,14 @@ Windows runtime (only in APKs built with it; runs as separate programs)
 Material Symbols / Material Icons
   Apache License 2.0 — Google LLC
 
+Handheld emulation (only in APKs built with it)
+  mGBA 0.10.5 (Game Boy, Game Boy Color, Game Boy Advance) — MPL-2.0 — Jeffrey Pfau and contributors — https://mgba.io
+  melonDS (Nintendo DS) — GPL-3.0 — Arisotura and contributors — https://melonds.kuribo64.net
+  melonDS DS 1.4.0 (libretro core of melonDS) — GPL-3.0 — Jesse Talavera and contributors
+  libretro API header (libretro.h) — MIT — the libretro team
+  libretro-database cheats and catalogues (handheld game database; includes No-Intro catalogue data) —
+  CC BY-SA 4.0 — libretro contributors (https://github.com/libretro/libretro-database)
+
 Ruffle 0.7.1 — Flash Player emulator (bundled, unmodified self-hosted web build)
   MIT OR Apache-2.0 — Ruffle LLC and contributors — https://ruffle.rs
   Full licence texts: assets/ruffle/LICENSE_MIT, assets/ruffle/LICENSE_APACHE

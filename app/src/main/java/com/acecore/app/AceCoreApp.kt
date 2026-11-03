@@ -36,6 +36,7 @@ class AceCoreApp : Application() {
         com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable = com.acecore.app.runtime.windows.WindowsRuntime.isPresent(this)
         if (com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeAvailable) com.acecore.app.runtime.RuntimeRegistry.windowsRuntimeVersion =
             com.acecore.app.runtime.windows.WindowsRuntime.bundledVersion(this)?.lines()?.take(3)?.joinToString(" · ")
+        com.acecore.app.runtime.HandheldPresence.apply(this)
     }
 }
 

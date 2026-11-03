@@ -83,7 +83,7 @@ val LocalGameLauncher = staticCompositionLocalOf<GameLauncher> { GameLauncher { 
 
 object Routes {
     const val HOME = "home"
-    const val IMPORT = "import?uri={uri}&category={category}&file={file}"
+    const val IMPORT = "import?uri={uri}&category={category}&file={file}&roms={roms}"
     const val GAME = "game/{id}"
     const val GAME_SETTINGS = "game/{id}/settings"
     const val GAME_CHEATS = "game/{id}/cheats"
@@ -95,6 +95,9 @@ object Routes {
 
     fun import(uri: Uri, category: Long? = null, file: Uri? = null) =
         "import?uri=${Uri.encode(uri.toString())}&category=${category ?: -1L}" + (file?.let { "&file=${Uri.encode(it.toString())}" } ?: "")
+    /** Import ROM files picked one by one (document URIs, newline-separated in one argument). */
+    fun importRoms(uris: List<Uri>, category: Long? = null) =
+        "import?category=${category ?: -1L}&roms=${Uri.encode(uris.joinToString("\n") { it.toString() })}"
     fun game(id: Long) = "game/$id"
     fun gameSettings(id: Long) = "game/$id/settings"
     fun cheats(id: Long) = "game/$id/cheats"
@@ -380,6 +383,7 @@ private fun AceNavHost(nav: NavHostController) {
                 onOpenCheats = { nav.navigate(Routes.cheats(it)) },
                 onImport = { uri, category -> nav.navigate(Routes.import(uri, category)) },
                 onImportFile = { file, dest, category -> nav.navigate(Routes.import(dest, category, file)) },
+                onImportRoms = { uris, category -> nav.navigate(Routes.importRoms(uris, category)) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onManageCategories = { nav.navigate(Routes.CATEGORIES) },
             )
@@ -387,15 +391,17 @@ private fun AceNavHost(nav: NavHostController) {
         composable(
             Routes.IMPORT,
             arguments = listOf(
-                navArgument("uri") { type = NavType.StringType; nullable = true },
+                navArgument("uri") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("category") { type = NavType.LongType; defaultValue = -1L },
                 navArgument("file") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("roms") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             val uri = entry.arguments?.getString("uri")?.let { Uri.parse(it) }
             val category = entry.arguments?.getLong("category")?.takeIf { it > 0 }
             val file = entry.arguments?.getString("file")?.let { Uri.parse(it) }
-            ImportScreen(treeUri = uri, categoryId = category, fileUri = file, onDone = { nav.popBackStack(Routes.HOME, inclusive = false) }, onOpenGame = {
+            val roms = entry.arguments?.getString("roms")?.split('\n')?.filter { it.isNotBlank() }?.map { Uri.parse(it) }.orEmpty()
+            ImportScreen(treeUri = uri, categoryId = category, fileUri = file, romUris = roms, onDone = { nav.popBackStack(Routes.HOME, inclusive = false) }, onOpenGame = {
                 nav.popBackStack(Routes.HOME, inclusive = false); nav.navigate(Routes.game(it))
             })
         }

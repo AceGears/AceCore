@@ -271,6 +271,7 @@ private fun com.acecore.app.core.model.EngineFamily.representative(): com.acecor
     com.acecore.app.core.model.EngineFamily.RENPY -> com.acecore.app.core.model.Engine.RENPY
     com.acecore.app.core.model.EngineFamily.GODOT -> com.acecore.app.core.model.Engine.GODOT
     com.acecore.app.core.model.EngineFamily.WINDOWS -> com.acecore.app.core.model.Engine.NATIVE_WINDOWS
+    com.acecore.app.core.model.EngineFamily.HANDHELD -> com.acecore.app.core.model.Engine.GAME_BOY_ADVANCE
     com.acecore.app.core.model.EngineFamily.UNSUPPORTED_NATIVE -> com.acecore.app.core.model.Engine.UNKNOWN
 }
 

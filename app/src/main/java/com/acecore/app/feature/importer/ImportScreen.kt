@@ -94,6 +94,22 @@ class ImportViewModel(
         }
     }
 
+    /** ROM files picked one by one: every file is its own game. */
+    fun startRoms(uris: List<Uri>) {
+        val key = uris.firstOrNull() ?: return
+        if (started == key) return
+        started = key
+        viewModelScope.launch {
+            state = runCatching {
+                val outcome = repo.scanRomFiles(uris) { msg -> state = UiState.Scanning(msg) }
+                if (outcome is ScanOutcome.Collection) outcome.candidates.forEach { selected[it.rootDocId] = true }
+                UiState.Results(outcome) as UiState
+            }.getOrElse { e ->
+                UiState.Failed(if (e is SecurityException) "AceArcade wasn't given access to those files." else "Reading the ROMs failed: ${e.message}")
+            }
+        }
+    }
+
     /**
      * A game that arrived as one file ([file]: .zip / .7z / self-extracting .exe): copied to the cache, unpacked into a
      * new folder in [destTree], then that folder is scanned like any other.
@@ -149,11 +165,15 @@ class ImportViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportScreen(treeUri: Uri?, categoryId: Long? = null, fileUri: Uri? = null, onDone: () -> Unit, onOpenGame: (Long) -> Unit) {
+fun ImportScreen(
+    treeUri: Uri?, categoryId: Long? = null, fileUri: Uri? = null, romUris: List<Uri> = emptyList(),
+    onDone: () -> Unit, onOpenGame: (Long) -> Unit,
+) {
     val ctx = LocalContext.current
     val vm: ImportViewModel = viewModel { ImportViewModel(ctx.container.games, ctx.container.categories) }
     vm.targetCategory = categoryId
-    LaunchedEffect(treeUri, fileUri) {
+    LaunchedEffect(treeUri, fileUri, romUris) {
+        if (romUris.isNotEmpty()) { vm.startRoms(romUris); return@LaunchedEffect }
         val tree = treeUri ?: return@LaunchedEffect
         if (fileUri != null) vm.startArchive(fileUri, tree, ctx.applicationContext) else vm.start(tree)
     }
@@ -181,7 +201,7 @@ fun ImportScreen(treeUri: Uri?, categoryId: Long? = null, fileUri: Uri? = null, 
                 }
                 is ImportViewModel.UiState.Done -> DoneView(state.report, onDone)
                 is ImportViewModel.UiState.Results -> when (val o = state.outcome) {
-                    is ScanOutcome.NothingFound -> EmptyState(Icons.Rounded.FolderOff, "No games found", o.reason + "\n\nPick the folder that directly contains the game's files (for example the one with Game.exe or index.html), or a folder of game folders.") {
+                    is ScanOutcome.NothingFound -> EmptyState(Icons.Rounded.FolderOff, "No games found", o.reason + if (romUris.isNotEmpty()) "" else "\n\nPick the folder that directly contains the game's files (for example the one with Game.exe or index.html), a folder of game folders, or a folder of ROMs.") {
                         Button(onClick = onDone) { Text("Back") }
                     }
                     is ScanOutcome.Single -> SingleResult(vm, o.candidate)
@@ -255,9 +275,14 @@ private fun SingleResult(vm: ImportViewModel, c: ScanCandidate) {
 @Composable
 private fun CollectionResult(vm: ImportViewModel, list: List<ScanCandidate>) {
     val count = list.count { vm.selected[it.rootDocId] == true }
+    val roms = list.count { it.detection.rom != null }
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Found ${list.size} game folder(s). Untick any you don't want.",
+            when {
+                roms == 0 -> "Found ${list.size} game folder(s). Untick any you don't want."
+                roms == list.size -> "Found ${list.size} ROM(s). Each one becomes its own game. Untick any you don't want."
+                else -> "Found ${list.size - roms} game folder(s) and $roms ROM(s). Untick any you don't want."
+            },
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp),
         )
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -270,7 +295,7 @@ private fun CollectionResult(vm: ImportViewModel, list: List<ScanCandidate>) {
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(c.detection.title ?: c.folderName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${c.detection.engine.displayName} · ${c.folderName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text("${c.detection.engine.displayName} · ${c.detection.rom?.path ?: c.folderName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                     StatusChip(c.detection.status)
                 }

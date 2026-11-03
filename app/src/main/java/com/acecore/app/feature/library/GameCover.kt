@@ -94,7 +94,9 @@ fun Engine.shortLabel(): String = when (this) {
     Engine.RPG_MAKER_MV -> "MV"; Engine.RPG_MAKER_MZ -> "MZ"; Engine.RPG_MAKER_XP -> "XP"; Engine.RPG_MAKER_VX -> "VX"
     Engine.RPG_MAKER_VX_ACE -> "VX ACE"; Engine.POKEMON_ESSENTIALS -> "ESSENTIALS"; Engine.RPG_MAKER_2K -> "2K/2K3"
     Engine.RENPY -> "REN'PY"; Engine.GODOT -> "GODOT"; Engine.FLASH -> "FLASH"; Engine.CONSTRUCT_2 -> "C2"
-    Engine.CONSTRUCT_3 -> "C3"; Engine.TYRANO -> "TYRANO"; Engine.HTML5 -> "HTML5"; else -> displayName.uppercase()
+    Engine.CONSTRUCT_3 -> "C3"; Engine.TYRANO -> "TYRANO"; Engine.HTML5 -> "HTML5"
+    Engine.GAME_BOY -> "GB"; Engine.GAME_BOY_COLOR -> "GBC"; Engine.GAME_BOY_ADVANCE -> "GBA"; Engine.NINTENDO_DS -> "DS"
+    else -> displayName.uppercase()
 }
 
 /**

@@ -123,6 +123,7 @@ fun HomeScreen(
     onOpenCheats: (Long) -> Unit,
     onImport: (Uri, Long?) -> Unit,
     onImportFile: (file: Uri, destination: Uri, category: Long?) -> Unit = { _, _, _ -> },
+    onImportRoms: (files: List<Uri>, category: Long?) -> Unit = { _, _ -> },
     onOpenSettings: () -> Unit,
     onManageCategories: () -> Unit,
 ) {
@@ -166,6 +167,14 @@ fun HomeScreen(
         if (dest != null && f != null) { repo.takePermission(dest); onImportFile(f, dest, selectedCategory) }
     }
     var askDestination by remember { mutableStateOf(false) }
+    // Nintendo handheld ROMs picked as files: each file is its own game, played from where it is (read-only access).
+    val pickRoms = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val granted = uris.filter { u ->
+            runCatching { ctx.contentResolver.takePersistableUriPermission(u, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }.isSuccess
+        }
+        if (uris.isNotEmpty() && granted.isEmpty()) android.widget.Toast.makeText(ctx, "Android didn't let AceArcade keep access to those files.", android.widget.Toast.LENGTH_LONG).show()
+        if (granted.isNotEmpty()) onImportRoms(granted, selectedCategory)
+    }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { archiveFile = uri; askDestination = true }
     }
@@ -180,7 +189,11 @@ fun HomeScreen(
                 OutlinedButton(onClick = { addChooser = false; pickFile.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(8.dp)); Text("Game file (.zip, .7z, packed .exe)")
                 }
-                Text("A folder is played from where it is. A file is unpacked once into a folder you choose; the file itself isn't changed.",
+                OutlinedButton(onClick = { addChooser = false; pickRoms.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.SportsEsports, null); Spacer(Modifier.width(8.dp)); Text("ROM files (Game Boy, GBA, DS)")
+                }
+                Text("A folder is played from where it is (a folder of ROMs adds every ROM in it). A game file is unpacked once into a folder you choose. " +
+                    "ROM files (.gb, .gbc, .gba, .nds, or a .zip with one ROM) are each added as a game and never changed.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },

@@ -126,7 +126,7 @@ class LaunchCoordinator(
             canRescan = true, fix = LaunchPreparation.Fix.CHOOSE_LAUNCH_FILE,
         )
         val s = settings.current()
-        val overrides = if (engine.family == EngineFamily.RGSS || engine.family == EngineFamily.WINDOWS) importDisplayChanges(game)
+        val overrides = if (engine.family == EngineFamily.RGSS || engine.family == EngineFamily.WINDOWS || engine.family == EngineFamily.HANDHELD) importDisplayChanges(game)
             else games.overrides(game)
         val config = LayeredConfig(s.globalConfig, s.engineConfig[engine].orEmpty(), overrides, engine).snapshot()
         val accent = accentArgbFor(s.theme)
@@ -137,6 +137,7 @@ class LaunchCoordinator(
         if (engine.family == EngineFamily.GODOT) return prepareGodot(game, config, accent, requestedAt)
         if (engine.family == EngineFamily.EASYRPG) return prepareEasyRpg(game, config, accent, requestedAt)
         if (engine.family == EngineFamily.WINDOWS) return prepareWindows(game, config, accent, requestedAt)
+        if (engine.family == EngineFamily.HANDHELD) return prepareHandheld(game, config, accent, requestedAt)
 
         if (!games.hasAccess(game.treeUri)) return folderAccessLost(game)
         // The selected entry must still exist (one query per path segment, not a folder scan).
@@ -308,6 +309,114 @@ class LaunchCoordinator(
         return LaunchPreparation.Ready(intent, game.id, game.title)
     }
 
+    // ------------------------------------------------------------------ Nintendo handhelds (mGBA, melonDS DS)
+
+    /**
+     * Handheld ROMs: opened by path straight from the user's storage when AceArcade has file access, otherwise copied
+     * once into the game's data folder (rom/), refreshed only when the file's size or date changes. Zipped ROMs are
+     * always unpacked there. Saves and save states live in the game's data folder (saves/); the ROM is never written.
+     */
+    private suspend fun prepareHandheld(game: GameEntity, config: Map<String, String>, accent: Long, requestedAt: Long): LaunchPreparation {
+        val (platform, zipEntry) = com.acecore.app.core.data.HandheldRoms.romOf(games, game) ?: return LaunchPreparation.Blocked(
+            game.id, "Not a ROM", "AceArcade can't tell which system this ROM is for. Rescan the game or add the ROM again.", canRescan = true,
+        )
+        val rom = games.decodeDetection(game)?.rom
+        val direct = if (zipEntry == null) withContext(Dispatchers.IO) { com.acecore.app.core.data.HandheldRoms.directFile(context, game) } else null
+        if (direct != null) return LaunchPreparation.Ready(handheldIntent(game, platform, direct, config, accent, requestedAt, "direct from your storage"), game.id, game.title)
+
+        if (!games.hasAccess(game.treeUri)) return LaunchPreparation.Blocked(
+            game.id, "ROM access lost",
+            "Android no longer lets AceArcade read this ROM (it may have been moved, deleted, or the permission was revoked). Remove the game and add the ROM again.",
+        )
+        val docUri = com.acecore.app.core.data.HandheldRoms.documentUri(game)
+        val info = withContext(Dispatchers.IO) { com.acecore.app.core.data.HandheldRoms.docInfo(context.contentResolver, docUri) }
+            ?: return LaunchPreparation.Blocked(
+                game.id, "ROM not found",
+                "“${rom?.fileName ?: game.entry}” can't be opened any more. It may have been renamed, moved or deleted. Remove the game and add the ROM again.",
+            )
+        val romDir = File(GameStorage.dataDir(context, game.id), "rom")
+        val name = handheldFileName(zipEntry?.substringAfterLast('/') ?: rom?.fileName ?: game.entry ?: "rom.${platform.extensions.first()}")
+        val target = File(romDir, name)
+        val marker = File(romDir, ".source")
+        val stamp = "${info.size} ${info.lastModified} ${zipEntry.orEmpty()} $name"
+        val upToDate = withContext(Dispatchers.IO) { target.isFile && runCatching { marker.readText() }.getOrNull() == stamp }
+        if (upToDate) return LaunchPreparation.Ready(handheldIntent(game, platform, target, config, accent, requestedAt, "AceArcade's copy"), game.id, game.title)
+        val firstCopy = !withContext(Dispatchers.IO) { target.isFile }
+        return LaunchPreparation.Staged(game.id, game.title, firstCopy) { onProgress, isCancelled ->
+            withContext(Dispatchers.IO) {
+                romDir.mkdirs()
+                romDir.listFiles()?.forEach { if (it.name != name) it.deleteRecursively() }
+                marker.delete()
+                val total = if (zipEntry == null) info.size else -1L
+                val tmp = File(romDir, "$name.part")
+                val input = com.acecore.app.core.data.HandheldRoms.openRom(context, game, zipEntry)
+                    ?: throw java.io.FileNotFoundException("Couldn't open ${rom?.fileName ?: name}" + (zipEntry?.let { " (or $it inside it)" } ?: ""))
+                input.use { i ->
+                    tmp.outputStream().use { o ->
+                        val buf = ByteArray(1 shl 16)
+                        var done = 0L
+                        var last = 0L
+                        onProgress(com.acecore.app.core.install.InstallProgress(0, total, 0, 1, name))
+                        while (true) {
+                            if (isCancelled()) { o.close(); tmp.delete(); throw com.acecore.app.core.install.InstallCancelledException() }
+                            val n = i.read(buf)
+                            if (n < 0) break
+                            o.write(buf, 0, n)
+                            done += n
+                            if (done - last >= 4L shl 20) { last = done; onProgress(com.acecore.app.core.install.InstallProgress(done, maxOf(total, done), 0, 1, name)) }
+                        }
+                        onProgress(com.acecore.app.core.install.InstallProgress(done, done, 1, 1, name))
+                    }
+                }
+                if (target.exists()) target.delete()
+                if (!tmp.renameTo(target)) throw java.io.IOException("Couldn't write ${target.name} in AceArcade's storage")
+                marker.writeText(stamp)
+            }
+            handheldIntent(game, platform, target, config, accent, requestedAt, if (zipEntry != null) "unpacked from ${rom?.fileName}" else "AceArcade's copy")
+        }
+    }
+
+    /** A file name safe for app storage (the ROM's own name, without path separators or control characters). */
+    private fun handheldFileName(n: String): String =
+        n.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1f]"), "_").trim().trimStart('.').ifEmpty { "rom" }.take(180)
+
+    private suspend fun handheldIntent(
+        game: GameEntity, platform: com.acecore.app.core.handheld.HandheldPlatform, romFile: File, config: Map<String, String>,
+        accent: Long, requestedAt: Long, how: String,
+    ): Intent {
+        val intent = withContext(Dispatchers.IO) {
+            val dataDir = GameStorage.dataDir(context, game.id)
+            val helperDir = RgssRuntime.helperDir(dataDir).apply { mkdirs() }
+            val saveDir = File(dataDir, "saves").apply { mkdirs() }
+            listOf("ready", "timeline", "error", "handheld.log").forEach { File(helperDir, it).delete() }
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Play tapped", tapElapsed.takeIf { it > 0 } ?: com.acecore.app.runtime.LaunchTimeline.now())
+            com.acecore.app.runtime.LaunchTimeline.mark(helperDir, "Launcher ready (${platform.displayName} ROM, $how)")
+            val identity = com.acecore.app.core.data.HandheldRoms.readIdentity(context, game.id)
+            val spec = com.acecore.app.runtime.handheld.HandheldLaunchSpec(
+                gameId = game.id, title = game.title, platform = platform, romPath = romFile.absolutePath,
+                romSha1 = identity?.sha1, helperDir = helperDir.absolutePath, saveDir = saveDir.absolutePath, accentArgb = accent,
+                buttonMap = com.acecore.app.core.config.ButtonMap.normalizeHandheld(config[ConfigKey.BUTTON_MAP.id]),
+                gamepadMode = config[ConfigKey.GAMEPAD_MODE.id] ?: "auto",
+                opacity = ConfigKey.GAMEPAD_OPACITY.int(config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55"),
+                scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
+                haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
+                display = com.acecore.app.runtime.rgss.DisplayPrefs.from(config).toJson(),
+                smooth = (config[ConfigKey.FILTERING.id] ?: "sharp") == "smooth",
+                showFps = ConfigKey.SHOW_FPS.bool(config[ConfigKey.SHOW_FPS.id] ?: "false"),
+                dsLayout = config[ConfigKey.HANDHELD_DS_LAYOUT.id] ?: ConfigKey.HANDHELD_DS_LAYOUT.default,
+                gbPalette = config[ConfigKey.HANDHELD_GB_PALETTE.id] ?: ConfigKey.HANDHELD_GB_PALETTE.default,
+                fastForwardSpeed = (config[ConfigKey.HANDHELD_FF_SPEED.id] ?: "2").toFloatOrNull() ?: 2f,
+                volume = ConfigKey.HANDHELD_VOLUME.int(config[ConfigKey.HANDHELD_VOLUME.id] ?: "100"),
+                vibration = ConfigKey.HANDHELD_VIBRATION.bool(config[ConfigKey.HANDHELD_VIBRATION.id] ?: "true"),
+                backups = ConfigKey.HANDHELD_BACKUPS.int(config[ConfigKey.HANDHELD_BACKUPS.id] ?: "5"),
+            )
+            com.acecore.app.runtime.handheld.HandheldLaunchSpec.intent(context, spec)
+        }
+        startSession(game.id, requestedAt)
+        games.markLaunched(game.id)
+        return intent
+    }
+
     // ------------------------------------------------------------------ EasyRPG (RPG Maker 2000/2003)
 
     /**
@@ -402,9 +511,9 @@ class LaunchCoordinator(
         val rgss = game.effectiveEngine.family == EngineFamily.RGSS
         // Godot and EasyRPG report readiness through the same helper folder ("ready").
         val godot = game.effectiveEngine.family == EngineFamily.GODOT || game.effectiveEngine.family == EngineFamily.EASYRPG ||
-            game.effectiveEngine.family == EngineFamily.WINDOWS
+            game.effectiveEngine.family == EngineFamily.WINDOWS || game.effectiveEngine.family == EngineFamily.HANDHELD
         // Keep the game's settings page in step with what was chosen in-game (☰ › Display).
-        if (rgss) importDisplayChanges(game)
+        if (rgss || game.effectiveEngine.family == EngineFamily.HANDHELD) importDisplayChanges(game)
         val record = withContext(Dispatchers.IO) { SessionRecord.read(SessionRecord.file(context, gameId)) }
         val requestedAt = withContext(Dispatchers.IO) { SessionRecord.readLaunch(context, gameId) }
         val helperDir = RgssRuntime.helperDir(GameStorage.dataDir(context, gameId))
@@ -429,7 +538,7 @@ class LaunchCoordinator(
             rubyError != null -> "The game stopped with a script error: ${rubyError.lineSequence().first()}"
             !reached && godot -> "The game closed before it finished starting." + withContext(Dispatchers.IO) {
                 runCatching { File(helperDir, "windows-error").readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return@withContext "\n$it" }
-                listOf("godot.log", "easyrpg.log").firstNotNullOfOrNull { n ->
+                listOf("godot.log", "easyrpg.log", "handheld.log").firstNotNullOfOrNull { n ->
                     runCatching { File(helperDir, n).readLines().lastOrNull { it.contains("ERROR", true) || it.contains("Error:") } }.getOrNull()
                 }?.let { "\n$it" }.orEmpty()
             }

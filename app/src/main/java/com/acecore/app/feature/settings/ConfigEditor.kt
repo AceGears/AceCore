@@ -47,7 +47,8 @@ import kotlinx.coroutines.launch
  * where it comes from; editing writes to [scope], and the reset icon removes this layer's override.
  */
 @Composable
-fun ConfigEditor(keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSource, onSet: (ConfigKey, String?) -> Unit) {
+fun ConfigEditor(keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSource, engine: Engine? = null, onSet: (ConfigKey, String?) -> Unit) {
+    val handheld = engine?.family == com.acecore.app.core.model.EngineFamily.HANDHELD
     keys.groupBy { it.section }.forEach { (section, list) ->
         SettingsGroupTitle(section)
         list.forEach { key ->
@@ -75,7 +76,7 @@ fun ConfigEditor(keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSour
                 ConfigType.CHOICE -> ChoiceRow(key.title, sourceNote, key.choices, r.value, trailing = trailing) { onSet(key, it) }
                 ConfigType.BUTTON_MAP -> {
                     var open by remember { mutableStateOf(false) }
-                    val summary = ButtonMap.decode(r.value).entries.take(4).joinToString("  ") { (b, k) -> "${b.name}→${WebKey.byId(k)?.label}" }
+                    val summary = (if (handheld) ButtonMap.decodeHandheld(r.value) else ButtonMap.decode(r.value)).entries.take(4).joinToString("  ") { (b, k) -> "${b.name}→${WebKey.byId(k)?.label}" }
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { open = true }.padding(horizontal = 20.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -87,7 +88,7 @@ fun ConfigEditor(keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSour
                         }
                         trailing()
                     }
-                    if (open) ButtonMapDialog(r.value, resetTo = config.inherited(key, scope).value, onDismiss = { open = false }) { onSet(key, it); open = false }
+                    if (open) ButtonMapDialog(r.value, resetTo = config.inherited(key, scope).value, onDismiss = { open = false }, handheld = handheld) { onSet(key, it); open = false }
                 }
             }
         }
@@ -126,7 +127,7 @@ fun ConfigScopeScreen(gameId: Long?, engine: Engine?, onBack: () -> Unit) {
                     modifier = Modifier.padding(20.dp),
                 )
             }
-            ConfigEditor(keys, config, layer) { key, value ->
+            ConfigEditor(keys, config, layer, effectiveEngine) { key, value ->
                 scope.launch {
                     if (g != null) games.setOverride(g.id, key.id, value)
                     else settingsRepo.setEngineConfig(effectiveEngine, key, value)

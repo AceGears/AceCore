@@ -11,11 +11,16 @@ private val WEB_FLASH_RGSS: (Engine) -> Boolean =
 
 /** Engines with AceArcade's on-screen controller and key mapping (adds Godot, EasyRPG and Windows programs). */
 private val WITH_CONTROLS: (Engine) -> Boolean = {
-    WEB_FLASH_RGSS(it) || it.family == EngineFamily.GODOT || it.family == EngineFamily.EASYRPG || it.family == EngineFamily.WINDOWS
+    WEB_FLASH_RGSS(it) || it.family == EngineFamily.GODOT || it.family == EngineFamily.EASYRPG || it.family == EngineFamily.WINDOWS ||
+        it.family == EngineFamily.HANDHELD
 }
 
-/** Engines with the screen fit / game size / position settings (RPG Maker XP-VX Ace and Windows programs). */
-private val WITH_LAYOUT: (Engine) -> Boolean = { it.family == EngineFamily.RGSS || it.family == EngineFamily.WINDOWS }
+/** Nintendo handheld games (emulated). */
+private val HANDHELD: (Engine) -> Boolean = { it.family == EngineFamily.HANDHELD }
+
+/** Engines with the screen fit / game size / position settings (RPG Maker XP-VX Ace, Windows programs, handhelds). */
+private val WITH_LAYOUT: (Engine) -> Boolean =
+    { it.family == EngineFamily.RGSS || it.family == EngineFamily.WINDOWS || it.family == EngineFamily.HANDHELD }
 
 /**
  * Settings that can be set globally, per engine, and per game. Each key declares which engines it actually
@@ -42,7 +47,7 @@ enum class ConfigKey(
     FILTERING(
         "filtering", "Scaling filter", "Sharp keeps pixel art crisp; Smooth blurs when scaled.", ConfigType.CHOICE, "smooth",
         listOf("smooth" to "Smooth (bilinear)", "sharp" to "Sharp (nearest-neighbour)"), section = "Display",
-        appliesTo = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.WINDOWS },
+        appliesTo = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.WINDOWS || it.family == EngineFamily.HANDHELD },
     ),
     SCREEN_FIT(
         "screenFit", "Screen fit",
@@ -94,7 +99,7 @@ enum class ConfigKey(
     ),
     SHOW_FPS(
         "showFps", "Performance overlay", "Show measured frames per second.", ConfigType.BOOL, "false", section = "Display",
-        appliesTo = { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH || it.family == EngineFamily.WINDOWS },
+        appliesTo = { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH || it.family == EngineFamily.WINDOWS || it.family == EngineFamily.HANDHELD },
     ),
     WINDOWS_CURSOR(
         "windowsCursor", "Mouse pointer", "Show the Windows mouse pointer on the game picture. Hide it for games you play " +
@@ -173,6 +178,42 @@ enum class ConfigKey(
             "and powers the in-game cheat menu. Turn it off if a game misbehaves.",
         ConfigType.BOOL, "true", section = "Advanced", appliesTo = { it.family == EngineFamily.RGSS },
     ),
+    HANDHELD_DS_LAYOUT(
+        "handheldDsLayout", "DS screen layout", "How the Nintendo DS's two screens are arranged. Can also be changed in-game.",
+        ConfigType.CHOICE, "vertical",
+        listOf(
+            "vertical" to "Stacked (top above bottom)", "horizontal" to "Side by side", "top-focus" to "Large top screen, small bottom",
+            "bottom-focus" to "Large bottom screen, small top", "top" to "Top screen only", "bottom" to "Bottom screen only",
+            "pip" to "Top screen with bottom inset",
+        ),
+        section = "Display", appliesTo = { it == Engine.NINTENDO_DS },
+    ),
+    HANDHELD_GB_PALETTE(
+        "handheldGbPalette", "Game Boy palette",
+        "Colours for original Game Boy games (games made for Game Boy Color keep their own colours). The GBC palettes are the " +
+            "ones a Game Boy Color picks with its button combinations (↑, ↑A, …).",
+        ConfigType.CHOICE, "Grayscale",
+        listOf(
+            "Grayscale", "DMG Green", "GB Pocket", "GB Light", "GBC Brown ↑", "GBC Red ↑A", "GBC Dark Brown ↑B", "GBC Pale Yellow ↓",
+            "GBC Orange ↓A", "GBC Yellow ↓B", "GBC Blue ←", "GBC Dark Blue ←A", "GBC Gray ←B", "GBC Green →", "GBC Dark Green →A",
+            "GBC Reverse →B",
+        ).map { it to it },
+        section = "Display", appliesTo = { it == Engine.GAME_BOY || it == Engine.GAME_BOY_COLOR },
+    ),
+    HANDHELD_FF_SPEED(
+        "handheldFfSpeed", "Fast-forward speed", "How much faster the game runs while fast-forward is on.",
+        ConfigType.CHOICE, "2", listOf("2" to "2×", "3" to "3×", "4" to "4×", "8" to "8×"),
+        section = "Gameplay", appliesTo = HANDHELD,
+    ),
+    HANDHELD_VOLUME("handheldVolume", "Volume", "Game volume (%).", ConfigType.INT, "100", range = 0..100, section = "Audio", appliesTo = HANDHELD),
+    HANDHELD_VIBRATION(
+        "handheldVibration", "Rumble", "Vibrate the phone or controller when the game uses rumble (Rumble Pak games).",
+        ConfigType.BOOL, "true", section = "Controls", appliesTo = HANDHELD,
+    ),
+    HANDHELD_BACKUPS(
+        "handheldBackups", "Save backups", "How many automatic backups of the game's save AceArcade keeps (0 = off).",
+        ConfigType.INT, "5", range = 0..20, section = "Gameplay", appliesTo = HANDHELD,
+    ),
     ALLOW_NETWORK(
         "allowNetwork", "Allow internet access", "Let the game load resources from the internet. Off by default for privacy and offline play.",
         ConfigType.BOOL, "false", section = "Advanced",
@@ -186,6 +227,9 @@ enum class ConfigKey(
         this == BUTTON_MAP && engine?.family == EngineFamily.GODOT -> ButtonMap.GODOT_DEFAULT_ENCODED
         this == BUTTON_MAP && engine?.family == EngineFamily.EASYRPG -> ButtonMap.EASYRPG_DEFAULT_ENCODED
         this == BUTTON_MAP && engine?.family == EngineFamily.WINDOWS -> ButtonMap.WINDOWS_DEFAULT_ENCODED
+        this == BUTTON_MAP && engine?.family == EngineFamily.HANDHELD -> ButtonMap.HANDHELD_DEFAULT_ENCODED
+        // Pixel art of handheld games stays crisp unless the user asks for smoothing.
+        this == FILTERING && engine?.family == EngineFamily.HANDHELD -> "sharp"
         else -> default
     }
 
@@ -212,10 +256,13 @@ class LayeredConfig(
     /** The engine whose built-in defaults apply (null = generic defaults). */
     private val forEngine: Engine? = null,
 ) {
+    /** Handheld games map pad buttons to console buttons: a global (keyboard-key) mapping never applies to them. */
+    private val skipGlobal: (ConfigKey) -> Boolean = { k -> k == ConfigKey.BUTTON_MAP && forEngine?.family == EngineFamily.HANDHELD }
+
     fun resolve(key: ConfigKey): Resolved = when {
         game[key.id] != null -> Resolved(game.getValue(key.id), ConfigSource.GAME)
         engine[key.id] != null -> Resolved(engine.getValue(key.id), ConfigSource.ENGINE)
-        global[key.id] != null -> Resolved(global.getValue(key.id), ConfigSource.GLOBAL)
+        global[key.id] != null && !skipGlobal(key) -> Resolved(global.getValue(key.id), ConfigSource.GLOBAL)
         else -> Resolved(key.defaultFor(forEngine), ConfigSource.DEFAULT)
     }
 
