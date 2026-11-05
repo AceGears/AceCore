@@ -142,4 +142,12 @@ class RomRulesTest {
         assertEquals(16, ConfigKey.HANDHELD_GB_PALETTE.choices.size)
         assertEquals("GBC Reverse →B", ConfigKey.HANDHELD_GB_PALETTE.choices.last().first)
     }
+
+    @Test fun coverNextToRomOrInArtFolder() {
+        val imgs = listOf("GBA/Pokemon Emerald.PNG", "GBA/boxart/Pokemon FireRed.jpg", "covers/Zelda.webp", "GBA/other.png")
+        assertEquals("GBA/Pokemon Emerald.PNG", RomRules.coverFor("GBA/Pokemon Emerald.gba", imgs))
+        assertEquals("GBA/boxart/Pokemon FireRed.jpg", RomRules.coverFor("GBA/Pokemon FireRed.zip", imgs))
+        assertEquals("covers/Zelda.webp", RomRules.coverFor("GB/Zelda.gb", imgs))
+        assertEquals(null, RomRules.coverFor("GBA/Pokemon Ruby.gba", imgs))   // no guessing by similar names
+    }
 }

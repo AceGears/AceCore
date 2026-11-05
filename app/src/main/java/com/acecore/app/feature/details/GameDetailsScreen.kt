@@ -403,8 +403,22 @@ private fun RomCard(g: GameEntity) {
     val dbAvailable = remember { repo.handheldDbAvailable() }
     var identify by remember { mutableStateOf(false) }
     val id = identity
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var coverBusy by remember { mutableStateOf(false) }
     val identifyAction: (@Composable () -> Unit)? = if (dbAvailable) {
-        { TextButton(onClick = { identify = true }) { Text("Identify game") } }
+        {
+            androidx.compose.foundation.layout.Row {
+                TextButton(onClick = { identify = true }) { Text("Identify game") }
+                if (identity?.releaseName != null) TextButton(enabled = !coverBusy, onClick = {
+                    coverBusy = true
+                    scope.launch {
+                        val msg = repo.findCoverOnline(g)
+                        coverBusy = false
+                        android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text(if (coverBusy) "Looking…" else "Find cover online") }
+            }
+        }
     } else null
     ExpandableSection(
         title = "ROM",

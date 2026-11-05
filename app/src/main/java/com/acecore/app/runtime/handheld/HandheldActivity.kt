@@ -106,7 +106,7 @@ class HandheldActivity : ComponentActivity() {
     private var toast by mutableStateOf<String?>(null)
     private var toastSerial by mutableIntStateOf(0)
     private var displayPrefs by mutableStateOf(DisplayPrefs())
-    private var smooth by mutableStateOf(false)
+    private var filter by mutableStateOf(HandheldFilter.SHARP)
     private var dsLayout by mutableStateOf(DsLayout.VERTICAL)
     private var dsGap by mutableIntStateOf(0)
     private var showFps by mutableStateOf(false)
@@ -132,14 +132,14 @@ class HandheldActivity : ComponentActivity() {
         LaunchTimeline.mark(File(s.helperDir), "Game process started (${s.platform.displayName})")
         padMap = parseButtonMap(s.buttonMap)
         displayPrefs = DisplayPrefs.from(DisplayPrefs.parse(s.display))
-        smooth = s.smooth; showFps = s.showFps
+        filter = HandheldFilter.byId(s.filter); showFps = s.showFps
         dsLayout = DsLayout.byId(s.dsLayout)
         padVisible = when (s.gamepadMode) { "never" -> false; "always" -> true; else -> !ControllerInput.controllerConnected() }
         vibrator = if (s.vibration) getSystemService(Vibrator::class.java) else null
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         screen = HandheldScreen(this, s.platform).apply {
-            prefs = this@HandheldActivity.displayPrefs; smooth = this@HandheldActivity.smooth; layout = this@HandheldActivity.dsLayout
+            prefs = this@HandheldActivity.displayPrefs; filter = this@HandheldActivity.filter; layout = this@HandheldActivity.dsLayout
             onTouch = { x, y, pressed -> core?.setPointer(x, y, pressed) }
         }
         val root = FrameLayout(this).apply { setBackgroundColor(AColor.BLACK) }
@@ -226,11 +226,12 @@ class HandheldActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        if (::screen.isInitialized) screen.onPause()
         core?.setRunning(false)
         core?.let { c -> if (started) Thread { saveBattery(c) }.start() }
     }
 
-    override fun onResume() { super.onResume(); hideSystemBars(); updateRunning() }
+    override fun onResume() { super.onResume(); if (::screen.isInitialized) screen.onResume(); hideSystemBars(); updateRunning() }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -520,9 +521,9 @@ class HandheldActivity : ComponentActivity() {
         saveForGame(n.values() - ConfigKey.SCREEN_FILTER.id)
     }
 
-    private fun updateSmooth(v: Boolean) {
-        smooth = v; screen.smooth = v
-        saveForGame(mapOf(ConfigKey.FILTERING.id to if (v) "smooth" else "sharp"))
+    private fun updateFilter(f: HandheldFilter) {
+        filter = f; screen.filter = f
+        saveForGame(mapOf(ConfigKey.HANDHELD_FILTER.id to f.id))
     }
 
     private fun updateLayout(l: DsLayout) {
@@ -670,10 +671,16 @@ class HandheldActivity : ComponentActivity() {
             Text("Picture position (vertical) ${displayPrefs.offsetY}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             androidx.compose.material3.Slider(value = displayPrefs.offsetY.toFloat(), onValueChange = { updateDisplay(displayPrefs.copy(offsetY = (it / 5).toInt() * 5)) },
                 valueRange = -100f..100f, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
-            Text("Scaling", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Choice("Sharp pixels", !smooth, accent, Modifier.weight(1f)) { updateSmooth(false) }
-                Choice("Smooth", smooth, accent, Modifier.weight(1f)) { updateSmooth(true) }
+            Text("Upscaling filter", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HandheldFilter.entries.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { f -> Choice(f.label, filter == f, accent, Modifier.weight(1f)) { updateFilter(f) } }
+                        repeat(3 - row.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                Text(filter.about + " Native resolution: these emulators draw at the console's own resolution; filters interpolate it, they don't add detail.",
+                    color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
             }
             if (spec.platform == HandheldPlatform.NDS) {
                 Text("DS screens", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)

@@ -401,7 +401,7 @@ class LaunchCoordinator(
                 scale = ConfigKey.GAMEPAD_SCALE.int(config[ConfigKey.GAMEPAD_SCALE.id] ?: "100"),
                 haptics = ConfigKey.HAPTICS.bool(config[ConfigKey.HAPTICS.id] ?: "true"),
                 display = com.acecore.app.runtime.rgss.DisplayPrefs.from(config).toJson(),
-                smooth = (config[ConfigKey.FILTERING.id] ?: "sharp") == "smooth",
+                filter = config[ConfigKey.HANDHELD_FILTER.id] ?: ConfigKey.HANDHELD_FILTER.default,
                 showFps = ConfigKey.SHOW_FPS.bool(config[ConfigKey.SHOW_FPS.id] ?: "false"),
                 dsLayout = config[ConfigKey.HANDHELD_DS_LAYOUT.id] ?: ConfigKey.HANDHELD_DS_LAYOUT.default,
                 gbPalette = config[ConfigKey.HANDHELD_GB_PALETTE.id] ?: ConfigKey.HANDHELD_GB_PALETTE.default,

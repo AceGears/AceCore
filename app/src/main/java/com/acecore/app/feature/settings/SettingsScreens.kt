@@ -319,6 +319,11 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
     SwitchRow("Show the “All games” tab", "Off: the library shows your categories, plus “Other” for games that are in none.", lib.showAllGames) { v ->
         update { it.copy(showAllGames = v) }
     }
+    SwitchRow(
+        "Download missing handheld covers",
+        "For identified Game Boy, GBA and DS ROMs without artwork: box art from the libretro thumbnail server (thumbnails.libretro.com). Off: only when you tap “Find cover online”.",
+        lib.onlineCovers,
+    ) { v -> update { it.copy(onlineCovers = v) } }
     SwitchRow("Show hidden categories", "Hidden categories stay out of the library's category bar unless this is on.", lib.showHiddenCategories) { v ->
         update { it.copy(showHiddenCategories = v) }
     }
@@ -590,7 +595,8 @@ private fun AboutSection() {
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Text(
             "AceArcade works offline. It has no accounts, analytics, ads or tracking, and sends no data anywhere. Your library and settings stay on this device. " +
-                "Games cannot reach the internet unless you allow it in Advanced settings.",
+                "Games cannot reach the internet unless you allow it in Advanced settings. The only downloads AceArcade makes itself are ones you ask for: " +
+                "cover art (“Find cover online”, or automatically if you turn on “Download missing handheld covers”) and cheat database updates.",
             style = MaterialTheme.typography.bodyMedium,
         )
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

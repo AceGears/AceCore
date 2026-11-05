@@ -29,7 +29,8 @@ data class HandheldLaunchSpec(
     val haptics: Boolean = true,
     /** Screen fit etc. ([com.acecore.app.runtime.rgss.DisplayPrefs] JSON). */
     val display: String = "",
-    val smooth: Boolean = false,
+    /** [HandheldFilter] id. */
+    val filter: String = "sharp",
     val showFps: Boolean = false,
     /** DS screen layout id (see [DsLayout]). */
     val dsLayout: String = "vertical",
@@ -44,7 +45,7 @@ data class HandheldLaunchSpec(
     fun toJson(): String = JSONObject().put("gameId", gameId).put("title", title).put("platform", platform.id).put("romPath", romPath)
         .put("romSha1", romSha1).put("helperDir", helperDir).put("saveDir", saveDir).put("accent", accentArgb)
         .put("buttonMap", buttonMap).put("gamepadMode", gamepadMode).put("opacity", opacity).put("scale", scale)
-        .put("haptics", haptics).put("display", display).put("smooth", smooth).put("showFps", showFps)
+        .put("haptics", haptics).put("display", display).put("filter", filter).put("showFps", showFps)
         .put("dsLayout", dsLayout).put("gbPalette", gbPalette).put("ff", fastForwardSpeed.toDouble()).put("volume", volume)
         .put("vibration", vibration).put("backups", backups).toString()
 
@@ -57,7 +58,7 @@ data class HandheldLaunchSpec(
                 it.getString("romPath"), it.optString("romSha1").ifEmpty { null }, it.getString("helperDir"), it.getString("saveDir"),
                 it.optLong("accent", 0xFFFF2A2AL), it.optString("buttonMap"), it.optString("gamepadMode", "auto"),
                 it.optInt("opacity", 55), it.optInt("scale", 100), it.optBoolean("haptics", true), it.optString("display"),
-                it.optBoolean("smooth", false), it.optBoolean("showFps", false), it.optString("dsLayout", "vertical"),
+                it.optString("filter", "sharp"), it.optBoolean("showFps", false), it.optString("dsLayout", "vertical"),
                 it.optString("gbPalette", "Grayscale"), it.optDouble("ff", 2.0).toFloat(), it.optInt("volume", 100),
                 it.optBoolean("vibration", true), it.optInt("backups", 5),
             )

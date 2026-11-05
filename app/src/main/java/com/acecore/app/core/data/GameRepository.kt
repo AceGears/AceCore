@@ -7,6 +7,7 @@ import android.provider.DocumentsContract
 import com.acecore.app.core.database.AceDatabase
 import com.acecore.app.core.database.GameEntity
 import com.acecore.app.core.datastore.SettingsRepository
+import kotlinx.coroutines.flow.first
 import com.acecore.app.core.detection.DetectionEngine
 import com.acecore.app.core.detection.DetectionResult
 import com.acecore.app.core.detection.CollectionRules
@@ -204,6 +205,20 @@ class GameRepository(
             runCatching { romCandidate(tree.treeUri, n.docId, tree.documentUri(n.docId), n.name, n.path, n.size, n.lastModified, RomRules.parentFolderName(n.path, rootName)) }.getOrNull()
         }
         if (!RomRules.romsTakePrecedence(root.detection, roms.size)) return null
+        // Covers stored with the ROMs (same name, next to them or in an artwork folder).
+        val images = nodes.filter { !it.isDirectory && RomRules.isImageName(it.name) }.associateBy { it.path }
+        val withCovers = if (images.isEmpty()) roms else roms.map { c ->
+            val p = c.detection.rom?.path ?: return@map c
+            val img = RomRules.coverFor(p, images.keys) ?: return@map c
+            c.copy(detection = c.detection.copy(coverCandidates = listOf(img)), coverDocIds = mapOf(img to images.getValue(img).docId))
+        }
+        return romOutcomeWith(tree, root, nodes, rootName, progress, subfolderGames, withCovers)
+    }
+
+    private fun romOutcomeWith(
+        tree: SafTree, root: ScanCandidate, nodes: List<com.acecore.app.core.filesystem.SafNode>, rootName: String,
+        progress: (String) -> Unit, subfolderGames: Boolean, roms: List<ScanCandidate>,
+    ): ScanOutcome? {
         val found = if (!subfolderGames) emptyList() else {
             val romTops = roms.mapNotNull { it.detection.rom?.path?.substringBefore('/', "")?.ifEmpty { null } }.toSet()
             tree.children(root.rootDocId, "").filter { it.isDirectory }.take(MAX_COLLECTION)
@@ -291,6 +306,9 @@ class GameRepository(
                         val identity = HandheldRoms.identify(context, g, platform, zipEntry)
                         HandheldRoms.writeIdentity(context, id, identity)
                         identity.releaseName?.let { applyReleaseTitle(id, it, previousRelease = null) }
+                        if (identity.releaseName != null && settings.settings.first().library.onlineCovers) {
+                            dao.get(id)?.takeIf { it.customCoverPath == null && it.coverDocId == null }?.let { findCoverOnline(it) }
+                        }
                     }
                     identifying.value = identifying.value - id
                 }
@@ -305,6 +323,21 @@ class GameRepository(
         if (fresh.title == auto || (previousRelease != null && fresh.title == previousRelease)) {
             if (fresh.title != releaseName) dao.update(fresh.copy(title = releaseName))
         }
+    }
+
+    /**
+     * Box art for an identified handheld ROM from the libretro thumbnail server, saved as the game's cover. Returns a
+     * message for the user (found / not found / not identified).
+     */
+    suspend fun findCoverOnline(game: GameEntity): String = withContext(Dispatchers.IO) {
+        val identity = HandheldRoms.readIdentity(context, game.id)
+        val name = identity?.releaseName ?: return@withContext "Identify the game first (its catalogue name is needed to find the cover)."
+        val platform = com.acecore.app.core.handheld.HandheldPlatform.byId(identity.platform) ?: return@withContext "Unknown system."
+        val bytes = com.acecore.app.core.handheld.CoverLookup.download(platform, name)
+            ?: return@withContext "No cover found online for “$name”."
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext "The downloaded cover couldn't be read."
+        setCustomCover(game, bmp)
+        "Cover found for “$name”."
     }
 
     /** The user's choice in "Identify game": stored as a manual (not checksum-verified) identification. */
@@ -656,7 +689,9 @@ class GameRepository(
     /** Model for Coil: custom cover file, or the discovered cover inside the game folder. */
     fun coverModel(game: GameEntity): Any? = when {
         game.customCoverPath != null -> File(game.customCoverPath)
-        game.coverDocId != null && !HandheldRoms.isHandheld(game) -> DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.coverDocId)
+        // ROMs picked one by one have a single-file grant (no folder to read a cover from).
+        game.coverDocId != null && (!HandheldRoms.isHandheld(game) || DocumentsContract.isTreeUri(Uri.parse(game.treeUri))) ->
+            DocumentsContract.buildDocumentUriUsingTree(Uri.parse(game.treeUri), game.coverDocId)
         else -> null
     }
 

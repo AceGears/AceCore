@@ -47,7 +47,17 @@ enum class ConfigKey(
     FILTERING(
         "filtering", "Scaling filter", "Sharp keeps pixel art crisp; Smooth blurs when scaled.", ConfigType.CHOICE, "smooth",
         listOf("smooth" to "Smooth (bilinear)", "sharp" to "Sharp (nearest-neighbour)"), section = "Display",
-        appliesTo = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.WINDOWS || it.family == EngineFamily.HANDHELD },
+        appliesTo = { WEB_FLASH_RGSS(it) || it.family == EngineFamily.WINDOWS },
+    ),
+    HANDHELD_FILTER(
+        "handheldFilter", "Upscaling filter",
+        "How the console's picture is enlarged (on the GPU). The emulators draw at the console's own resolution, so these interpolate the original pixels rather than add detail. Can also be changed in-game (☰ › Display).",
+        ConfigType.CHOICE, "sharp",
+        listOf(
+            "pixel" to "Pixel perfect (nearest neighbour)", "sharp" to "Sharp (sharp bilinear)", "smooth" to "Smooth (bilinear)",
+            "bicubic" to "Smoother (bicubic)", "scale2x" to "Enhanced pixel art (Scale2x)",
+        ),
+        section = "Display", appliesTo = { it.family == EngineFamily.HANDHELD },
     ),
     SCREEN_FIT(
         "screenFit", "Screen fit",
