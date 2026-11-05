@@ -129,6 +129,34 @@ object RomRules {
             rom = RomRef(fileName, platform.id, zipEntry, path, size, lastModified),
         )
     }
+
+    private val IMAGE_EXTS = listOf("png", "jpg", "jpeg", "webp")
+    /** Folders where ROM collections keep box art (ES-DE, RetroArch, Daijishō and similar layouts). */
+    private val ART_FOLDERS = listOf("covers", "cover", "boxart", "boxarts", "box art", "box", "named_boxarts", "images", "media/covers",
+        "media/box2dfront", "media/boxart", "media/images", "downloaded_images", "artwork", "art")
+
+    /**
+     * The image in [imagePaths] (paths relative to the scanned folder) that is this ROM's cover: same file name as the
+     * ROM (or its zip), next to it or in a usual artwork folder beside it or at the top of the scan. Case-insensitive;
+     * null when there is none (guessing by similar names would attach the wrong art).
+     */
+    fun coverFor(romPath: String, imagePaths: Collection<String>): String? {
+        val dir = romPath.substringBeforeLast('/', "")
+        val stem = romPath.substringAfterLast('/').substringBeforeLast('.').lowercase()
+        val byLower = imagePaths.associateBy { it.lowercase() }
+        val dirs = buildList {
+            add(dir)
+            ART_FOLDERS.forEach { add(if (dir.isEmpty()) it else "$dir/$it") }
+            if (dir.isNotEmpty()) ART_FOLDERS.forEach { add(it) }
+        }
+        for (d in dirs) for (ext in IMAGE_EXTS) {
+            val key = (if (d.isEmpty()) "" else "${d.lowercase()}/") + "$stem.$ext"
+            byLower[key]?.let { return it }
+        }
+        return null
+    }
+
+    fun isImageName(name: String): Boolean = ext(name) in IMAGE_EXTS
 }
 
 /** Reads the names in a zip archive's central directory (the end of the file), without reading the whole archive. */
@@ -181,31 +209,4 @@ object ZipListing {
         out
     }.getOrNull()
 
-    private val IMAGE_EXTS = listOf("png", "jpg", "jpeg", "webp")
-    /** Folders where ROM collections keep box art (ES-DE, RetroArch, Daijishō and similar layouts). */
-    private val ART_FOLDERS = listOf("covers", "cover", "boxart", "boxarts", "box art", "box", "named_boxarts", "images", "media/covers",
-        "media/box2dfront", "media/boxart", "media/images", "downloaded_images", "artwork", "art")
-
-    /**
-     * The image in [imagePaths] (paths relative to the scanned folder) that is this ROM's cover: same file name as the
-     * ROM (or its zip), next to it or in a usual artwork folder beside it or at the top of the scan. Case-insensitive;
-     * null when there is none (guessing by similar names would attach the wrong art).
-     */
-    fun coverFor(romPath: String, imagePaths: Collection<String>): String? {
-        val dir = romPath.substringBeforeLast('/', "")
-        val stem = romPath.substringAfterLast('/').substringBeforeLast('.').lowercase()
-        val byLower = imagePaths.associateBy { it.lowercase() }
-        val dirs = buildList {
-            add(dir)
-            ART_FOLDERS.forEach { add(if (dir.isEmpty()) it else "$dir/$it") }
-            if (dir.isNotEmpty()) ART_FOLDERS.forEach { add(it) }
-        }
-        for (d in dirs) for (ext in IMAGE_EXTS) {
-            val key = (if (d.isEmpty()) "" else "${d.lowercase()}/") + "$stem.$ext"
-            byLower[key]?.let { return it }
-        }
-        return null
-    }
-
-    fun isImageName(name: String): Boolean = ext(name) in IMAGE_EXTS
 }
