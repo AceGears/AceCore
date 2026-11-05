@@ -86,6 +86,8 @@ import com.acecore.app.core.datastore.LibraryLayout
 import com.acecore.app.core.datastore.ThemePreset
 import com.acecore.app.core.datastore.ThemeSettings
 import com.acecore.app.core.designsystem.accentArgbFor
+import com.acecore.app.core.designsystem.asCustom
+import com.acecore.app.core.designsystem.backgroundArgbFor
 import com.acecore.app.core.designsystem.toColor
 import com.acecore.app.core.model.Engine
 import com.acecore.app.runtime.RuntimeRegistry
@@ -216,13 +218,16 @@ private fun AppearanceSection(s: AppSettings) {
         if (t.preset == ThemePreset.CUSTOM) "Editing your custom theme." else "Changing a colour switches to the Custom theme, starting from these values.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
-    fun custom(f: (ThemeSettings) -> ThemeSettings) = update { f(it).copy(preset = ThemePreset.CUSTOM) }
-    ColorRow("Primary", t.primary) { c -> custom { it.copy(primary = c) } }
-    ColorRow("Secondary", t.secondary) { c -> custom { it.copy(secondary = c) } }
-    ColorRow("Accent", t.accent) { c -> custom { it.copy(accent = c) } }
-    ColorRow("Background", t.background) { c -> custom { it.copy(background = c) } }
-    ColorRow("Cards & surfaces", t.surface) { c -> custom { it.copy(surface = c) } }
-    ColorRow("Glow colour", t.glowColor) { c -> custom { it.copy(glowColor = c) } }
+    // Editing starts from the colours on screen: a preset's own, or the saved custom ones.
+    fun custom(f: (ThemeSettings) -> ThemeSettings) = update { f(it.asCustom()).copy(preset = ThemePreset.CUSTOM) }
+    val shown = t.asCustom()
+    ThemeLivePreview()
+    ColorRow("Primary", shown.primary) { c -> custom { it.copy(primary = c) } }
+    ColorRow("Secondary", shown.secondary) { c -> custom { it.copy(secondary = c) } }
+    ColorRow("Accent", shown.accent) { c -> custom { it.copy(accent = c) } }
+    ColorRow("Background", shown.background) { c -> custom { it.copy(background = c) } }
+    ColorRow("Cards & surfaces", shown.surface) { c -> custom { it.copy(surface = c) } }
+    ColorRow("Glow colour", shown.glowColor) { c -> custom { it.copy(glowColor = c) } }
 
     SettingsGroupTitle("Effects & shape")
     SliderRow("Glow intensity", null, t.glowIntensity, 0..100, "%") { v -> update { it.copy(glowIntensity = v) } }
@@ -251,19 +256,7 @@ private fun AppearanceSection(s: AppSettings) {
 private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: Boolean, onClick: () -> Unit) {
     val previewTheme = current.copy(preset = preset)
     val accent = accentArgbFor(previewTheme).toColor()
-    val bg = when (preset) {
-        ThemePreset.SIGNATURE_LIGHT -> Color(0xFFF4F4F6)
-        ThemePreset.NEON_CLASSIC -> Color(0xFF06051A)
-        ThemePreset.AMOLED -> Color.Black
-        ThemePreset.MIDNIGHT_BLUE -> Color(0xFF070B18)
-        ThemePreset.CRIMSON_RED -> Color(0xFF140509)
-        ThemePreset.ROYAL_PURPLE -> Color(0xFF0D0816)
-        ThemePreset.EMERALD_GREEN -> Color(0xFF04120D)
-        ThemePreset.GOLD_EDITION -> Color(0xFF0E0B05)
-        ThemePreset.CUSTOM -> current.background.toColor()
-        ThemePreset.DYNAMIC -> MaterialTheme.colorScheme.background
-        else -> Color(0xFF0B0B0E)
-    }
+    val bg = if (preset == ThemePreset.DYNAMIC) MaterialTheme.colorScheme.background else backgroundArgbFor(previewTheme).toColor()
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
         Box(
             Modifier.size(96.dp, 120.dp).clip(RoundedCornerShape(16.dp)).background(bg)
@@ -307,7 +300,7 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
         }
     }
     SliderRow("Cover size", "Used when columns are set to Auto.", lib.coverWidth, 80..200, " dp") { v -> update { it.copy(coverWidth = v) } }
-    ChoiceRow("Columns", null, listOf("0" to "Auto") + (2..6).map { "$it" to "$it" }, lib.columns.toString()) { v -> update { it.copy(columns = v.toInt()) } }
+    ChoiceRow("Columns", null, listOf("0" to "Auto") + (2..10).map { "$it" to "$it" }, lib.columns.toString()) { v -> update { it.copy(columns = v.toInt()) } }
     ChoiceRow("Cover shape", null, com.acecore.app.core.datastore.CoverAspect.entries.map { it.name to it.label }, lib.aspect.name) { v ->
         update { it.copy(aspect = com.acecore.app.core.datastore.CoverAspect.valueOf(v)) }
     }

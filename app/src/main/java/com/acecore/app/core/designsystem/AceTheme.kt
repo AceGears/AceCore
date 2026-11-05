@@ -97,6 +97,10 @@ private fun seedFor(preset: ThemePreset): PresetSeed = when (preset) {
     ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF0B0B0E, 0xFF16161B, 0xFFFF2A2A, 0xFFC9CDD4)
     ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC4141F, 0xFF4A4D57, 0xFFE3202B, 0xFFF4F4F6, 0xFFFFFFFF, 0xFFE3202B, 0xFF6B6F7A)
     ThemePreset.NEON_CLASSIC -> PresetSeed(0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF06051A, 0xFF110C2A, 0xFFF03AD6, 0xFF2E86FF)
+    ThemePreset.NEON_PURPLE -> PresetSeed(0xFFB026FF, 0xFFE0B3FF, 0xFFD46BFF, 0xFF0A0414, 0xFF170A26, 0xFFB026FF, 0xFFFF2EC4)
+    ThemePreset.CYBER_BLUE -> PresetSeed(0xFF00B3FF, 0xFFA8E6FF, 0xFF00F0FF, 0xFF020A12, 0xFF0A1824, 0xFF00C8FF, 0xFF7A5CFF)
+    // Minimal Dark: greys only, with a glow so faint it reads as a soft edge.
+    ThemePreset.MINIMAL_DARK -> PresetSeed(0xFFD0D3DA, 0xFF8A8F99, 0xFFFFFFFF, 0xFF0E0F11, 0xFF17181B, 0xFF3A3D44, 0xFF2A2C31)
     ThemePreset.AMOLED -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF000000, 0xFF0B0B0D, 0xFFFF2A2A, 0xFFC9CDD4)
     ThemePreset.MIDNIGHT_BLUE -> PresetSeed(0xFF4C8DFF, 0xFFB9C6E0, 0xFF7FB2FF, 0xFF070B18, 0xFF111833, 0xFF4C8DFF, 0xFF2ED2FF)
     ThemePreset.CRIMSON_RED -> PresetSeed(0xFFFF1E3C, 0xFFFFB3BC, 0xFFFF6B7D, 0xFF140509, 0xFF230A10, 0xFFFF1E3C, 0xFFFF6B7D)
@@ -105,6 +109,15 @@ private fun seedFor(preset: ThemePreset): PresetSeed = when (preset) {
     ThemePreset.GOLD_EDITION -> PresetSeed(0xFFE8B931, 0xFFF5E6B8, 0xFFFFD866, 0xFF0E0B05, 0xFF1C170B, 0xFFE8B931, 0xFFFFD866)
     ThemePreset.DYNAMIC, ThemePreset.CUSTOM -> seedFor(ThemePreset.SIGNATURE_DARK)
 }
+
+/** The theme's colours as editable custom values (a preset's own colours, or the stored custom ones). */
+fun ThemeSettings.asCustom(): ThemeSettings = when (preset) {
+    ThemePreset.CUSTOM, ThemePreset.DYNAMIC -> this
+    else -> seedFor(preset).let { copy(primary = it.primary, secondary = it.secondary, accent = it.accent, background = it.background, surface = it.surface, glowColor = it.glow) }
+}
+
+/** Background colour of a preset (for the theme picker swatches). */
+fun backgroundArgbFor(theme: ThemeSettings): Long = theme.asCustom().background
 
 /** ARGB long (0xAARRGGBB) -> Compose Color. */
 fun Long.toColor(): Color = Color(this.toInt())
