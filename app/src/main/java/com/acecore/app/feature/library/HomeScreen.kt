@@ -642,7 +642,8 @@ private fun CategoryBar(
     val t = AceTheme.tokens
     // Liquid indicator: one glass pill behind the selected tab that stretches toward a newly selected tab and
     // settles (each tab reports where it is; the pill follows scrolling without animating).
-    val liquid = t.liquidMotion && !t.reduceMotion
+    // The glass pill is the highlight with Liquid motion; with reduced motion it still shows, it just jumps.
+    val liquid = t.liquidMotion
     val selKey: Any = when (selected) { null -> "all"; LibrarySettings.OTHER -> "other"; else -> selected }
     val places = remember { androidx.compose.runtime.mutableStateMapOf<Any, androidx.compose.ui.geometry.Rect>() }
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }

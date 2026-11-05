@@ -15,7 +15,7 @@ timeout 900 "$SDKM" --install "platform-tools" "emulator" "$IMG" > sdk-install.l
 export ANDROID_AVD_HOME="$HOME/.android/avd"
 mkdir -p "$ANDROID_AVD_HOME"
 echo no | "$AVDM" create avd -n ci -k "$IMG" -d pixel_5 --force
-printf 'hw.ramSize=3072\ndisk.dataPartition.size=2048M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> "$ANDROID_AVD_HOME/ci.avd/config.ini"
+printf 'hw.ramSize=3072\ndisk.dataPartition.size=4096M\nhw.gpu.enabled=yes\nhw.gpu.mode=swiftshader_indirect\n' >> "$ANDROID_AVD_HOME/ci.avd/config.ini"
 export PATH="$SDK/emulator:$SDK/platform-tools:$PATH"
 emulator -accel-check | tee emu-accel.txt
 nohup emulator -avd ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none -camera-front none > emulator.log 2>&1 &

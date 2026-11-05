@@ -102,7 +102,7 @@ class UiTourTest {
         Thread.sleep(900)
         val bmp = instrumentation.uiAutomation.takeScreenshot() ?: return
         // Also in app-private storage: on Android 11+ CI fetches it with "run-as" (adb can't read the external folder).
-        for (base in listOf(ctx.getExternalFilesDir(null), ctx.filesDir)) {
+        for (base in listOf(ctx.filesDir)) {
             val dir = File(base, "testresults").apply { mkdirs() }
             File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }

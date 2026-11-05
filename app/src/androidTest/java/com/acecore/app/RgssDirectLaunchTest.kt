@@ -170,8 +170,15 @@ class RgssDirectLaunchTest {
         assertTrue("Character must stop after release: $released / $later", later[0] == released[0])
     }
 
-    private fun walk(helper: File): List<String> =
-        File(helper, "walk").takeIf { it.exists() }?.readText()?.trim()?.split(' ') ?: listOf("0", "0", "0", "0", "0", "?", "0", "0")
+    /** The game's walk report; read again if it caught the game rewriting the file (empty or partial). */
+    private fun walk(helper: File): List<String> {
+        repeat(20) {
+            val parts = File(helper, "walk").takeIf { it.exists() }?.readText()?.trim()?.split(' ') ?: return listOf("0", "0", "0", "0", "0", "?", "0", "0")
+            if (parts.size >= 8) return parts
+            Thread.sleep(25)
+        }
+        return listOf("0", "0", "0", "0", "0", "?", "0", "0")
+    }
 
     private fun touch(downTime: Long, action: Int, x: Float, y: Float) {
         val ev = android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
