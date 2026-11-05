@@ -75,7 +75,7 @@ fun ConfigEditor(
             }
             when (key.type) {
                 ConfigType.BOOL -> SwitchRow(key.title, sourceNote, key.bool(r.value), trailing = trailing) { onSet(key, it.toString()) }
-                ConfigType.INT -> SliderRow(key.title, sourceNote, key.int(r.value), key.range, unit = "%", trailing = trailing) { onSet(key, it.toString()) }
+                ConfigType.INT -> SliderRow(key.title, sourceNote, key.int(r.value), key.range, unit = key.unit, trailing = trailing) { onSet(key, it.toString()) }
                 ConfigType.CHOICE -> ChoiceRow(key.title, sourceNote, key.choices, r.value, trailing = trailing) { onSet(key, it) }
                 ConfigType.BUTTON_MAP -> {
                     var open by remember { mutableStateOf(false) }

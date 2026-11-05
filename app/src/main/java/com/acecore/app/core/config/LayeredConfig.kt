@@ -44,6 +44,8 @@ enum class ConfigKey(
     val range: IntRange = 0..100,
     val section: String,
     val appliesTo: (Engine) -> Boolean = { it.family == EngineFamily.WEB || it.family == EngineFamily.FLASH },
+    /** Shown after an INT value (most are percentages). */
+    val unit: String = "%",
 ) {
     ORIENTATION(
         "orientation", "Orientation", "Screen orientation while playing.", ConfigType.CHOICE, "landscape",
@@ -95,12 +97,12 @@ enum class ConfigKey(
     SCREEN_OFFSET_X(
         "screenOffsetX", "Picture position (horizontal)", "Moves the game picture left (−100) or right (+100) inside the " +
             "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
-        appliesTo = WITH_LAYOUT,
+        appliesTo = WITH_LAYOUT, unit = "",
     ),
     SCREEN_OFFSET_Y(
         "screenOffsetY", "Picture position (vertical)", "Moves the game picture up (−100) or down (+100) inside the " +
             "free space; 0 = centred.", ConfigType.INT, "0", range = -100..100, section = "Display",
-        appliesTo = WITH_LAYOUT,
+        appliesTo = WITH_LAYOUT, unit = "",
     ),
     SCREEN_SIZE(
         "screenSize", "Game size", "Size of the game area (%), centred. Lower it to keep the picture clear of the on-screen controls. " +
@@ -230,7 +232,7 @@ enum class ConfigKey(
     ),
     HANDHELD_BACKUPS(
         "handheldBackups", "Save backups", "How many automatic backups of the game's save AceArcade keeps (0 = off).",
-        ConfigType.INT, "5", range = 0..20, section = "Gameplay", appliesTo = HANDHELD,
+        ConfigType.INT, "5", range = 0..20, section = "Gameplay", appliesTo = HANDHELD, unit = "",
     ),
     GESTURES(
         "gestures", "Touch gestures", "Multi-finger taps, swipes and pinches on the game picture (set what each one does below).",
@@ -269,7 +271,7 @@ enum class ConfigKey(
     ),
     GESTURE_DOUBLE_TAP_MS(
         "gestureDoubleTapMs", "Double-tap speed", "Longest pause between the two taps of a double tap (milliseconds).",
-        ConfigType.INT, "300", range = 150..600, section = "Gestures", appliesTo = GESTURE_ENGINES,
+        ConfigType.INT, "300", range = 150..600, section = "Gestures", appliesTo = GESTURE_ENGINES, unit = " ms",
     ),
     GESTURE_HAPTICS("gestureHaptics", "Gesture vibration", "Vibrate briefly when a gesture is recognised.", ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES),
     ALLOW_NETWORK(
