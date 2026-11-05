@@ -376,7 +376,7 @@ fun HomeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
         bottomBar = {
-            if (lib.categoryBar == CategoryBarStyle.DOCK && games != null && games.isNotEmpty() && !inSelection) {
+            if (lib.categoryBar.isDock && games != null && games.isNotEmpty() && !inSelection) {
                 val glow = AceTheme.tokens.glow
                 val tabs = buildList {
                     if (showAllTab) add(DockTab("all", Icons.Rounded.Apps, "All games", glow, null, { selectCategory(LibrarySettings.ALL_GAMES) }))
@@ -387,7 +387,7 @@ fun HomeScreen(
                     if (showOtherTab) add(DockTab("other", Icons.Rounded.Apps, "Other", glow, uncategorized, { selectCategory(LibrarySettings.OTHER) }))
                 }
                 val key: Any = when (selectedCategory) { null -> "all"; LibrarySettings.OTHER -> "other"; else -> selectedCategory }
-                CategoryDock(tabs, key, Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+                CategoryDock(tabs, key, lib.categoryBar, Modifier.windowInsetsPadding(WindowInsets.navigationBars))
             }
         },
         floatingActionButton = {
@@ -437,7 +437,7 @@ fun HomeScreen(
             AnimatedVisibility(searchOpen && !inSelection, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 SearchField(query) { query = it }
             }
-            if (games != null && games.isNotEmpty() && lib.categoryBar != CategoryBarStyle.DOCK) {
+            if (games != null && games.isNotEmpty() && !lib.categoryBar.isDock) {
                 CategoryBar(
                     categories = visibleCategories,
                     total = games.count { !it.hidden || lib.showHidden },
@@ -726,7 +726,7 @@ private fun CategoryTab(
         CategoryBarStyle.PILLS -> modifier.clip(RoundedCornerShape(50))
             .background(if (selected && !liquid) color.copy(alpha = 0.22f) else if (selected) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
             .border(1.dp, if (selected && !liquid) color else if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
-        CategoryBarStyle.TABS, CategoryBarStyle.DOCK -> modifier.clip(RoundedCornerShape(if (liquid) 50 else 12))
+        else -> modifier.clip(RoundedCornerShape(if (liquid) 50 else 12))
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val indicatorWidth by androidx.compose.animation.core.animateDpAsState(if (selected) 28.dp else 0.dp, label = "indicator")

@@ -193,6 +193,15 @@ class UiTourTest {
             shot("20b_jade_dock_first")
             click("Visual Novels")
             shot("20c_jade_dock_last")
+            // The other dock styles, with the last and first tabs selected (where shapes meet the bar's rounded ends).
+            for (st in listOf(com.acecore.app.core.datastore.CategoryBarStyle.WAVE, com.acecore.app.core.datastore.CategoryBarStyle.SPOTLIGHT,
+                com.acecore.app.core.datastore.CategoryBarStyle.DROP)) {
+                runBlocking { settings.updateLibrary { it.copy(categoryBar = st) } }
+                shot("20d_${st.name.lowercase()}")
+                click("Visual Novels")
+                Thread.sleep(400)
+                shot("20e_${st.name.lowercase()}_last")
+            }
             theme(com.acecore.app.core.datastore.ThemePreset.SANDSTONE, D, true, "21_sandstone_dark_dock")
             theme(com.acecore.app.core.datastore.ThemePreset.SANDSTONE, L, false, "22_sandstone_light")
             theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, D, false, "23_plasma_dark")

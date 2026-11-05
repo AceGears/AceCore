@@ -59,7 +59,11 @@ enum class CoverAspect(val label: String, val ratio: Float) {
     WIDE("16:9 Wide", 1.7778f),
 }
 
-enum class CategoryBarStyle(val label: String) { TABS("Tabs"), PILLS("Pills"), DOCK("Floating dock") }
+enum class CategoryBarStyle(val label: String) {
+    TABS("Tabs"), PILLS("Pills"),
+    // Bottom docks (the glass navigation references).
+    DOCK("Dock: bubble"), WAVE("Dock: glow wave"), SPOTLIGHT("Dock: spotlight"), DROP("Dock: liquid drop"),
+}
 
 enum class LibrarySort(val label: String) {
     ALPHABETICAL("Alphabetical"), RECENTLY_ADDED("Recently added"), RECENTLY_PLAYED("Recently played"),
