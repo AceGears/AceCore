@@ -725,7 +725,7 @@ private fun CategoryTab(
         CategoryBarStyle.PILLS -> modifier.clip(RoundedCornerShape(50))
             .background(if (selected && !liquid) color.copy(alpha = 0.22f) else if (selected) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
             .border(1.dp, if (selected && !liquid) color else if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
-        CategoryBarStyle.TABS -> modifier.clip(RoundedCornerShape(if (liquid) 50 else 12))
+        CategoryBarStyle.TABS, CategoryBarStyle.DOCK -> modifier.clip(RoundedCornerShape(if (liquid) 50 else 12))
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val indicatorWidth by androidx.compose.animation.core.animateDpAsState(if (selected) 28.dp else 0.dp, label = "indicator")
