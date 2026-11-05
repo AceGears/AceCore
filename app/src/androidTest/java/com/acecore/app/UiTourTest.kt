@@ -142,7 +142,10 @@ class UiTourTest {
             clickDesc("Library layout")
             shot("08_layout")
             Espresso.pressBack()
-            clickDesc("Manage categories")
+            // The manage button sits at the end of the scrolling tab row; the tab's long-press sheet always has it.
+            compose.onAllNodes(hasText("RPG Maker"), useUnmergedTree = true).onFirst().performTouchInput { longClick() }
+            waitFor("All categories, folders and order")
+            click("All categories, folders and order")
             compose.waitUntil(10_000) { compose.onAllNodes(hasText("New category")).fetchSemanticsNodes().isNotEmpty() }
             shot("09_categories")
             Espresso.pressBack()
