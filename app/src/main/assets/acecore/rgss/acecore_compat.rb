@@ -3065,3 +3065,81 @@ module AceCoreCompat
   end
 end
 AceCoreCompat::SoftReset.install($RGSS_SCRIPTS) if defined?($RGSS_SCRIPTS) && $RGSS_SCRIPTS.is_a?(Array)
+
+#===============================================================================
+# Tilesets taller than the GPU allows ("Operation not supported for mega surfaces")
+#
+# mkxp-z keeps a picture larger than the GPU's biggest texture (Bitmap.max_size) as a "mega surface": it can be copied
+# from (blt / stretch_blt) but not shown by a sprite. Some Essentials games carry an "MKXP compatibility" CustomTilemap
+# (Pokémon HGSS: Sevii Islands, script MKXP_Compatibility) that draws tiles from @tilesets, the tileset cut into
+# 8000-pixel-tall pieces, when @divided is set - but nothing in the game cuts it, so a tall tileset reaches
+# Sprite#bitmap= whole and the game stops. AceArcade does the cutting those scripts expect: the same picture, copied
+# into pieces the GPU can show, at the offsets the script reads them from. Nothing in the game's files changes.
+module AceCoreCompat
+  module MegaTilesets
+    PIECE = 8000
+    module_function
+
+    def mega?(bitmap)
+      return false unless bitmap.respond_to?(:height) && !(bitmap.respond_to?(:disposed?) && bitmap.disposed?)
+      max = (Bitmap.max_size rescue nil)
+      max.is_a?(Integer) && max > 0 && (bitmap.width > max || bitmap.height > max)
+    end
+
+    # The tileset as pieces of at most PIECE rows (copied with blt, which works from mega surfaces).
+    def cut(bitmap)
+      (0...((bitmap.height + PIECE - 1) / PIECE)).map do |i|
+        h = [PIECE, bitmap.height - i * PIECE].min
+        piece = Bitmap.new(bitmap.width, h)
+        piece.blt(0, 0, bitmap, Rect.new(0, i * PIECE, bitmap.width, h))
+        piece
+      end
+    end
+
+    def release(pieces)
+      (pieces || []).each { |b| b.dispose unless b.disposed? rescue nil }
+    end
+
+    # Added to CustomTilemap classes that read @tilesets / @divided (they define MKXP_Kyu).
+    module Tilemap
+      def tileset=(value)
+        super
+        old = @acearcade_pieces
+        @acearcade_pieces = nil
+        if AceCoreCompat::MegaTilesets.mega?(value) && value.width <= (Bitmap.max_size rescue 0)
+          @acearcade_pieces = AceCoreCompat::MegaTilesets.cut(value)
+          @tilesets = @acearcade_pieces
+          @divided = true
+          ($stderr.puts("AceArcade: tileset #{value.width}x#{value.height} is larger than the GPU allows (#{Bitmap.max_size}); " \
+                        "drawn from #{@tilesets.size} pieces") rescue nil)
+        else
+          @tilesets = []
+          @divided = false
+        end
+        AceCoreCompat::MegaTilesets.release(old)
+      end
+
+      def dispose
+        super
+      ensure
+        AceCoreCompat::MegaTilesets.release(@acearcade_pieces)
+        @acearcade_pieces = nil
+      end
+    end
+
+    def patch(klass)
+      return if klass.ancestors.include?(Tilemap)
+      return unless klass.method_defined?(:MKXP_Kyu) && klass.method_defined?(:tileset=)
+      klass.prepend(Tilemap)
+      ($stderr.puts("AceArcade: #{klass} draws tall tilesets in pieces (mkxp-z mega surfaces)") rescue nil)
+    end
+  end
+end
+begin
+  AceCoreCompat::MegaTilesets.instance_variable_set(:@trace, TracePoint.new(:end) do |tp|
+    mod = tp.self
+    AceCoreCompat::MegaTilesets.patch(mod) if mod.is_a?(Class) && mod.name == 'CustomTilemap'
+  end.tap(&:enable))
+rescue StandardError => e
+  ($stderr.puts("AceArcade: tall-tileset check unavailable: #{e.message}") rescue nil)
+end
