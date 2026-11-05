@@ -168,6 +168,37 @@ class UiTourTest {
             click("Appearance")
             waitFor("Preview", 10_000)
             shot("13_appearance")
+            // The premium themes, each in dark and light, on the library (Sandstone and Jade with the floating dock).
+            Espresso.pressBack(); Espresso.pressBack()
+            waitFor("Pokemon Ancient Platinum")
+            val settings = ctx.container.settings
+            fun theme(p: com.acecore.app.core.datastore.ThemePreset, mode: com.acecore.app.core.datastore.ThemeMode, dock: Boolean, name: String) {
+                runBlocking {
+                    settings.updateTheme { it.copy(preset = p, mode = mode) }
+                    settings.updateLibrary { it.copy(categoryBar = if (dock) com.acecore.app.core.datastore.CategoryBarStyle.DOCK else com.acecore.app.core.datastore.CategoryBarStyle.TABS) }
+                }
+                shot(name)
+            }
+            val D = com.acecore.app.core.datastore.ThemeMode.DARK
+            val L = com.acecore.app.core.datastore.ThemeMode.LIGHT
+            theme(com.acecore.app.core.datastore.ThemePreset.AQUA_GLASS, D, false, "14_aqua_dark")
+            theme(com.acecore.app.core.datastore.ThemePreset.AQUA_GLASS, L, false, "15_aqua_light")
+            theme(com.acecore.app.core.datastore.ThemePreset.VIOLET_PULSE, D, false, "16_violet_dark")
+            theme(com.acecore.app.core.datastore.ThemePreset.VIOLET_PULSE, L, false, "17_violet_light")
+            theme(com.acecore.app.core.datastore.ThemePreset.JADE_GLASS, D, true, "18_jade_dark_dock")
+            theme(com.acecore.app.core.datastore.ThemePreset.JADE_GLASS, L, true, "19_jade_light_dock")
+            click("RPG Maker")
+            shot("20_jade_dock_moved")
+            theme(com.acecore.app.core.datastore.ThemePreset.SANDSTONE, D, true, "21_sandstone_dark_dock")
+            theme(com.acecore.app.core.datastore.ThemePreset.SANDSTONE, L, false, "22_sandstone_light")
+            theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, D, false, "23_plasma_dark")
+            theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, L, false, "24_plasma_light")
+            theme(com.acecore.app.core.datastore.ThemePreset.MIDNIGHT_BLUE, L, false, "25_midnight_light")
+            // Game details on a glass theme.
+            compose.onNode(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
+            click("Game details")
+            waitFor("Launch configuration")
+            shot("26_midnight_light_details")
         }
     }
 }

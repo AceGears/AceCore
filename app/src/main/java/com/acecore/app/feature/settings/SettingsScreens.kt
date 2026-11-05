@@ -1,5 +1,7 @@
 package com.acecore.app.feature.settings
 
+import androidx.compose.foundation.layout.fillMaxHeight
+import com.acecore.app.core.designsystem.palette
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -200,27 +202,45 @@ private fun AppearanceSection(s: AppSettings) {
     fun update(f: (ThemeSettings) -> ThemeSettings) { scope.launch { repo.updateTheme(f) } }
     var confirmReset by remember { mutableStateOf(false) }
 
-    SettingsGroupTitle("Theme")
-    LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(ThemePreset.entries.filter { it != ThemePreset.DYNAMIC || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }) { p ->
-            ThemePreview(p, t, selected = t.preset == p) { update { it.copy(preset = p) } }
+    SettingsGroupTitle("Mode")
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        val modes = com.acecore.app.core.datastore.ThemeMode.entries
+        modes.forEachIndexed { i, m ->
+            SegmentedButton(selected = t.mode == m, onClick = { update { it.copy(mode = m) } }, shape = SegmentedButtonDefaults.itemShape(i, modes.size)) {
+                Text(m.label, maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            }
         }
+    }
+    Text(
+        "Every theme has a light and a dark version. Each card shows both: dark on the left, light on the right.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+    )
+    val pickable = ThemePreset.entries.filter { it != ThemePreset.SIGNATURE_LIGHT && (it != ThemePreset.DYNAMIC || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) }
+    SettingsGroupTitle("Premium glass themes")
+    LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(pickable.filter { it.premium }) { p -> ThemePreview(p, t, selected = t.preset == p) { update { it.copy(preset = p) } } }
+    }
+    SettingsGroupTitle("Classic themes")
+    LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(pickable.filter { !it.premium }) { p -> ThemePreview(p, t, selected = t.preset == p) { update { it.copy(preset = p) } } }
     }
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         Text("Dynamic Material You colours need Android 12 or newer.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
     }
-    SwitchRow("Follow system dark mode", "Switch between Signature Dark and Light automatically.", t.followSystem,
-        enabled = t.preset == ThemePreset.SIGNATURE_DARK || t.preset == ThemePreset.SIGNATURE_LIGHT) { v -> update { it.copy(followSystem = v) } }
+    SwitchRow("Glass cards", "On the premium themes: translucent frosted cards over the theme's backdrop. Off: solid cards.", t.glass,
+        enabled = t.preset.premium) { v -> update { it.copy(glass = v) } }
 
     SettingsGroupTitle("Custom colours")
     Text(
-        if (t.preset == ThemePreset.CUSTOM) "Editing your custom theme." else "Changing a colour switches to the Custom theme, starting from these values.",
+        (if (t.preset == ThemePreset.CUSTOM) "Editing your custom theme." else "Changing a colour switches to the Custom theme, starting from these values.") +
+            " Enter one set of colours; the other mode is made from them with readable contrast.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp),
     )
     // Editing starts from the colours on screen: a preset's own, or the saved custom ones.
     fun custom(f: (ThemeSettings) -> ThemeSettings) = update { f(it.asCustom()).copy(preset = ThemePreset.CUSTOM) }
-    val shown = t.asCustom()
+    val shown = t.asCustom(com.acecore.app.core.designsystem.AceTheme.tokens.isDark)
     ThemeLivePreview()
     ColorRow("Primary", shown.primary) { c -> custom { it.copy(primary = c) } }
     ColorRow("Secondary", shown.secondary) { c -> custom { it.copy(secondary = c) } }
@@ -239,6 +259,13 @@ private fun AppearanceSection(s: AppSettings) {
     SettingsGroupTitle("Text & motion")
     SliderRow("Text size", "In addition to Android's font size setting.", t.textScale, 80..150, "%") { v -> update { it.copy(textScale = v) } }
     SliderRow("Animation speed", "Higher is faster.", t.animationSpeed, 25..300, "%") { v -> update { it.copy(animationSpeed = v) } }
+    ChoiceRow("Selection animation", "Liquid: the highlight stretches toward the new tab and settles, like liquid glass. Classic: it slides.",
+        com.acecore.app.core.datastore.MotionStyle.entries.map { it.name to it.label }, t.motion.name) { v ->
+        update { it.copy(motion = com.acecore.app.core.datastore.MotionStyle.valueOf(v)) }
+    }
+    SwitchRow("Delete animation", "Games and categories shake and dissolve into particles when you remove them.", t.deleteEffect) { v ->
+        update { it.copy(deleteEffect = v) }
+    }
     SwitchRow("Reduce motion", "Turn off non-essential animations. Also follows Android's 'Remove animations'.", s.reduceMotion) { v ->
         scope.launch { repo.setReduceMotion(v) }
     }
@@ -254,22 +281,36 @@ private fun AppearanceSection(s: AppSettings) {
 
 @Composable
 private fun ThemePreview(preset: ThemePreset, current: ThemeSettings, selected: Boolean, onClick: () -> Unit) {
-    val previewTheme = current.copy(preset = preset)
-    val accent = accentArgbFor(previewTheme).toColor()
-    val bg = if (preset == ThemePreset.DYNAMIC) MaterialTheme.colorScheme.background else backgroundArgbFor(previewTheme).toColor()
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
-        Box(
-            Modifier.size(96.dp, 120.dp).clip(RoundedCornerShape(16.dp)).background(bg)
+    val theme = current.copy(preset = preset)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(112.dp).clickable(onClickLabel = preset.label, onClick = onClick)) {
+        Row(
+            Modifier.size(112.dp, 128.dp).clip(RoundedCornerShape(16.dp))
                 .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
         ) {
-            Box(Modifier.padding(10.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha = 0.2f)))))
-            Row(Modifier.align(Alignment.BottomCenter).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(2) { Box(Modifier.size(30.dp, 40.dp).clip(RoundedCornerShape(6.dp)).background(accent.copy(alpha = 0.35f)).border(1.dp, accent, RoundedCornerShape(6.dp))) }
+            for (dark in listOf(true, false)) {
+                val pal = if (preset == ThemePreset.DYNAMIC) null else theme.palette(dark)
+                val bgTop = pal?.backdrop?.top?.toColor() ?: pal?.background?.toColor() ?: (if (dark) Color(0xFF1B1B1F) else Color(0xFFF3F3F6))
+                val bgBottom = pal?.backdrop?.bottom?.toColor() ?: bgTop
+                val orb = pal?.backdrop?.orbs?.firstOrNull()?.color?.toColor()
+                val glow = pal?.glow?.toColor() ?: MaterialTheme.colorScheme.primary
+                val card = (pal?.surface?.toColor() ?: (if (dark) Color(0xFF2A2A30) else Color.White)).copy(alpha = pal?.glassAlpha?.takeIf { pal.backdrop != null } ?: 1f)
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().background(Brush.verticalGradient(listOf(bgTop, bgBottom)))
+                        .then(if (orb != null) Modifier.background(Brush.radialGradient(listOf(orb.copy(alpha = 0.55f), Color.Transparent))) else Modifier),
+                ) {
+                    Box(Modifier.padding(7.dp).fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(Brush.horizontalGradient(listOf(glow, glow.copy(alpha = 0.2f)))))
+                    Column(Modifier.align(Alignment.BottomCenter).padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        repeat(2) {
+                            Box(Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(7.dp)).background(card)
+                                .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.25f else 0.9f), glow.copy(alpha = 0.4f))), RoundedCornerShape(7.dp)))
+                        }
+                    }
+                }
             }
-            if (selected) Icon(Icons.Rounded.Check, "Selected", tint = Color.White,
-                modifier = Modifier.align(Alignment.Center).size(26.dp).background(accent, CircleShape).padding(4.dp))
         }
-        Text(preset.label, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+        if (selected) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.padding(top = 4.dp).size(20.dp).background(MaterialTheme.colorScheme.primary, CircleShape).padding(3.dp))
+        Text(preset.label, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
     }
 }
 

@@ -47,6 +47,14 @@ data class AceTokens(
     val chrome: Color,
     /** Second neon of the brand (electric blue next to magenta): dual-tone gradients, borders and highlights. */
     val glowAlt: Color,
+    /** The theme's backdrop (painted behind every screen), or null for a plain background. */
+    val backdrop: Backdrop? = null,
+    /** Solid background colour (also when the screens are transparent over a backdrop). */
+    val base: Color = Color(0xFF0B0B0E),
+    /** Card opacity over the backdrop (1 = solid). */
+    val glassAlpha: Float = 1f,
+    val liquidMotion: Boolean = true,
+    val deleteEffect: Boolean = true,
 )
 
 val LocalAceTokens = staticCompositionLocalOf {
@@ -88,45 +96,35 @@ object AcePalette {
     val NightSurface = Color(0xFF110C2A)
 }
 
-private data class PresetSeed(
-    val primary: Long, val secondary: Long, val accent: Long, val background: Long, val surface: Long, val glow: Long,
-    val glowAlt: Long,
-)
+private fun ThemeSettings.enteredPalette() = Palette(primary, secondary, accent, background, surface, glowColor, secondary)
 
-private fun seedFor(preset: ThemePreset): PresetSeed = when (preset) {
-    ThemePreset.SIGNATURE_DARK -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF0B0B0E, 0xFF16161B, 0xFFFF2A2A, 0xFFC9CDD4)
-    ThemePreset.SIGNATURE_LIGHT -> PresetSeed(0xFFC4141F, 0xFF4A4D57, 0xFFE3202B, 0xFFF4F4F6, 0xFFFFFFFF, 0xFFE3202B, 0xFF6B6F7A)
-    ThemePreset.NEON_CLASSIC -> PresetSeed(0xFFE5199C, 0xFF2E86FF, 0xFF2ED2FF, 0xFF06051A, 0xFF110C2A, 0xFFF03AD6, 0xFF2E86FF)
-    ThemePreset.NEON_PURPLE -> PresetSeed(0xFFB026FF, 0xFFE0B3FF, 0xFFD46BFF, 0xFF0A0414, 0xFF170A26, 0xFFB026FF, 0xFFFF2EC4)
-    ThemePreset.CYBER_BLUE -> PresetSeed(0xFF00B3FF, 0xFFA8E6FF, 0xFF00F0FF, 0xFF020A12, 0xFF0A1824, 0xFF00C8FF, 0xFF7A5CFF)
-    // Minimal Dark: greys only, with a glow so faint it reads as a soft edge.
-    ThemePreset.MINIMAL_DARK -> PresetSeed(0xFFD0D3DA, 0xFF8A8F99, 0xFFFFFFFF, 0xFF0E0F11, 0xFF17181B, 0xFF3A3D44, 0xFF2A2C31)
-    ThemePreset.AMOLED -> PresetSeed(0xFFE3202B, 0xFFC9CDD4, 0xFFFF5A4E, 0xFF000000, 0xFF0B0B0D, 0xFFFF2A2A, 0xFFC9CDD4)
-    ThemePreset.MIDNIGHT_BLUE -> PresetSeed(0xFF4C8DFF, 0xFFB9C6E0, 0xFF7FB2FF, 0xFF070B18, 0xFF111833, 0xFF4C8DFF, 0xFF2ED2FF)
-    ThemePreset.CRIMSON_RED -> PresetSeed(0xFFFF1E3C, 0xFFFFB3BC, 0xFFFF6B7D, 0xFF140509, 0xFF230A10, 0xFFFF1E3C, 0xFFFF6B7D)
-    ThemePreset.ROYAL_PURPLE -> PresetSeed(0xFF9B5CFF, 0xFFD3C2F5, 0xFFC08BFF, 0xFF0D0816, 0xFF1A1129, 0xFF9B5CFF, 0xFFF03AD6)
-    ThemePreset.EMERALD_GREEN -> PresetSeed(0xFF1ED69B, 0xFFB5E8D6, 0xFF5CF0C0, 0xFF04120D, 0xFF0B2219, 0xFF1ED69B, 0xFF2ED2FF)
-    ThemePreset.GOLD_EDITION -> PresetSeed(0xFFE8B931, 0xFFF5E6B8, 0xFFFFD866, 0xFF0E0B05, 0xFF1C170B, 0xFFE8B931, 0xFFFFD866)
-    ThemePreset.DYNAMIC, ThemePreset.CUSTOM -> seedFor(ThemePreset.SIGNATURE_DARK)
+/** True when this theme shows in dark mode right now ([systemDark] = the system setting). */
+fun ThemeSettings.isDarkMode(systemDark: Boolean): Boolean = when (mode) {
+    com.acecore.app.core.datastore.ThemeMode.DARK -> true
+    com.acecore.app.core.datastore.ThemeMode.LIGHT -> false
+    com.acecore.app.core.datastore.ThemeMode.SYSTEM -> systemDark
 }
 
-/** The theme's colours as editable custom values (a preset's own colours, or the stored custom ones). */
-fun ThemeSettings.asCustom(): ThemeSettings = when (preset) {
+/** The palette this theme uses in the given mode. */
+fun ThemeSettings.palette(dark: Boolean): Palette = when (preset) {
+    ThemePreset.CUSTOM, ThemePreset.DYNAMIC -> if (preset == ThemePreset.CUSTOM) ThemePalettes.custom(enteredPalette(), dark) else ThemePalettes.of(ThemePreset.SIGNATURE_DARK, dark)
+    else -> ThemePalettes.of(preset, dark)
+}
+
+/** The theme's colours as editable custom values (the dark version of a preset, or the stored custom ones). */
+fun ThemeSettings.asCustom(dark: Boolean = true): ThemeSettings = when (preset) {
     ThemePreset.CUSTOM, ThemePreset.DYNAMIC -> this
-    else -> seedFor(preset).let { copy(primary = it.primary, secondary = it.secondary, accent = it.accent, background = it.background, surface = it.surface, glowColor = it.glow) }
+    else -> palette(dark).let { copy(primary = it.primary, secondary = it.secondary, accent = it.accent, background = it.background, surface = it.surface, glowColor = it.glow) }
 }
 
 /** Background colour of a preset (for the theme picker swatches). */
-fun backgroundArgbFor(theme: ThemeSettings): Long = theme.asCustom().background
+fun backgroundArgbFor(theme: ThemeSettings, dark: Boolean = true): Long = theme.palette(dark).background
 
 /** ARGB long (0xAARRGGBB) -> Compose Color. */
 fun Long.toColor(): Color = Color(this.toInt())
 
 /** Accent (glow) colour for a theme without composing it; used to tint the game overlay. */
-fun accentArgbFor(theme: ThemeSettings): Long = when (theme.preset) {
-    ThemePreset.CUSTOM -> theme.glowColor
-    else -> seedFor(theme.preset).glow
-}
+fun accentArgbFor(theme: ThemeSettings, dark: Boolean = true): Long = theme.palette(dark).glow
 
 /** Compose Color -> ARGB long for persistence. */
 fun Color.toArgbLong(): Long = (((alpha * 255f + 0.5f).toInt() shl 24) or ((red * 255f + 0.5f).toInt() shl 16) or
@@ -135,7 +133,7 @@ fun Color.toArgbLong(): Long = (((alpha * 255f + 0.5f).toInt() shl 24) or ((red 
 private fun schemeFrom(primary: Color, secondary: Color, accent: Color, background: Color, surface: Color, surfaceAlpha: Float): ColorScheme {
     val dark = background.luminance() < 0.4f
     val onBg = if (dark) Color(0xFFF4F3FB) else Color(0xFF15122A)
-    val onPrimary = if (primary.luminance() > 0.5f) Color.Black else Color.White
+    val onPrimary = Color(Contrast.onFill(primary.toArgbLong()).toInt())
     val surf = surface.copy(alpha = 1f)
     val variant = lerpColor(surf, onBg, if (dark) 0.08f else 0.05f)
     val base = if (dark) darkColorScheme() else lightColorScheme()
@@ -145,11 +143,11 @@ private fun schemeFrom(primary: Color, secondary: Color, accent: Color, backgrou
         primaryContainer = lerpColor(background, primary, 0.28f),
         onPrimaryContainer = onBg,
         secondary = secondary,
-        onSecondary = if (secondary.luminance() > 0.5f) Color.Black else Color.White,
+        onSecondary = Color(Contrast.onFill(secondary.toArgbLong()).toInt()),
         secondaryContainer = lerpColor(background, secondary, 0.18f),
         onSecondaryContainer = onBg,
         tertiary = accent,
-        onTertiary = if (accent.luminance() > 0.5f) Color.Black else Color.White,
+        onTertiary = Color(Contrast.onFill(accent.toArgbLong()).toInt()),
         background = background,
         onBackground = onBg,
         surface = surf.copy(alpha = surfaceAlpha).compositeOver(background),
@@ -210,33 +208,21 @@ fun AceCoreTheme(settings: ThemeSettings, reduceMotion: Boolean = false, content
     val ctx = LocalContext.current
     val surfaceAlpha = settings.surfaceOpacity.coerceIn(40, 100) / 100f
 
-    val effectivePreset = when {
-        settings.followSystem && settings.preset == ThemePreset.SIGNATURE_DARK && !systemDark -> ThemePreset.SIGNATURE_LIGHT
-        settings.followSystem && settings.preset == ThemePreset.SIGNATURE_LIGHT && systemDark -> ThemePreset.SIGNATURE_DARK
-        else -> settings.preset
-    }
-
+    val wantDark = settings.isDarkMode(systemDark)
+    val pal = settings.palette(wantDark)
     val glowColor: Color
     val glowAltColor: Color
     val scheme: ColorScheme = when {
-        effectivePreset == ThemePreset.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val s = if (systemDark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+        settings.preset == ThemePreset.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val s = if (wantDark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             glowColor = s.primary
             glowAltColor = s.tertiary
             s
         }
-        effectivePreset == ThemePreset.CUSTOM -> {
-            glowColor = settings.glowColor.toColor()
-            glowAltColor = settings.secondary.toColor()
-            schemeFrom(settings.primary.toColor(), settings.secondary.toColor(), settings.accent.toColor(),
-                settings.background.toColor(), settings.surface.toColor(), surfaceAlpha)
-        }
         else -> {
-            val seed = seedFor(effectivePreset)
-            glowColor = Color(seed.glow.toInt())
-            glowAltColor = Color(seed.glowAlt.toInt())
-            schemeFrom(Color(seed.primary.toInt()), Color(seed.secondary.toInt()), Color(seed.accent.toInt()),
-                Color(seed.background.toInt()), Color(seed.surface.toInt()), surfaceAlpha)
+            glowColor = pal.glow.toColor()
+            glowAltColor = pal.glowAlt.toColor()
+            schemeFrom(pal.primary.toColor(), pal.secondary.toColor(), pal.accent.toColor(), pal.background.toColor(), pal.surface.toColor(), surfaceAlpha)
         }
     }
     val isDark = scheme.background.luminance() < 0.4f
@@ -253,7 +239,16 @@ fun AceCoreTheme(settings: ThemeSettings, reduceMotion: Boolean = false, content
         isDark = isDark,
         chrome = if (isDark) AcePalette.Chrome else AcePalette.Gunmetal,
         glowAlt = glowAltColor,
+        backdrop = pal.backdrop.takeIf { settings.preset != ThemePreset.DYNAMIC },
+        // On backdrop themes the solid colour matches the backdrop's top, so headers that fade into it blend in.
+        base = pal.backdrop?.takeIf { settings.preset != ThemePreset.DYNAMIC }?.let { Color(it.top.toInt()) } ?: scheme.background,
+        glassAlpha = if (settings.glass && pal.backdrop != null && settings.preset != ThemePreset.DYNAMIC) pal.glassAlpha else 1f,
+        liquidMotion = settings.motion == com.acecore.app.core.datastore.MotionStyle.LIQUID,
+        deleteEffect = settings.deleteEffect && !(reduceMotion || sysReduce),
     )
+    // Over a backdrop the screens are transparent so it shows through; cards opt in to glass (AceCard, aceGlass).
+    // Menus, dialogs and sheets keep solid colours so they stay readable over anything.
+    val shown = if (tokens.backdrop != null) scheme.copy(background = Color.Transparent) else scheme
     val c = tokens.corner
     val shapes = Shapes(
         extraSmall = RoundedCornerShape(c * 0.35f), small = RoundedCornerShape(c * 0.6f),
@@ -262,7 +257,7 @@ fun AceCoreTheme(settings: ThemeSettings, reduceMotion: Boolean = false, content
     val density = LocalDensity.current
     val scaled = Density(density.density, density.fontScale * settings.textScale.coerceIn(80, 150) / 100f)
     CompositionLocalProvider(LocalAceTokens provides tokens, LocalDensity provides scaled) {
-        MaterialTheme(colorScheme = scheme, typography = aceTypography(), shapes = shapes, content = content)
+        MaterialTheme(colorScheme = shown, typography = aceTypography(), shapes = shapes, content = content)
     }
 }
 

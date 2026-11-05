@@ -1,5 +1,6 @@
 package com.acecore.app.feature
 
+import com.acecore.app.core.designsystem.aceBackdrop
 import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -371,6 +372,8 @@ private fun AceNavHost(nav: NavHostController) {
     NavHost(
         navController = nav,
         startDestination = Routes.HOME,
+        // The theme's backdrop sits behind every screen (screens are transparent on backdrop themes).
+        modifier = Modifier.fillMaxSize().aceBackdrop(),
         enterTransition = { fadeIn(tween(dur)) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(dur), initialOffset = { it / 6 }) },
         exitTransition = { fadeOut(tween(dur / 2)) },
         popEnterTransition = { fadeIn(tween(dur)) },

@@ -2,6 +2,11 @@
 
 package com.acecore.app.feature.library
 
+import com.acecore.app.core.designsystem.vanishEffect
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -153,6 +158,7 @@ fun HomeScreen(
     val catRepo = ctx.container.categories
     val settingsRepo = ctx.container.settings
     val scope = rememberCoroutineScope()
+    val deleteEffect = AceTheme.tokens.deleteEffect
     val launcher = LocalGameLauncher.current
     val all by repo.games.collectAsStateWithLifecycle(initialValue = null)
     val categories by catRepo.categories.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -331,7 +337,10 @@ fun HomeScreen(
             onDismissRequest = { deletingCategory = null },
             title = { Text("Delete “${cw.category.name}”?") },
             text = { Text("The category is removed. Its ${cw.gameCount} game${if (cw.gameCount == 1) "" else "s"} stay in your library, and no files are deleted.") },
-            confirmButton = { TextButton(onClick = { val c = cw.category; deletingCategory = null; scope.launch { catRepo.delete(c) } }) { Text("Delete") } },
+            confirmButton = { TextButton(onClick = { val c = cw.category; deletingCategory = null
+                scope.launch(kotlinx.coroutines.NonCancellable) {
+                    com.acecore.app.core.designsystem.Vanishing.run(listOf(com.acecore.app.core.designsystem.Vanishing.category(c.id)), deleteEffect) { catRepo.delete(c) }
+                } }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { deletingCategory = null }) { Text("Cancel") } },
         )
     }
@@ -366,6 +375,21 @@ fun HomeScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
+        bottomBar = {
+            if (lib.categoryBar == CategoryBarStyle.DOCK && games != null && games.isNotEmpty() && !inSelection) {
+                val glow = AceTheme.tokens.glow
+                val tabs = buildList {
+                    if (showAllTab) add(DockTab("all", Icons.Rounded.Apps, "All games", glow, null, { selectCategory(LibrarySettings.ALL_GAMES) }))
+                    visibleCategories.forEach { cw ->
+                        val c = cw.category
+                        add(DockTab(c.id, CategoryIcons.of(c.icon), c.name, Color(c.color.toInt()), cw.gameCount, { selectCategory(c.id) }, { categoryActions = cw }))
+                    }
+                    if (showOtherTab) add(DockTab("other", Icons.Rounded.Apps, "Other", glow, uncategorized, { selectCategory(LibrarySettings.OTHER) }))
+                }
+                val key: Any = when (selectedCategory) { null -> "all"; LibrarySettings.OTHER -> "other"; else -> selectedCategory }
+                CategoryDock(tabs, key, Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+            }
+        },
         floatingActionButton = {
             // Compact: shrinks to its icon while the library scrolls down, so it covers less artwork.
             if (!inSelection && games?.isNotEmpty() == true) ExtendedFloatingActionButton(
@@ -413,7 +437,7 @@ fun HomeScreen(
             AnimatedVisibility(searchOpen && !inSelection, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 SearchField(query) { query = it }
             }
-            if (games != null && games.isNotEmpty()) {
+            if (games != null && games.isNotEmpty() && lib.categoryBar != CategoryBarStyle.DOCK) {
                 CategoryBar(
                     categories = visibleCategories,
                     total = games.count { !it.hidden || lib.showHidden },
@@ -521,7 +545,11 @@ fun HomeScreen(
         confirmButton = {
             TextButton(onClick = {
                 val ids = selection.toList()
-                scope.launch(kotlinx.coroutines.NonCancellable) { repo.getMany(ids).forEach { repo.remove(it, deleteAceCoreData = false) } }
+                scope.launch(kotlinx.coroutines.NonCancellable) {
+                    com.acecore.app.core.designsystem.Vanishing.run(ids.map { com.acecore.app.core.designsystem.Vanishing.game(it) }, deleteEffect) {
+                        repo.getMany(ids).forEach { repo.remove(it, deleteAceCoreData = false) }
+                    }
+                }
                 confirmBatchRemove = false; selecting = false; selection = emptySet()
             }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
         },
@@ -611,22 +639,67 @@ private fun CategoryBar(
         else -> categories.indexOfFirst { it.category.id == selected } + first
     }
     LaunchedEffect(selIndex) { if (selIndex >= 0) runCatching { state.animateScrollToItem(selIndex) } }
+    val t = AceTheme.tokens
+    // Liquid indicator: one glass pill behind the selected tab that stretches toward a newly selected tab and
+    // settles (each tab reports where it is; the pill follows scrolling without animating).
+    val liquid = t.liquidMotion && !t.reduceMotion
+    val selKey: Any = when (selected) { null -> "all"; LibrarySettings.OTHER -> "other"; else -> selected }
+    val places = remember { androidx.compose.runtime.mutableStateMapOf<Any, androidx.compose.ui.geometry.Rect>() }
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val edges = remember { com.acecore.app.core.designsystem.LiquidEdges() }
+    var lastKey by remember { mutableStateOf<Any?>(null) }
+    var pillTop by remember { mutableStateOf(0f) }
+    var pillBottom by remember { mutableStateOf(0f) }
+    val target = places[selKey]
+    LaunchedEffect(target, selKey) {
+        val r = target ?: return@LaunchedEffect
+        pillTop = r.top; pillBottom = r.bottom
+        if (lastKey == selKey) edges.snap(r.left, r.right)
+        else { lastKey = selKey; edges.moveTo(r.left, r.right, liquid, t.reduceMotion, 1f / t.animationScale.coerceAtLeast(0.25f)) }
+    }
+    val pillColor = t.glow
+    val visibleTarget = target != null
+    Box(
+        Modifier.onGloballyPositioned { origin = it.positionInWindow() }
+            .drawBehind {
+                if (!visibleTarget) return@drawBehind
+                val l = edges.left.value; val r = edges.right.value
+                if (r <= l) return@drawBehind
+                val h = pillBottom - pillTop
+                val radius = androidx.compose.ui.geometry.CornerRadius(h / 2f)
+                drawRoundRect(pillColor.copy(alpha = if (t.isDark) 0.18f else 0.14f), androidx.compose.ui.geometry.Offset(l, pillTop),
+                    androidx.compose.ui.geometry.Size(r - l, h), radius)
+                drawRoundRect(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.White.copy(alpha = if (t.isDark) 0.28f else 0.8f), pillColor.copy(alpha = 0.45f)),
+                        startY = pillTop, endY = pillBottom),
+                    androidx.compose.ui.geometry.Offset(l, pillTop), androidx.compose.ui.geometry.Size(r - l, h), radius,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()),
+                )
+            },
+    ) {
     LazyRow(
         state = state,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(if (style == CategoryBarStyle.PILLS) 8.dp else 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        fun Modifier.place(key: Any) = this.onGloballyPositioned { c ->
+            val w = c.boundsInWindow()
+            places[key] = androidx.compose.ui.geometry.Rect(w.left - origin.x, w.top - origin.y, w.right - origin.x, w.bottom - origin.y)
+        }
         if (showAll) item(key = "all") {
-            CategoryTab(Icons.Rounded.Apps, "All games", if (showCounts) total else null, AceTheme.tokens.glow, selected == null, style, false) { onSelect(null) }
+            CategoryTab(Icons.Rounded.Apps, "All games", if (showCounts) total else null, AceTheme.tokens.glow, selected == null, style, false,
+                liquid = liquid, modifier = Modifier.place("all")) { onSelect(null) }
         }
         items(categories, key = { it.category.id }) { cw ->
             val c = cw.category
             CategoryTab(CategoryIcons.of(c.icon), c.name, if (showCounts) cw.gameCount else null, Color(c.color.toInt()), selected == c.id, style, c.hidden,
-                onLongClick = { onLongPress(cw) }) { onSelect(c.id) }
+                onLongClick = { onLongPress(cw) }, liquid = liquid,
+                modifier = Modifier.place(c.id).vanishEffect(com.acecore.app.core.designsystem.Vanishing.category(c.id) in com.acecore.app.core.designsystem.Vanishing.keys)) { onSelect(c.id) }
         }
         if (otherCount != null) item(key = "other") {
-            CategoryTab(Icons.Rounded.Apps, "Other", if (showCounts) otherCount else null, AceTheme.tokens.glow, selected == LibrarySettings.OTHER, style, false) {
+            CategoryTab(Icons.Rounded.Apps, "Other", if (showCounts) otherCount else null, AceTheme.tokens.glow, selected == LibrarySettings.OTHER, style, false,
+                liquid = liquid, modifier = Modifier.place("other")) {
                 onSelect(LibrarySettings.OTHER)
             }
         }
@@ -637,19 +710,22 @@ private fun CategoryBar(
             IconButton(onClick = onManage) { Icon(Icons.Rounded.Tune, "Manage categories", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
+    }
 }
 
 @Composable
 private fun CategoryTab(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Int?, color: Color, selected: Boolean,
-    style: CategoryBarStyle, hidden: Boolean, onLongClick: (() -> Unit)? = null, onClick: () -> Unit,
+    style: CategoryBarStyle, hidden: Boolean, onLongClick: (() -> Unit)? = null, liquid: Boolean = false,
+    modifier: Modifier = Modifier, onClick: () -> Unit,
 ) {
     val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, label = "tab")
     val mod = when (style) {
-        CategoryBarStyle.PILLS -> Modifier.clip(RoundedCornerShape(50))
-            .background(if (selected) color.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, if (selected) color else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
-        CategoryBarStyle.TABS -> Modifier.clip(RoundedCornerShape(12.dp))
+        // With the liquid indicator the selected tab has no fill of its own: the moving glass pill is its highlight.
+        CategoryBarStyle.PILLS -> modifier.clip(RoundedCornerShape(50))
+            .background(if (selected && !liquid) color.copy(alpha = 0.22f) else if (selected) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, if (selected && !liquid) color else if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(50))
+        CategoryBarStyle.TABS -> modifier.clip(RoundedCornerShape(if (liquid) 50 else 12))
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val indicatorWidth by androidx.compose.animation.core.animateDpAsState(if (selected) 28.dp else 0.dp, label = "indicator")
@@ -677,7 +753,7 @@ private fun CategoryTab(
                 )
             }
         }
-        if (style == CategoryBarStyle.TABS) {
+        if (style == CategoryBarStyle.TABS && !liquid) {
             Spacer(Modifier.height(5.dp))
             Box(Modifier.height(3.dp).width(indicatorWidth).clip(RoundedCornerShape(2.dp)).background(color))
         }
@@ -697,7 +773,7 @@ private fun LibraryContent(
             banner?.let { b -> item(key = "banner") { CategoryBanner(b) { onEditCategoryGames(b) } } }
             items(games, key = { it.id }) { g ->
                 GameListRow(g, selecting, g.id in selection, onClick = { onClick(g) }, onLongClick = { onLongClick(g) },
-                    onDoubleClick = onDoubleClick?.let { d -> { d(g) } }, modifier = Modifier.animateItem())
+                    onDoubleClick = onDoubleClick?.let { d -> { d(g) } }, modifier = Modifier.animateItem().vanishEffect(com.acecore.app.core.designsystem.Vanishing.game(g.id) in com.acecore.app.core.designsystem.Vanishing.keys))
             }
         }
         return
@@ -720,7 +796,7 @@ private fun LibraryContent(
                     items(games, key = { it.id }) { g ->
                         GameTile(
                             game = g, lib = lib.copy(showTitles = true), selected = g.id in selection, selectionMode = selecting,
-                            onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.width(itemW).animateItem(),
+                            onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.width(itemW).animateItem().vanishEffect(com.acecore.app.core.designsystem.Vanishing.game(g.id) in com.acecore.app.core.designsystem.Vanishing.keys),
                             onDoubleClick = onDoubleClick?.let { d -> { d(g) } },
                         )
                     }
@@ -747,7 +823,7 @@ private fun LibraryContent(
             items(games, key = { it.id }) { g ->
                 GameTile(
                     game = g, lib = lib, selected = g.id in selection, selectionMode = selecting,
-                    onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.animateItem(),
+                    onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.animateItem().vanishEffect(com.acecore.app.core.designsystem.Vanishing.game(g.id) in com.acecore.app.core.designsystem.Vanishing.keys),
                     onDoubleClick = onDoubleClick?.let { d -> { d(g) } },
                 )
             }

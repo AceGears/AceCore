@@ -56,6 +56,7 @@ import com.acecore.app.core.datastore.LibrarySettings
 import com.acecore.app.core.designsystem.AceTheme
 import com.acecore.app.core.designsystem.aceGlow
 import com.acecore.app.core.designsystem.pressScale
+import com.acecore.app.core.designsystem.pressLift
 import com.acecore.app.core.model.Engine
 
 /**
@@ -159,7 +160,7 @@ fun GameTile(
     Column(modifier) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(lib.aspect.ratio)
-                .pressScale(interaction)
+                .then(if (com.acecore.app.core.designsystem.AceTheme.tokens.glassAlpha < 1f) Modifier.pressLift(interaction) else Modifier.pressScale(interaction))
                 // Depth from a soft shadow; the accent glow is kept faint (it used to outline every cover in bright red).
                 .shadow(6.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
                 .then(if (lib.coverGlow && playable && !selectionMode) Modifier.aceGlow(borderColor, t.glowIntensity * 0.25f, lib.coverRadius.dp, 8.dp) else Modifier)

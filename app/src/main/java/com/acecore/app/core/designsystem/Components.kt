@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -63,7 +64,7 @@ fun Modifier.aceGlow(color: Color, intensity: Float, corner: Dp, radius: Dp = 14
 @Composable
 fun aceHeroBrush(): Brush {
     val t = AceTheme.tokens
-    val bg = MaterialTheme.colorScheme.background
+    val bg = t.base
     return Brush.verticalGradient(
         0f to t.glow.copy(alpha = 0.34f * t.gradientIntensity).compositeOverSafe(bg),
         0.38f to t.glowAlt.copy(alpha = 0.16f * t.gradientIntensity).compositeOverSafe(bg),
@@ -109,15 +110,89 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, pressed: Float = 
 fun AceCard(modifier: Modifier = Modifier, glow: Boolean = false, content: @Composable () -> Unit) {
     val t = AceTheme.tokens
     val shape = RoundedCornerShape(t.corner)
+    val glass = t.glassAlpha < 1f
     Surface(
         modifier = modifier
             .then(if (glow) Modifier.aceGlow(t.glow, t.glowIntensity * 0.6f, t.corner) else Modifier)
-            .then(if (t.borderWidth > 0.dp) Modifier.border(t.borderWidth, aceBevelEdge(), shape) else Modifier),
+            .then(
+                when {
+                    glass -> Modifier.border(maxOf(t.borderWidth, 1.dp), aceGlassEdge(), shape)
+                    t.borderWidth > 0.dp -> Modifier.border(t.borderWidth, aceBevelEdge(), shape)
+                    else -> Modifier
+                },
+            ),
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = if (glass) aceGlassFill() else MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp,
         content = content,
     )
+}
+
+/** Glass card fill: the card colour, partly see-through over the theme's backdrop (solid without one). */
+@Composable
+fun aceGlassFill(): Color {
+    val t = AceTheme.tokens
+    return MaterialTheme.colorScheme.surfaceContainer.copy(alpha = t.glassAlpha)
+}
+
+/**
+ * Glass edge: a bright sheen on the top edge fading down the sides (light catching the rim of frosted glass), tinted
+ * with the theme's glow at the bottom.
+ */
+@Composable
+fun aceGlassEdge(): Brush {
+    val t = AceTheme.tokens
+    return Brush.verticalGradient(
+        0f to Color.White.copy(alpha = if (t.isDark) 0.22f else 0.9f),
+        0.5f to Color.White.copy(alpha = if (t.isDark) 0.06f else 0.35f),
+        1f to t.glow.copy(alpha = if (t.isDark) 0.22f else 0.25f),
+    )
+}
+
+/** Glass surface for any shape: translucent fill and glass edge (solid card colour when the theme has no backdrop). */
+@Composable
+fun Modifier.aceGlass(shape: Shape): Modifier {
+    val t = AceTheme.tokens
+    return if (t.glassAlpha >= 1f) this.background(MaterialTheme.colorScheme.surfaceContainer, shape)
+    else this.background(aceGlassFill(), shape).border(1.dp, aceGlassEdge(), shape)
+}
+
+/**
+ * The theme's backdrop, drawn behind every screen: a vertical base gradient and soft radial light orbs. Static (no
+ * animation), so it costs one draw per frame of whatever is on top.
+ */
+@Composable
+fun Modifier.aceBackdrop(): Modifier {
+    val t = AceTheme.tokens
+    val b = t.backdrop ?: return this.background(t.base)
+    val intensity = 0.55f + 0.45f * t.gradientIntensity
+    return this.drawBehind {
+        drawRect(Brush.verticalGradient(listOf(Color(b.top.toInt()), Color(b.bottom.toInt()))))
+        val span = maxOf(size.width, size.height)
+        for (o in b.orbs) {
+            val c = androidx.compose.ui.geometry.Offset(o.x * size.width, o.y * size.height)
+            val r = o.radius * span
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(Color(o.color.toInt()).copy(alpha = (if (t.isDark) 0.55f else 0.7f) * intensity), Color.Transparent),
+                    center = c, radius = r,
+                ),
+                radius = r, center = c,
+            )
+        }
+    }
+}
+
+/**
+ * Press lift (the glass dashboard's hover): the element rises a few dp while pressed, then settles with a spring.
+ * Respects reduce-motion.
+ */
+@Composable
+fun Modifier.pressLift(interaction: MutableInteractionSource, lift: Dp = 4.dp): Modifier {
+    val isPressed by interaction.collectIsPressedAsState()
+    val reduce = AceTheme.tokens.reduceMotion
+    val y by animateFloatAsState(if (isPressed && !reduce) 1f else 0f, spring(dampingRatio = 0.55f, stiffness = 500f), label = "lift")
+    return this.graphicsLayer { translationY = -lift.toPx() * y; scaleX = 1f + 0.015f * y; scaleY = 1f + 0.015f * y }
 }
 
 @Composable

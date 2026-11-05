@@ -141,7 +141,7 @@ fun LaunchFileBrowser(game: GameEntity, onDismiss: () -> Unit, onSaved: () -> Un
     val autoCandidate = detection?.launchCandidates?.firstOrNull { it.playable }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize(), color = com.acecore.app.core.designsystem.AceTheme.tokens.base) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close") }

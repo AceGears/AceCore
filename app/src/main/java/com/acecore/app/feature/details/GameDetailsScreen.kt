@@ -130,7 +130,7 @@ fun GameDetailsScreen(
         val wide = maxWidth >= 720.dp
         Box(Modifier.fillMaxWidth().height(if (wide) 220.dp else 300.dp)) {
             CoverImage(g, Modifier.fillMaxSize().blur(28.dp))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.25f), MaterialTheme.colorScheme.background))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.25f), com.acecore.app.core.designsystem.AceTheme.tokens.base))))
         }
         if (wide) {
             Row(Modifier.fillMaxSize()) {
@@ -200,7 +200,7 @@ private fun Hero(g: GameEntity, coverWidth: Dp, vertical: Boolean) {
             // Explicit colour (the header isn't inside a Surface, so the default content colour would be black) and a
             // soft shadow so the title stays readable over any blurred cover, in dark and light themes.
             val onBg = MaterialTheme.colorScheme.onBackground
-            val shadow = androidx.compose.ui.graphics.Shadow(MaterialTheme.colorScheme.background.copy(alpha = 0.85f), blurRadius = 12f)
+            val shadow = androidx.compose.ui.graphics.Shadow(com.acecore.app.core.designsystem.AceTheme.tokens.base.copy(alpha = 0.85f), blurRadius = 12f)
             val titleStyle = (if (g.title.length > 28) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall)
                 .copy(color = onBg, fontWeight = FontWeight.ExtraBold, shadow = shadow)
             Text(g.title, style = titleStyle, maxLines = 4, overflow = TextOverflow.Ellipsis,

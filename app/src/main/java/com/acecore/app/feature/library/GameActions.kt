@@ -242,6 +242,7 @@ fun rememberCoverPicker(game: GameEntity, onPicked: () -> Unit = {}): () -> Unit
 
 @Composable
 fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRemoved: () -> Unit = {}) {
+    val deleteEffect = com.acecore.app.core.designsystem.AceTheme.tokens.deleteEffect
     val ctx = LocalContext.current
     val repo = ctx.container.games
     val scope = rememberCoroutineScope()
@@ -292,7 +293,12 @@ fun GameDialogs(game: GameEntity, dialog: GameDialog, onClose: () -> Unit, onRem
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { scope.launch(kotlinx.coroutines.NonCancellable) { repo.remove(game, deleteData) }; onClose(); onRemoved() }) {
+                    TextButton(onClick = {
+                        scope.launch(kotlinx.coroutines.NonCancellable) {
+                            com.acecore.app.core.designsystem.Vanishing.run(listOf(com.acecore.app.core.designsystem.Vanishing.game(game.id)), deleteEffect) { repo.remove(game, deleteData) }
+                        }
+                        onClose(); onRemoved()
+                    }) {
                         Text("Remove", color = MaterialTheme.colorScheme.error)
                     }
                 },

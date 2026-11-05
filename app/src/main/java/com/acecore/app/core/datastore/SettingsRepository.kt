@@ -21,13 +21,23 @@ import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "acecore_settings")
 
-enum class ThemePreset(val label: String) {
+/**
+ * Theme families. Every theme has a dark and a light version ([ThemeMode] picks which). SIGNATURE_LIGHT is kept only so
+ * older saved settings still load: it reads as AceArcade Steel in light mode.
+ */
+enum class ThemePreset(val label: String, val premium: Boolean = false) {
+    // Premium themes: translucent "glass" cards over a coloured backdrop.
+    AQUA_GLASS("Aqua Glass", true),
+    VIOLET_PULSE("Violet Pulse", true),
+    JADE_GLASS("Jade Glass", true),
+    SANDSTONE("Sandstone", true),
+    PLASMA("Plasma", true),
     SIGNATURE_DARK("AceArcade Steel"),
     SIGNATURE_LIGHT("AceArcade Steel Light"),
     NEON_CLASSIC("AceArcade Neon (classic)"),
     NEON_PURPLE("Neon Purple"),
     CYBER_BLUE("Cyber Blue"),
-    MINIMAL_DARK("Minimal Dark"),
+    MINIMAL_DARK("Minimal"),
     AMOLED("AMOLED Black"),
     MIDNIGHT_BLUE("Midnight Blue"),
     CRIMSON_RED("Crimson Red"),
@@ -49,7 +59,7 @@ enum class CoverAspect(val label: String, val ratio: Float) {
     WIDE("16:9 Wide", 1.7778f),
 }
 
-enum class CategoryBarStyle(val label: String) { TABS("Tabs"), PILLS("Pills") }
+enum class CategoryBarStyle(val label: String) { TABS("Tabs"), PILLS("Pills"), DOCK("Floating dock") }
 
 enum class LibrarySort(val label: String) {
     ALPHABETICAL("Alphabetical"), RECENTLY_ADDED("Recently added"), RECENTLY_PLAYED("Recently played"),
@@ -58,6 +68,12 @@ enum class LibrarySort(val label: String) {
 
 /** What tapping a game in the library does. */
 enum class TapAction(val label: String) { PLAY("Play the game"), DETAILS("Open its details (double-tap plays)") }
+
+/** Light or dark version of the theme. */
+enum class ThemeMode(val label: String) { SYSTEM("Follow system"), LIGHT("Light"), DARK("Dark") }
+
+/** How selection indicators move: a liquid pill that stretches toward its target, or a plain slide. */
+enum class MotionStyle(val label: String) { LIQUID("Liquid"), CLASSIC("Classic") }
 
 enum class NavStyle(val label: String) { LABELED("Icons and labels"), ICONS("Icons only") }
 
@@ -79,6 +95,12 @@ data class ThemeSettings(
     val textScale: Int = 100,
     val animationSpeed: Int = 100,
     val navStyle: NavStyle = NavStyle.LABELED,
+    val mode: ThemeMode = ThemeMode.SYSTEM,
+    val motion: MotionStyle = MotionStyle.LIQUID,
+    /** Shake-and-dissolve when games or categories are removed. */
+    val deleteEffect: Boolean = true,
+    /** Translucent glass cards on themes that have a backdrop (off: solid cards on the same colours). */
+    val glass: Boolean = true,
 )
 
 data class LibrarySettings(
@@ -152,6 +174,10 @@ class SettingsRepository(private val context: Context) {
         val textScale = intPreferencesKey("theme.textScale")
         val animSpeed = intPreferencesKey("theme.animSpeed")
         val navStyle = stringPreferencesKey("theme.navStyle")
+        val themeMode = stringPreferencesKey("theme.mode")
+        val motion = stringPreferencesKey("theme.motion")
+        val deleteEffect = booleanPreferencesKey("theme.deleteEffect")
+        val glass = booleanPreferencesKey("theme.glass")
 
         val layout = stringPreferencesKey("library.layout")
         val coverWidth = intPreferencesKey("library.coverWidth")
@@ -189,6 +215,17 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun current(): AppSettings = settings.first()
 
+    /**
+     * Mode for settings saved before themes had light and dark versions: Steel with "follow system" kept following it,
+     * Steel Light stays light, and every other theme (all dark then) stays dark.
+     */
+    private fun legacyMode(preset: ThemePreset, followSystem: Boolean): ThemeMode = when {
+        preset == ThemePreset.SIGNATURE_LIGHT -> if (followSystem) ThemeMode.SYSTEM else ThemeMode.LIGHT
+        preset == ThemePreset.SIGNATURE_DARK -> if (followSystem) ThemeMode.SYSTEM else ThemeMode.DARK
+        preset == ThemePreset.DYNAMIC -> ThemeMode.SYSTEM
+        else -> ThemeMode.DARK
+    }
+
     private fun read(p: Preferences): AppSettings {
         val d = ThemeSettings()
         val theme = ThemeSettings(
@@ -208,7 +245,11 @@ class SettingsRepository(private val context: Context) {
             textScale = p[K.textScale] ?: d.textScale,
             animationSpeed = p[K.animSpeed] ?: d.animationSpeed,
             navStyle = enumOr(p[K.navStyle], d.navStyle),
-        )
+            mode = p[K.themeMode]?.let { enumOr(it, d.mode) } ?: legacyMode(enumOr(p[K.preset], d.preset), p[K.followSystem] ?: true),
+            motion = enumOr(p[K.motion], d.motion),
+            deleteEffect = p[K.deleteEffect] ?: d.deleteEffect,
+            glass = p[K.glass] ?: d.glass,
+        ).let { if (it.preset == ThemePreset.SIGNATURE_LIGHT) it.copy(preset = ThemePreset.SIGNATURE_DARK) else it }
         val l = LibrarySettings()
         val library = LibrarySettings(
             layout = enumOr(p[K.layout], l.layout),
@@ -267,6 +308,7 @@ class SettingsRepository(private val context: Context) {
             p[K.surfaceOpacity] = t.surfaceOpacity; p[K.gradient] = t.gradientIntensity; p[K.glow] = t.glowIntensity
             p[K.border] = t.borderThickness; p[K.corner] = t.cornerRadius; p[K.textScale] = t.textScale
             p[K.animSpeed] = t.animationSpeed; p[K.navStyle] = t.navStyle.name
+            p[K.themeMode] = t.mode.name; p[K.motion] = t.motion.name; p[K.deleteEffect] = t.deleteEffect; p[K.glass] = t.glass
         }
     }
 
@@ -323,7 +365,7 @@ class SettingsRepository(private val context: Context) {
         for ((k, v) in values) {
             when {
                 k.startsWith("config.") || k.startsWith("engine.") || k == K.preset.name || k == K.layout.name ||
-                    k == K.sort.name || k == K.navStyle.name || k == K.aspect.name || k == K.categoryBar.name || k == K.tapAction.name -> p[stringPreferencesKey(k)] = v
+                    k == K.sort.name || k == K.navStyle.name || k == K.themeMode.name || k == K.motion.name || k == K.aspect.name || k == K.categoryBar.name || k == K.tapAction.name -> p[stringPreferencesKey(k)] = v
                 k.startsWith("runtime.") -> Unit // device-specific, never restored onto another device
                 k == "library.selectedCategory" -> Unit // category ids differ between databases
                 v == "true" || v == "false" -> p[booleanPreferencesKey(k)] = v.toBoolean()
