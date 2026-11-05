@@ -45,6 +45,7 @@ static uint32_t read32(unsigned long long a) {
 int main(int argc, char **argv) {
     const char *corep = NULL, *rom = NULL, *sys = "/tmp", *save = "/tmp", *size = NULL, *pixel = NULL, *cheat = NULL;
     const char *marker = NULL, *cheat_pixel = NULL, *sram = NULL, *mem_word = NULL;
+    const char *poke[8]; int npoke = 0;
     unsigned long long counter = 0;
     int frames = 120, do_state = 0, dump = 0;
     for (int i = 1; i < argc; i++) {
@@ -62,6 +63,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--cheat-pixel")) cheat_pixel = v, i++;
         else if (!strcmp(a, "--sram")) sram = v, i++;
         else if (!strcmp(a, "--mem-word")) mem_word = v, i++;
+        else if (!strcmp(a, "--poke")) { if (npoke < 8) poke[npoke++] = v; i++; }
         else if (!strcmp(a, "--state")) do_state = 1;
         else if (!strcmp(a, "--dump-maps")) dump = 1;
         else if (!strcmp(a, "--option") && v) {
@@ -96,6 +98,18 @@ int main(int argc, char **argv) {
     if (counter) {
         uint32_t c1 = read32(counter);
         CHECK(c1 != 0xDEADBEEF && c1 != c0, "game running: counter at %08llX %08X -> %08X", counter, c0, c1);
+    }
+
+    /* --poke ADDR=VALUE: write a 32-bit word through the memory maps and read it back (what AceArcade's Pokémon
+     * tools do with the party and bag), then restore the old value. */
+    for (int k = 0; k < npoke; k++) {
+        unsigned long long pa; unsigned pv;
+        sscanf(poke[k], "%llx=%x", &pa, &pv);
+        uint32_t old = read32(pa), nv = pv;
+        size_t w = fe_mem_write(pa, &nv, 4);
+        uint32_t back = read32(pa);
+        CHECK(w == 4 && back == pv, "memory write/read at %08llX: wrote %08X, read %08X", pa, pv, back);
+        fe_mem_write(pa, &old, 4);
     }
 
     if (cheat && marker) {

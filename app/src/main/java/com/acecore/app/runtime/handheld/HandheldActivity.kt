@@ -125,6 +125,12 @@ class HandheldActivity : ComponentActivity() {
     private var paused by mutableStateOf(false)
     private var confirmLoad by mutableStateOf(false)
     private var editingLayout by mutableStateOf(false)
+    /** Pokémon tools, for the original Generation 3 games identified by SHA-1 (null otherwise). */
+    private var pokemonTools by mutableStateOf<com.acecore.app.core.handheld.pokemon.Gen3Tools?>(null)
+    private var pokemonOpen by mutableStateOf(false)
+    /** Snapshot taken before the first Pokémon-tools change, for "Undo all changes". */
+    @Volatile private var pokemonUndo: ByteArray? = null
+    private var pokemonUndoAvailable by mutableStateOf(false)
     /** Quick toolbar (edge swipe): side it slides in from (-1 left, 1 right), 0 = hidden; serial restarts its auto-hide. */
     private var toolbarSide by mutableIntStateOf(0)
     private var toolbarSerial by mutableIntStateOf(0)
@@ -177,6 +183,7 @@ class HandheldActivity : ComponentActivity() {
     private fun toggleMenu() {
         when {
             confirmLoad -> confirmLoad = false
+            pokemonOpen -> { pokemonOpen = false; updateRunning() }
             toolbarSide != 0 -> toolbarSide = 0
             editingLayout -> editingLayout = false
             paused -> paused = false
@@ -189,7 +196,7 @@ class HandheldActivity : ComponentActivity() {
     }
 
     private fun updateRunning() {
-        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && !paused && !confirmLoad && !editingLayout && failure == null && hasWindowFocusCompat)
+        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && !paused && !confirmLoad && !editingLayout && !pokemonOpen && failure == null && hasWindowFocusCompat)
     }
     private var hasWindowFocusCompat = true
 
@@ -355,6 +362,28 @@ class HandheldActivity : ComponentActivity() {
         }.start()
     }
 
+    // ------------------------------------------------------------------ Pokémon tools
+
+    private fun setupPokemonTools(c: HandheldCore, sha1: String?) {
+        if (spec.platform != HandheldPlatform.GBA) return
+        val game = com.acecore.app.core.handheld.pokemon.Gen3Game.bySha1(sha1) ?: return
+        val romFile = File(spec.romPath)
+        val mem = object : com.acecore.app.core.handheld.pokemon.Gen3Memory {
+            override fun read(address: Long, length: Int) = c.readMemory(address, length)?.takeIf { it.size == length }
+            override fun write(address: Long, data: ByteArray) = c.writeMemory(address, data) == data.size
+        }
+        val rom = com.acecore.app.core.handheld.pokemon.Gen3Rom { address, length ->
+            runCatching {
+                java.io.RandomAccessFile(romFile, "r").use { f ->
+                    val off = address - 0x08000000L
+                    if (off < 0 || off + length > f.length()) null else ByteArray(length).also { f.seek(off); f.readFully(it) }
+                }
+            }.getOrNull()
+        }
+        val tools = com.acecore.app.core.handheld.pokemon.Gen3Tools(game, mem, rom)
+        runOnUiThread { pokemonTools = tools }
+    }
+
     // ------------------------------------------------------------------ cheats
 
     private fun setupCheats(c: HandheldCore) {
@@ -371,6 +400,7 @@ class HandheldActivity : ComponentActivity() {
                 ident = db?.identify(spec.platform, hashes, header)
             }
             val store = CheatStore(CheatStore.file(gameDataDir))
+            setupPokemonTools(c, sha1)
             val ctl = CheatController(spec.platform, store, db, ident, sha1, spec.title)
             cheats = ctl
             applyCheats(showMessage = false)
@@ -523,7 +553,7 @@ class HandheldActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ gestures
 
-    private val panelOpen get() = menuOpen || displayOpen || statesOpen || cheatsOpen || paused || confirmLoad || editingLayout || failure != null
+    private val panelOpen get() = menuOpen || displayOpen || statesOpen || cheatsOpen || paused || confirmLoad || editingLayout || pokemonOpen || failure != null
 
     private fun onGesture(g: com.acecore.app.core.input.Gesture) {
         if (!started || panelOpen) return
@@ -621,6 +651,15 @@ class HandheldActivity : ComponentActivity() {
             if (cheatsOpen) cheats?.let { CheatMenu(this@HandheldActivity, it, accent, cheatRevision) }
             if (menuOpen) MainMenu(accent)
             if (paused) PausedBanner(accent)
+            pokemonTools?.let { t ->
+                if (pokemonOpen) PokemonToolsPanel(
+                    tools = t, accent = accent,
+                    onBeforeFirstChange = { if (pokemonUndo == null) { pokemonUndo = core?.saveState(); runOnUiThread { pokemonUndoAvailable = pokemonUndo != null } } },
+                    canUndo = pokemonUndoAvailable,
+                    onUndo = { pokemonUndo?.let { data -> core?.loadState(data) }; pokemonUndo = null; runOnUiThread { pokemonUndoAvailable = false } },
+                    onClose = { pokemonOpen = false; updateRunning() },
+                )
+            }
             if (toolbarSide != 0 && f == null && !panelOpen) QuickToolbar(accent, toolbarSide)
             if (confirmLoad) Panel(accent, { confirmLoad = false; updateRunning() }) {
                 Text("Load the quick save?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -729,6 +768,7 @@ class HandheldActivity : ComponentActivity() {
             MenuRow("Quick load", accent) { loadState(0); menuOpen = false; updateRunning() }
             MenuRow("Save states…", accent) { menuOpen = false; statesOpen = true }
             MenuRow("Cheats…", accent) { menuOpen = false; cheatsOpen = true; updateRunning() }
+            if (pokemonTools != null) MenuRow("Pokémon tools (party, bag)…", accent) { menuOpen = false; pokemonOpen = true; updateRunning() }
             MenuRow("Display…", accent) { menuOpen = false; displayOpen = true; updateRunning() }
             MenuRow(if (fastForward) "Normal speed" else "Fast-forward (${formatSpeed(spec.fastForwardSpeed)})", accent) { toggleFastForward(); menuOpen = false; updateRunning() }
             MenuRow("Screenshot", accent) { menuOpen = false; updateRunning(); screen.postDelayed({ screenshot() }, 150) }

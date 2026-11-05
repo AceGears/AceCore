@@ -16,7 +16,8 @@ MGOPT=(--option mgba_use_bios=OFF --option mgba_sgb_borders=OFF)
 
 run "GBA: picture, sound, CodeBreaker cheat, save state, battery save" --core "$MG" --rom "$T/roms/acetest.gba" "${MGOPT[@]}" \
   --size 240x160 --pixel 120,80=FF00FF --counter 0x02000000 --cheat "32000100+0042" --marker 02000100=42 \
-  --cheat-pixel 120,80=00FB00 --state --sram 'ACE!' || fails=$((fails+1))
+  --cheat-pixel 120,80=00FB00 --state --sram 'ACE!' \
+  --poke 02024284=5EED1234 --poke 03004360=5EED5678 --poke 0203988C=02030000 || fails=$((fails+1))
 GSA=$(python3 "$HERE/gsa_encrypt.py" 02000100 00000042)
 run "GBA: encrypted GameShark (v1) cheat $GSA" --core "$MG" --rom "$T/roms/acetest.gba" "${MGOPT[@]}" \
   --cheat "$GSA" --marker 02000100=42 --cheat-pixel 120,80=00FB00 || fails=$((fails+1))
