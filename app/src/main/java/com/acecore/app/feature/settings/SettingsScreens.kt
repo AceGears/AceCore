@@ -300,7 +300,7 @@ private fun LibrarySection(s: AppSettings, onCategories: () -> Unit) {
         }
     }
     SliderRow("Cover size", "Used when columns are set to Auto.", lib.coverWidth, 80..200, " dp") { v -> update { it.copy(coverWidth = v) } }
-    ChoiceRow("Columns", null, listOf("0" to "Auto") + (2..10).map { "$it" to "$it" }, lib.columns.toString()) { v -> update { it.copy(columns = v.toInt()) } }
+    ChoiceRow("Columns", null, listOf("0" to "Auto") + (2..6).map { "$it" to "$it" }, lib.columns.toString()) { v -> update { it.copy(columns = v.toInt()) } }
     ChoiceRow("Cover shape", null, com.acecore.app.core.datastore.CoverAspect.entries.map { it.name to it.label }, lib.aspect.name) { v ->
         update { it.copy(aspect = com.acecore.app.core.datastore.CoverAspect.valueOf(v)) }
     }

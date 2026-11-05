@@ -2,6 +2,7 @@
 
 package com.acecore.app.feature.library
 
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -427,9 +428,27 @@ fun HomeScreen(
                     onLongPress = { categoryActions = it },
                 )
             }
+            // Category change: the new games slide in from the side of the new tab (a fade only, or nothing, with reduced motion).
+            val tokens = AceTheme.tokens
+            val tabIndex = tabOrder.indexOf(selectedCategory)
+            var prevIndex by remember { mutableStateOf(tabIndex) }
+            val enter = remember { androidx.compose.animation.core.Animatable(1f) }
+            val direction = if (tabIndex >= prevIndex) 1f else -1f
+            LaunchedEffect(tabIndex) {
+                if (tabIndex != prevIndex && !tokens.reduceMotion) {
+                    enter.snapTo(0f)
+                    enter.animateTo(1f, androidx.compose.animation.core.tween((240 * tokens.animationScale).toInt().coerceAtLeast(1)))
+                }
+                prevIndex = tabIndex
+            }
             Box(
                 Modifier.weight(1f).nestedScroll(fabScroll)
-                    .then(if (lib.swipeCategories && !inSelection && query.isBlank() && tabOrder.size > 1) Modifier.categorySwipe(selectedCategory to tabOrder, ::stepCategory) else Modifier),
+                    .graphicsLayer {
+                        val e = enter.value
+                        alpha = 0.35f + 0.65f * e
+                        translationX = (1f - e) * direction * 32.dp.toPx()
+                    }
+                    .then(if (lib.swipeCategories && lib.layout != LibraryLayout.CAROUSEL && !inSelection && query.isBlank() && tabOrder.size > 1) Modifier.categorySwipe(selectedCategory to tabOrder, ::stepCategory) else Modifier),
             ) {
                 when {
                     games == null -> Unit
@@ -683,6 +702,33 @@ private fun LibraryContent(
         }
         return
     }
+    if (lib.layout == LibraryLayout.CAROUSEL) {
+        Column(Modifier.fillMaxSize()) {
+            banner?.let { b -> Box(Modifier.padding(horizontal = 16.dp)) { CategoryBanner(b) { onEditCategoryGames(b) } } }
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).padding(bottom = 90.dp)) {
+                // One large cover at a time, snapping to the centre; the neighbours peek in at the sides.
+                val itemW = minOf(maxWidth * 0.58f, maxHeight * 0.62f, 340.dp)
+                val state = androidx.compose.foundation.lazy.rememberLazyListState()
+                androidx.compose.foundation.lazy.LazyRow(
+                    state = state,
+                    flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(state),
+                    contentPadding = PaddingValues(horizontal = (maxWidth - itemW) / 2),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(games, key = { it.id }) { g ->
+                        GameTile(
+                            game = g, lib = lib.copy(showTitles = true), selected = g.id in selection, selectionMode = selecting,
+                            onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.width(itemW).animateItem(),
+                            onDoubleClick = onDoubleClick?.let { d -> { d(g) } },
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sizeFactor = when (lib.layout) { LibraryLayout.COMPACT -> 0.72f; LibraryLayout.LARGE -> 1.45f; else -> 1f }
         val auto = ((maxWidth - 32.dp) / ((lib.coverWidth * sizeFactor).dp + lib.spacing.dp)).toInt()
@@ -691,7 +737,7 @@ private fun LibraryContent(
             columns = GridCells.Fixed(columns),
             modifier = Modifier.fillMaxSize().then(
                 // Spread two fingers for bigger covers (fewer columns), pinch for smaller ones.
-                if (lib.pinchGrid) Modifier.pinchSteps(columns) { step -> (columns - step).coerceIn(2, 10).let { if (it != columns) onColumns(it) } } else Modifier,
+                if (lib.pinchGrid) Modifier.pinchSteps(columns) { step -> (columns - step).coerceIn(2, 6).let { if (it != columns) onColumns(it) } } else Modifier,
             ),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 110.dp),
             horizontalArrangement = Arrangement.spacedBy(lib.spacing.dp),
