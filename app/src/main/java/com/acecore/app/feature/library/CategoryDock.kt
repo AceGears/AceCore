@@ -61,6 +61,7 @@ private val BAR_HEIGHT = 64.dp
 private val BUBBLE = 48.dp
 private val RISE = 22.dp // how far the bubble rises above the bar's top edge
 private val SLOT_MIN = 64.dp
+private val NOTCH_HALF = BUBBLE / 2 + 18.dp // half-width of the notch along the bar's top edge
 
 /**
  * Floating category dock (from the reference "glassy navigation tabs"): a glass bar whose top edge dips into a
@@ -77,15 +78,21 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, modifier: Modif
     val index = tabs.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
     val glassFill = aceGlassFill().let { if (t.glassAlpha >= 1f) it else it.copy(alpha = (it.alpha + 0.12f).coerceAtMost(1f)) }
     val edgeTop = Color.White.copy(alpha = if (t.isDark) 0.24f else 0.9f)
-    val glow = t.glow
+    val selColor = tabs[index].color
     BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp)) {
-        val slot = maxOf(SLOT_MIN, maxWidth / tabs.size)
-        val contentWidth = slot * tabs.size
+        // The notch must stay on the bar's straight top edge, clear of the rounded ends: the first and last slots are
+        // inset so a bubble there still has a full notch (corner radius + notch half-width from each end).
+        val reach = BAR_HEIGHT / 2 + NOTCH_HALF
+        var slot = maxOf(SLOT_MIN, maxWidth / tabs.size)
+        var pad = maxOf(0.dp, reach - slot / 2)
+        repeat(2) { slot = maxOf(SLOT_MIN, (maxWidth - pad * 2) / tabs.size); pad = maxOf(0.dp, reach - slot / 2) }
+        val contentWidth = slot * tabs.size + pad * 2
         val scroll = rememberScrollState()
         val slotPx = with(density) { slot.toPx() }
-        val cx = remember { Animatable(slotPx * (index + 0.5f)) }
-        LaunchedEffect(index, slotPx) {
-            val target = slotPx * (index + 0.5f)
+        val padPx = with(density) { pad.toPx() }
+        val cx = remember { Animatable(padPx + slotPx * (index + 0.5f)) }
+        LaunchedEffect(index, slotPx, padPx) {
+            val target = padPx + slotPx * (index + 0.5f)
             if (t.reduceMotion) cx.snapTo(target)
             else cx.animateTo(target, if (t.liquidMotion) spring(dampingRatio = 0.62f, stiffness = 320f) else spring(dampingRatio = 1f, stiffness = 900f))
             // Keep the selected slot in view when the dock scrolls.
@@ -99,15 +106,17 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, modifier: Modif
                         val top = RISE.toPx()
                         val r = BUBBLE.toPx() / 2f
                         val depth = 2 * r + 6.dp.toPx() - top // dip so the bubble sits in it with a 6 dp gap
-                        val half = r + 18.dp.toPx() // half-width of the notch
-                        val x = cx.value
+                        val half = NOTCH_HALF.toPx()
                         val corner = (BAR_HEIGHT / 2).toPx()
                         val w = size.width; val h = size.height
+                        // Mid-animation overshoot can't push the notch into a rounded end either.
+                        val x = cx.value.coerceIn(corner + half, w - corner - half)
                         val path = Path().apply {
                             moveTo(corner, top)
-                            lineTo((x - half).coerceAtLeast(corner), top)
-                            cubicTo(x - half * 0.55f, top, x - r * 0.95f, top + depth, x, top + depth)
-                            cubicTo(x + r * 0.95f, top + depth, x + half * 0.55f, top, (x + half).coerceAtMost(w - corner), top)
+                            lineTo(x - half, top)
+                            // Smooth S-curves down into the dip and back up (tangent to the top edge at both ends).
+                            cubicTo(x - half * 0.5f, top, x - r * 1.05f, top + depth, x, top + depth)
+                            cubicTo(x + r * 1.05f, top + depth, x + half * 0.5f, top, x + half, top)
                             lineTo(w - corner, top)
                             arcTo(androidx.compose.ui.geometry.Rect(w - 2 * corner, top, w, h), -90f, 180f, false)
                             lineTo(corner, h)
@@ -115,21 +124,25 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, modifier: Modif
                             close()
                         }
                         drawPath(path, glassFill)
-                        drawPath(path, Brush.verticalGradient(listOf(edgeTop, glow.copy(alpha = 0.35f)), startY = top, endY = h), style = Stroke(1.dp.toPx()))
-                        // Underglow on the notch, like light pooling under the bubble.
-                        drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.28f * (0.4f + t.glowIntensity)), Color.Transparent), Offset(x, top + depth), r * 1.6f),
-                            r * 1.6f, Offset(x, top + depth))
+                        drawPath(path, Brush.verticalGradient(listOf(edgeTop, edgeTop.copy(alpha = edgeTop.alpha * 0.35f)), startY = top, endY = h), style = Stroke(1.dp.toPx()))
+                        // Underglow in the notch, in the selected category's colour (light pooling under the bubble).
+                        drawCircle(Brush.radialGradient(listOf(selColor.copy(alpha = 0.22f * (0.4f + t.glowIntensity)), Color.Transparent), Offset(x, top + depth), r * 1.5f),
+                            r * 1.5f, Offset(x, top + depth))
                     },
             ) {
                 // The bubble with the selected category's icon.
                 val sel = tabs[index]
                 Box(
-                    Modifier.offset { IntOffset((cx.value - BUBBLE.toPx() / 2f).roundToInt(), 0) }.size(BUBBLE)
+                    Modifier.offset {
+                        val edge = (BAR_HEIGHT / 2).toPx() + NOTCH_HALF.toPx()
+                        val x = cx.value.coerceIn(edge, contentWidth.toPx() - edge)
+                        IntOffset((x - BUBBLE.toPx() / 2f).roundToInt(), 0)
+                    }.size(BUBBLE)
                         .aceGlow(sel.color, t.glowIntensity, BUBBLE / 2, 12.dp)
                         .background(Brush.verticalGradient(listOf(sel.color.copy(alpha = 0.95f), sel.color.copy(alpha = 0.7f))), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) { Icon(sel.icon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
-                Row(Modifier.offset(y = RISE).height(BAR_HEIGHT), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.offset(x = pad, y = RISE).height(BAR_HEIGHT), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == index
                         Column(
@@ -140,15 +153,16 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, modifier: Modif
                                     onLongClick = tab.onLongClick?.let { lc -> { haptic.performHapticFeedback(HapticFeedbackType.LongPress); lc() } },
                                 ),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = if (selected) Arrangement.Bottom else Arrangement.Center,
+                            verticalArrangement = Arrangement.Bottom,
                         ) {
-                            // The selected icon lives in the bubble; its slot keeps the label, lowered under the notch.
-                            if (!selected) Icon(tab.icon, tab.label, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                            // Every label sits on the same line at the bottom; the selected icon lives in the bubble.
+                            if (!selected) Icon(tab.icon, tab.label, tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 3.dp).size(22.dp))
                             Text(
                                 tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 color = if (selected) tab.color else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = if (selected) 7.dp else 0.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = 9.dp),
                             )
                         }
                     }
