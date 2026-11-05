@@ -47,10 +47,13 @@ import kotlinx.coroutines.launch
  * where it comes from; editing writes to [scope], and the reset icon removes this layer's override.
  */
 @Composable
-fun ConfigEditor(keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSource, engine: Engine? = null, onSet: (ConfigKey, String?) -> Unit) {
+fun ConfigEditor(
+    keys: List<ConfigKey>, config: LayeredConfig, scope: ConfigSource, engine: Engine? = null, showSectionTitles: Boolean = true,
+    onSet: (ConfigKey, String?) -> Unit,
+) {
     val handheld = engine?.family == com.acecore.app.core.model.EngineFamily.HANDHELD
     keys.groupBy { it.section }.forEach { (section, list) ->
-        SettingsGroupTitle(section)
+        if (showSectionTitles) SettingsGroupTitle(section)
         list.forEach { key ->
             val r = config.resolve(key)
             val own = r.source == scope

@@ -53,6 +53,9 @@ enum class LibrarySort(val label: String) {
     MOST_PLAYED("Most played"), ENGINE("Engine"), CUSTOM("Custom order"),
 }
 
+/** What tapping a game in the library does. */
+enum class TapAction(val label: String) { PLAY("Play the game"), DETAILS("Open its details (double-tap plays)") }
+
 enum class NavStyle(val label: String) { LABELED("Icons and labels"), ICONS("Icons only") }
 
 data class ThemeSettings(
@@ -99,6 +102,11 @@ data class LibrarySettings(
     val showAllGames: Boolean = false,
     /** Download box art for identified Game Boy / GBA / DS ROMs that have none (libretro thumbnail server). Off by default. */
     val onlineCovers: Boolean = false,
+    /** Swipe left / right over the games to switch categories. */
+    val swipeCategories: Boolean = true,
+    /** Pinch the grid to make covers bigger or smaller. */
+    val pinchGrid: Boolean = true,
+    val tapAction: TapAction = TapAction.PLAY,
 ) {
     companion object {
         const val ALL_GAMES = -1L
@@ -160,6 +168,9 @@ class SettingsRepository(private val context: Context) {
         val showCategoryCounts = booleanPreferencesKey("library.showCategoryCounts")
         val showAllGames = booleanPreferencesKey("library.showAllGames")
         val onlineCovers = booleanPreferencesKey("library.onlineCovers")
+        val swipeCategories = booleanPreferencesKey("library.swipeCategories")
+        val pinchGrid = booleanPreferencesKey("library.pinchGrid")
+        val tapAction = stringPreferencesKey("library.tapAction")
 
         val reduceMotion = booleanPreferencesKey("app.reduceMotion")
         val webDebugging = booleanPreferencesKey("app.webDebugging")
@@ -215,6 +226,9 @@ class SettingsRepository(private val context: Context) {
             showCategoryCounts = p[K.showCategoryCounts] ?: l.showCategoryCounts,
             showAllGames = p[K.showAllGames] ?: l.showAllGames,
             onlineCovers = p[K.onlineCovers] ?: l.onlineCovers,
+            swipeCategories = p[K.swipeCategories] ?: l.swipeCategories,
+            pinchGrid = p[K.pinchGrid] ?: l.pinchGrid,
+            tapAction = enumOr(p[K.tapAction], l.tapAction),
         )
         val global = ConfigKey.entries.mapNotNull { k -> p[K.global(k)]?.let { k.id to it } }.toMap()
         val engines = Engine.entries.associateWith { e ->
@@ -268,6 +282,7 @@ class SettingsRepository(private val context: Context) {
             p[K.categoryBar] = l.categoryBar.name; p[K.showCategoryCounts] = l.showCategoryCounts
             p[K.showAllGames] = l.showAllGames
             p[K.onlineCovers] = l.onlineCovers
+            p[K.swipeCategories] = l.swipeCategories; p[K.pinchGrid] = l.pinchGrid; p[K.tapAction] = l.tapAction.name
         }
     }
 
@@ -305,7 +320,7 @@ class SettingsRepository(private val context: Context) {
         for ((k, v) in values) {
             when {
                 k.startsWith("config.") || k.startsWith("engine.") || k == K.preset.name || k == K.layout.name ||
-                    k == K.sort.name || k == K.navStyle.name || k == K.aspect.name || k == K.categoryBar.name -> p[stringPreferencesKey(k)] = v
+                    k == K.sort.name || k == K.navStyle.name || k == K.aspect.name || k == K.categoryBar.name || k == K.tapAction.name -> p[stringPreferencesKey(k)] = v
                 k.startsWith("runtime.") -> Unit // device-specific, never restored onto another device
                 k == "library.selectedCategory" -> Unit // category ids differ between databases
                 v == "true" || v == "false" -> p[booleanPreferencesKey(k)] = v.toBoolean()

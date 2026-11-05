@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -99,6 +100,8 @@ private val SECTIONS = listOf(
         listOf("grid", "list", "carousel", "cover", "spacing", "title", "sort", "hidden", "folder", "directory", "rescan")),
     SectionDef("controls", "Controllers & input", "On-screen controls, controller mapping, dead zone", Icons.Rounded.Gamepad,
         listOf("controller", "gamepad", "mapping", "button", "virtual", "touch", "haptic", "vibration", "deadzone", "opacity", "keyboard")),
+    SectionDef("gestures", "Gestures", "Swipe categories, pinch covers, double-tap pause, two-finger menu, test area", Icons.Rounded.TouchApp,
+        listOf("gesture", "swipe", "pinch", "zoom", "double tap", "two finger", "three finger", "multi-touch", "sensitivity")),
     SectionDef("display", "Display & graphics", "Orientation, fullscreen, scaling filter, FPS overlay", Icons.Rounded.DisplaySettings,
         listOf("orientation", "landscape", "portrait", "immersive", "fullscreen", "filter", "sharp", "smooth", "pixel", "fps", "performance", "screen")),
     SectionDef("audio", "Audio", "Volume and background behaviour", Icons.Rounded.Audiotrack, listOf("volume", "sound", "music", "audio", "background")),
@@ -129,7 +132,7 @@ fun SettingsHomeScreen(onBack: () -> Unit, onSection: (String) -> Unit, onEngine
             if (keyHits.isNotEmpty()) {
                 SettingsGroupTitle("Matching options")
                 keyHits.forEach { k ->
-                    val section = when (k.section) { "Controls", "Gameplay" -> "controls"; "Display" -> "display"; "Audio" -> "audio"; else -> "advanced" }
+                    val section = when (k.section) { "Controls", "Gameplay" -> "controls"; "Gestures" -> "gestures"; "Display" -> "display"; "Audio" -> "audio"; else -> "advanced" }
                     NavRow(null, k.title, k.description) { onSection(section) }
                 }
             }
@@ -139,18 +142,24 @@ fun SettingsHomeScreen(onBack: () -> Unit, onSection: (String) -> Unit, onEngine
 }
 
 @Composable
-fun SettingsSectionScreen(section: String, onBack: () -> Unit, onEngine: (Engine) -> Unit, onCategories: () -> Unit = {}) {
+fun SettingsSectionScreen(
+    section: String, onBack: () -> Unit, onEngine: (Engine) -> Unit, onCategories: () -> Unit = {}, onSection: (String) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val repo = ctx.container.settings
     val settings by repo.settings.collectAsStateWithLifecycle(initialValue = null)
     val s = settings ?: return
     val def = SECTIONS.firstOrNull { it.id == section }
-    SettingsScaffold(def?.title ?: "Settings", onBack) {
+    SettingsScaffold(def?.title ?: if (section == "gestures") "Gestures" else "Settings", onBack) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             when (section) {
                 "appearance" -> AppearanceSection(s)
                 "library" -> LibrarySection(s, onCategories)
-                "controls" -> { ConnectedControllers(); GlobalConfig(s, "Controls") }
+                "controls" -> {
+                    NavRow(Icons.Rounded.TouchApp, "Gestures", "Swipes, multi-finger taps and pinches in the library and in games, with a test area") { onSection("gestures") }
+                    ConnectedControllers(); GlobalConfig(s, "Controls")
+                }
+                "gestures" -> GesturesSection(s)
                 "display" -> GlobalConfig(s, "Display")
                 "audio" -> GlobalConfig(s, "Audio")
                 "engines" -> EnginesSection(s, onEngine)

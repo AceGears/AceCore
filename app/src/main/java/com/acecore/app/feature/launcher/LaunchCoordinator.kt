@@ -409,6 +409,7 @@ class LaunchCoordinator(
                 volume = ConfigKey.HANDHELD_VOLUME.int(config[ConfigKey.HANDHELD_VOLUME.id] ?: "100"),
                 vibration = ConfigKey.HANDHELD_VIBRATION.bool(config[ConfigKey.HANDHELD_VIBRATION.id] ?: "true"),
                 backups = ConfigKey.HANDHELD_BACKUPS.int(config[ConfigKey.HANDHELD_BACKUPS.id] ?: "5"),
+                gestures = com.acecore.app.core.input.GestureConfig.from { k -> config[k.id] ?: k.default }.toJson(),
             )
             com.acecore.app.runtime.handheld.HandheldLaunchSpec.intent(context, spec)
         }

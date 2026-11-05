@@ -2,6 +2,13 @@
 
 package com.acecore.app.feature.library
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import com.acecore.app.core.datastore.TapAction
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -181,6 +188,17 @@ fun HomeScreen(
     /** The selected real category (not "All games" or "Other"), e.g. for adding new games to it. */
     val categoryId: Long? = selectedCategory?.takeIf { it >= 0 }
     fun selectCategory(id: Long) { scope.launch { settingsRepo.updateLibrary { it.copy(selectedCategory = id) } } }
+    /** The tabs in the order the category bar shows them (null = "All games"). */
+    val tabOrder: List<Long?> = buildList {
+        if (showAllTab) add(null)
+        visibleCategories.forEach { add(it.category.id) }
+        if (showOtherTab) add(LibrarySettings.OTHER)
+    }
+    fun stepCategory(delta: Int) {
+        val i = tabOrder.indexOf(selectedCategory)
+        val next = tabOrder.getOrNull(i + delta) ?: return
+        selectCategory(next ?: LibrarySettings.ALL_GAMES)
+    }
     var creatingCategory by remember { mutableStateOf(false) }
     var categoryActions by remember { mutableStateOf<CategoryWithCount?>(null) }
     var editingCategory by remember { mutableStateOf<CategoryEntity?>(null) }
@@ -409,7 +427,10 @@ fun HomeScreen(
                     onLongPress = { categoryActions = it },
                 )
             }
-            Box(Modifier.weight(1f).nestedScroll(fabScroll)) {
+            Box(
+                Modifier.weight(1f).nestedScroll(fabScroll)
+                    .then(if (lib.swipeCategories && !inSelection && query.isBlank() && tabOrder.size > 1) Modifier.categorySwipe(selectedCategory to tabOrder, ::stepCategory) else Modifier),
+            ) {
                 when {
                     games == null -> Unit
                     games.isEmpty() -> EmptyState(
@@ -437,9 +458,14 @@ fun HomeScreen(
                         banner = categoryId?.let { id -> visibleCategories.firstOrNull { it.category.id == id } },
                         onEditCategoryGames = { cw -> pickGamesFor = cw.category },
                         onClick = { g ->
-                            if (inSelection) selection = if (g.id in selection) selection - g.id else selection + g.id
-                            else launcher.launch(g)
+                            when {
+                                inSelection -> selection = if (g.id in selection) selection - g.id else selection + g.id
+                                lib.tapAction == TapAction.DETAILS -> onOpenGame(g.id)
+                                else -> launcher.launch(g)
+                            }
                         },
+                        onDoubleClick = if (lib.tapAction == TapAction.DETAILS && !inSelection) { g -> launcher.launch(g) } else null,
+                        onColumns = { n -> scope.launch { settingsRepo.updateLibrary { it.copy(columns = n) } } },
                         onLongClick = { g ->
                             if (inSelection) selection = if (g.id in selection) selection - g.id else selection + g.id
                             else menuFor = g
@@ -644,13 +670,15 @@ private fun CategoryTab(
 private fun LibraryContent(
     games: List<GameEntity>, lib: LibrarySettings, selecting: Boolean, selection: Set<Long>, banner: CategoryWithCount?,
     onClick: (GameEntity) -> Unit, onLongClick: (GameEntity) -> Unit, onEditCategoryGames: (CategoryWithCount) -> Unit = {},
+    onDoubleClick: ((GameEntity) -> Unit)? = null, onColumns: (Int) -> Unit = {},
 ) {
     val bottom = PaddingValues(bottom = 110.dp)
     if (lib.layout == LibraryLayout.LIST) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = bottom) {
             banner?.let { b -> item(key = "banner") { CategoryBanner(b) { onEditCategoryGames(b) } } }
             items(games, key = { it.id }) { g ->
-                GameListRow(g, selecting, g.id in selection, onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.animateItem())
+                GameListRow(g, selecting, g.id in selection, onClick = { onClick(g) }, onLongClick = { onLongClick(g) },
+                    onDoubleClick = onDoubleClick?.let { d -> { d(g) } }, modifier = Modifier.animateItem())
             }
         }
         return
@@ -661,7 +689,10 @@ private fun LibraryContent(
         val columns = (if (lib.columns > 0) lib.columns else auto).coerceIn(2, 10)
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().then(
+                // Spread two fingers for bigger covers (fewer columns), pinch for smaller ones.
+                if (lib.pinchGrid) Modifier.pinchSteps(columns) { step -> (columns - step).coerceIn(2, 10).let { if (it != columns) onColumns(it) } } else Modifier,
+            ),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 110.dp),
             horizontalArrangement = Arrangement.spacedBy(lib.spacing.dp),
             verticalArrangement = Arrangement.spacedBy(lib.spacing.dp + if (lib.showTitles) 2.dp else 0.dp),
@@ -671,6 +702,7 @@ private fun LibraryContent(
                 GameTile(
                     game = g, lib = lib, selected = g.id in selection, selectionMode = selecting,
                     onClick = { onClick(g) }, onLongClick = { onLongClick(g) }, modifier = Modifier.animateItem(),
+                    onDoubleClick = onDoubleClick?.let { d -> { d(g) } },
                 )
             }
         }
@@ -712,11 +744,14 @@ private fun CategoryBanner(cw: CategoryWithCount, onEditGames: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GameListRow(game: GameEntity, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun GameListRow(
+    game: GameEntity, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit,
+    onDoubleClick: (() -> Unit)? = null, modifier: Modifier = Modifier,
+) {
     Row(
         modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(16.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 8.dp, vertical = 8.dp),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onDoubleClick = onDoubleClick).padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CoverImage(game, Modifier.size(width = 54.dp, height = 72.dp).clip(RoundedCornerShape(10.dp)))
@@ -787,5 +822,35 @@ private fun SheetAction(icon: androidx.compose.ui.graphics.vector.ImageVector, l
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+/** Horizontal swipe over the games: next (swipe left) or previous (swipe right) category. Vertical scrolling is unaffected. */
+private fun Modifier.categorySwipe(key: Any?, onStep: (Int) -> Unit): Modifier = pointerInput(key) {
+    val threshold = 72.dp.toPx()
+    var total = 0f
+    detectHorizontalDragGestures(
+        onDragStart = { total = 0f },
+        onDragEnd = { if (kotlin.math.abs(total) > threshold) onStep(if (total < 0) 1 else -1); total = 0f },
+        onDragCancel = { total = 0f },
+    ) { change, dx -> total += dx; change.consume() }
+}
+
+/**
+ * Two-finger pinch in steps: +1 each time the fingers spread by about a quarter, -1 each time they close by as much.
+ * One-finger touches are left alone, so the list still scrolls and taps still work.
+ */
+private fun Modifier.pinchSteps(key: Any?, onStep: (Int) -> Unit): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var acc = 1f
+        do {
+            val ev = awaitPointerEvent(PointerEventPass.Initial)
+            if (ev.changes.count { it.pressed } >= 2) {
+                acc *= ev.calculateZoom()
+                if (acc > 1.25f) { onStep(1); acc = 1f } else if (acc < 0.8f) { onStep(-1); acc = 1f }
+                ev.changes.forEach { it.consume() }
+            }
+        } while (ev.changes.any { it.pressed })
     }
 }

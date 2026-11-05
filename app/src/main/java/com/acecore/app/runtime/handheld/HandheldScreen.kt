@@ -128,9 +128,26 @@ class HandheldScreen(context: Context, private val platform: HandheldPlatform) :
     }
 
     @SuppressLint("ClickableViewAccessibility")
+    /** Recognises gestures on the picture (null = gestures off). Two or more fingers are never DS touch input. */
+    var gestures: com.acecore.app.core.input.GestureTracker? = null
+
+    private fun feedGestures(e: MotionEvent, g: com.acecore.app.core.input.GestureTracker) {
+        val t = e.eventTime
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> e.actionIndex.let { i -> g.onDown(e.getPointerId(i), e.getX(i), e.getY(i), t) }
+            MotionEvent.ACTION_MOVE -> for (i in 0 until e.pointerCount) g.onMove(e.getPointerId(i), e.getX(i), e.getY(i), t)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> g.onUp(e.getPointerId(e.actionIndex), t)
+            MotionEvent.ACTION_CANCEL -> g.cancel()
+        }
+    }
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (platform != HandheldPlatform.NDS) return false
-        val cb = onTouch ?: return false
+        val g = gestures
+        g?.let { feedGestures(e, it) }
+        if (platform != HandheldPlatform.NDS) return g != null
+        val cb = onTouch ?: return g != null
+        // A second finger means a gesture: lift the stylus so the game doesn't see a stray touch.
+        if (g != null && g.multiTouch) { cb(0, 0, false); return true }
         val pl = placements.firstOrNull { it.bottom } ?: return true
         val up = e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL
         if (up || !pl.dst.contains(e.x, e.y)) { cb(0, 0, false); return true }

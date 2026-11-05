@@ -18,6 +18,12 @@ private val WITH_CONTROLS: (Engine) -> Boolean = {
 /** Nintendo handheld games (emulated). */
 private val HANDHELD: (Engine) -> Boolean = { it.family == EngineFamily.HANDHELD }
 
+/** What a gesture can do in a game (every runtime that offers gestures implements all of these). */
+private val GESTURE_ACTIONS = listOf(
+    "off" to "Nothing", "pause" to "Pause / resume", "menu" to "Open the menu", "cheats" to "Open cheats",
+    "ff" to "Fast-forward on / off", "screenshot" to "Screenshot",
+)
+
 /** Engines with the screen fit / game size / position settings (RPG Maker XP-VX Ace, Windows programs, handhelds). */
 private val WITH_LAYOUT: (Engine) -> Boolean =
     { it.family == EngineFamily.RGSS || it.family == EngineFamily.WINDOWS || it.family == EngineFamily.HANDHELD }
@@ -224,6 +230,41 @@ enum class ConfigKey(
         "handheldBackups", "Save backups", "How many automatic backups of the game's save AceArcade keeps (0 = off).",
         ConfigType.INT, "5", range = 0..20, section = "Gameplay", appliesTo = HANDHELD,
     ),
+    GESTURES(
+        "gestures", "Touch gestures", "Multi-finger taps, swipes and pinches on the game picture (set what each one does below).",
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_DOUBLE_TAP(
+        "gestureDoubleTap", "Double tap",
+        "Two quick taps with one finger on the picture. Not used on the Nintendo DS touch screen, where taps are game input.",
+        ConfigType.CHOICE, "pause", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_TWO_FINGER_TAP(
+        "gestureTwoFingerTap", "Two-finger tap", "Tap the picture with two fingers at once.",
+        ConfigType.CHOICE, "menu", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_THREE_FINGER_TAP(
+        "gestureThreeFingerTap", "Three-finger tap", "Tap the picture with three fingers at once.",
+        ConfigType.CHOICE, "cheats", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_SWIPE(
+        "gestureSwipe", "Two-finger swipe: save / load",
+        "Swipe up with two fingers to quick save, down to quick load (loading asks first).",
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_PINCH(
+        "gesturePinch", "Pinch to zoom", "Spread or pinch two fingers to zoom the picture (switches Screen fit to Custom zoom; the size is saved for the game).",
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_SENSITIVITY(
+        "gestureSensitivity", "Gesture sensitivity", "Higher: shorter swipes and smaller pinches count (%).",
+        ConfigType.INT, "100", range = 50..200, section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_DOUBLE_TAP_MS(
+        "gestureDoubleTapMs", "Double-tap speed", "Longest pause between the two taps of a double tap (milliseconds).",
+        ConfigType.INT, "300", range = 150..600, section = "Gestures", appliesTo = HANDHELD,
+    ),
+    GESTURE_HAPTICS("gestureHaptics", "Gesture vibration", "Vibrate briefly when a gesture is recognised.", ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD),
     ALLOW_NETWORK(
         "allowNetwork", "Allow internet access", "Let the game load resources from the internet. Off by default for privacy and offline play.",
         ConfigType.BOOL, "false", section = "Advanced",

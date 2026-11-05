@@ -41,13 +41,15 @@ data class HandheldLaunchSpec(
     val vibration: Boolean = true,
     /** Automatic save backups kept per game (0 = off). */
     val backups: Int = 5,
+    /** In-game gesture settings ([com.acecore.app.core.input.GestureConfig] JSON). */
+    val gestures: String = "",
 ) {
     fun toJson(): String = JSONObject().put("gameId", gameId).put("title", title).put("platform", platform.id).put("romPath", romPath)
         .put("romSha1", romSha1).put("helperDir", helperDir).put("saveDir", saveDir).put("accent", accentArgb)
         .put("buttonMap", buttonMap).put("gamepadMode", gamepadMode).put("opacity", opacity).put("scale", scale)
         .put("haptics", haptics).put("display", display).put("filter", filter).put("showFps", showFps)
         .put("dsLayout", dsLayout).put("gbPalette", gbPalette).put("ff", fastForwardSpeed.toDouble()).put("volume", volume)
-        .put("vibration", vibration).put("backups", backups).toString()
+        .put("vibration", vibration).put("backups", backups).put("gestures", gestures).toString()
 
     companion object {
         const val EXTRA = "com.acecore.app.extra.HANDHELD_SPEC"
@@ -60,7 +62,7 @@ data class HandheldLaunchSpec(
                 it.optInt("opacity", 55), it.optInt("scale", 100), it.optBoolean("haptics", true), it.optString("display"),
                 it.optString("filter", "sharp"), it.optBoolean("showFps", false), it.optString("dsLayout", "vertical"),
                 it.optString("gbPalette", "Grayscale"), it.optDouble("ff", 2.0).toFloat(), it.optInt("volume", 100),
-                it.optBoolean("vibration", true), it.optInt("backups", 5),
+                it.optBoolean("vibration", true), it.optInt("backups", 5), it.optString("gestures"),
             )
         }
 

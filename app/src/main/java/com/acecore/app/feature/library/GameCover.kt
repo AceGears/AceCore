@@ -146,6 +146,8 @@ fun GameTile(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    /** Set when tapping opens the game's page: a double tap then plays it. */
+    onDoubleClick: (() -> Unit)? = null,
     selectionMode: Boolean = false,
 ) {
     val t = AceTheme.tokens
@@ -171,8 +173,8 @@ fun GameTile(
                 )
                 .combinedClickable(
                     interactionSource = interaction, indication = null,
-                    onClickLabel = if (selectionMode) "Select" else "Play", onLongClickLabel = "Game options",
-                    onClick = onClick,
+                    onClickLabel = if (selectionMode) "Select" else if (onDoubleClick != null) "Open" else "Play", onLongClickLabel = "Game options",
+                    onClick = onClick, onDoubleClick = onDoubleClick,
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() },
                 )
                 .semantics { contentDescription = "${game.title}, ${game.effectiveEngine.displayName}, ${gameState(game).label}" },

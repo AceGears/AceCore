@@ -113,6 +113,12 @@ class HandheldActivity : ComponentActivity() {
     private var fpsText by mutableStateOf("")
     internal var cheats by mutableStateOf<CheatController?>(null)
     internal var cheatRevision by mutableIntStateOf(0)
+    private var paused by mutableStateOf(false)
+    private var confirmLoad by mutableStateOf(false)
+    private var gestureConfig = com.acecore.app.core.input.GestureConfig()
+    private var pinchZoom = 0f
+    private var lastPinchAt = 0L
+    private val savePinch = Runnable { updateDisplay(displayPrefs) }
 
     private var buttonsMask = 0
     private lateinit var padMap: Map<PadButton, Int>
@@ -142,6 +148,8 @@ class HandheldActivity : ComponentActivity() {
             prefs = this@HandheldActivity.displayPrefs; filter = this@HandheldActivity.filter; layout = this@HandheldActivity.dsLayout
             onTouch = { x, y, pressed -> core?.setPointer(x, y, pressed) }
         }
+        gestureConfig = com.acecore.app.core.input.GestureConfig.fromJson(s.gestures)
+        if (gestureConfig.enabled) screen.gestures = gestureConfig.tracker(resources.displayMetrics.density, ::onGesture, ::onPinch)
         val root = FrameLayout(this).apply { setBackgroundColor(AColor.BLACK) }
         root.addView(screen, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(ComposeView(this).apply { isFocusable = false; setContent { Overlay() } },
@@ -155,6 +163,8 @@ class HandheldActivity : ComponentActivity() {
 
     private fun toggleMenu() {
         when {
+            confirmLoad -> confirmLoad = false
+            paused -> paused = false
             cheatsOpen -> cheatsOpen = false
             displayOpen -> displayOpen = false
             statesOpen -> statesOpen = false
@@ -164,7 +174,7 @@ class HandheldActivity : ComponentActivity() {
     }
 
     private fun updateRunning() {
-        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && failure == null && hasWindowFocusCompat)
+        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && !paused && !confirmLoad && failure == null && hasWindowFocusCompat)
     }
     private var hasWindowFocusCompat = true
 
@@ -511,6 +521,43 @@ class HandheldActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
         controller.handleMotion(event) || super.dispatchGenericMotionEvent(event)
 
+    // ------------------------------------------------------------------ gestures
+
+    private val panelOpen get() = menuOpen || displayOpen || statesOpen || cheatsOpen || paused || confirmLoad || failure != null
+
+    private fun onGesture(g: com.acecore.app.core.input.Gesture) {
+        if (!started || panelOpen) return
+        // On the DS, taps on the touch screen are the game's.
+        if (g == com.acecore.app.core.input.Gesture.DOUBLE_TAP && spec.platform == HandheldPlatform.NDS) return
+        val action = gestureConfig.actionFor(g)
+        if (action == "off") return
+        if (gestureConfig.haptics) screen.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+        when (action) {
+            "pause" -> { paused = true; updateRunning() }
+            "menu" -> { menuOpen = true; updateRunning() }
+            "cheats" -> if (cheats != null) { cheatsOpen = true; updateRunning() } else say("Cheats aren't available for this game")
+            "ff" -> toggleFastForward()
+            "screenshot" -> screenshot()
+            "quicksave" -> saveState(0)
+            "quickload" -> if (stateFile(0).isFile) { confirmLoad = true; updateRunning() } else say("No quick save yet")
+        }
+    }
+
+    /** Pinch: zoom the picture (Screen fit = Custom zoom); saved for the game once the fingers stop. */
+    private fun onPinch(factor: Float) {
+        if (!gestureConfig.enabled || !gestureConfig.pinch || panelOpen) return
+        val now = android.os.SystemClock.uptimeMillis()
+        val cur = displayPrefs
+        if (now - lastPinchAt > 400 || pinchZoom == 0f) pinchZoom = if (cur.fit == DisplayPrefs.ZOOM) cur.zoomPercent.toFloat() else 100f
+        lastPinchAt = now
+        pinchZoom = (pinchZoom * factor).coerceIn(DisplayPrefs.MIN_ZOOM.toFloat(), DisplayPrefs.MAX_ZOOM.toFloat())
+        val z = Math.round(pinchZoom)
+        if (z == cur.zoomPercent && cur.fit == DisplayPrefs.ZOOM) return
+        val next = cur.copy(fit = DisplayPrefs.ZOOM, zoomPercent = z).normalized()
+        displayPrefs = next; screen.prefs = next
+        screen.removeCallbacks(savePinch); screen.postDelayed(savePinch, 500)
+    }
+
     // ------------------------------------------------------------------ displayPrefs settings (saved for the game)
 
     private fun saveForGame(values: Map<String, String>) = Thread { DisplayPrefs.writePending(gameDataDir, values) }.start()
@@ -571,12 +618,31 @@ class HandheldActivity : ComponentActivity() {
             if (statesOpen) StatesPanel(accent)
             if (cheatsOpen) cheats?.let { CheatMenu(this@HandheldActivity, it, accent, cheatRevision) }
             if (menuOpen) MainMenu(accent)
+            if (paused) PausedBanner(accent)
+            if (confirmLoad) Panel(accent, { confirmLoad = false; updateRunning() }) {
+                Text("Load the quick save?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Progress since the quick save is lost.", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                MenuRow("Load", accent) { confirmLoad = false; loadState(0); updateRunning() }
+                MenuRow("Cancel", accent) { confirmLoad = false; updateRunning() }
+            }
             toast?.let { t ->
                 androidx.compose.runtime.LaunchedEffect(toastSerial) { kotlinx.coroutines.delay(2200); toast = null }
                 Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp).background(PanelBg, RoundedCornerShape(12.dp))
                     .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text(t, color = Color.White, fontSize = 14.sp)
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun PausedBanner(accent: Color) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { paused = false; updateRunning() }) {
+            Column(Modifier.align(Alignment.Center).background(PanelBg, RoundedCornerShape(18.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 22.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Paused", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Tap anywhere to resume", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
             }
         }
     }

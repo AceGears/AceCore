@@ -438,7 +438,8 @@ private fun AceNavHost(nav: NavHostController) {
         }
         composable(Routes.SETTINGS_SECTION, arguments = listOf(navArgument("section") { type = NavType.StringType })) { entry ->
             SettingsSectionScreen(section = entry.arguments?.getString("section") ?: "", onBack = { nav.popBackStack() },
-                onEngine = { nav.navigate(Routes.engine(it)) }, onCategories = { nav.navigate(Routes.CATEGORIES) })
+                onEngine = { nav.navigate(Routes.engine(it)) }, onCategories = { nav.navigate(Routes.CATEGORIES) },
+                onSection = { nav.navigate(Routes.section(it)) })
         }
     }
 }
