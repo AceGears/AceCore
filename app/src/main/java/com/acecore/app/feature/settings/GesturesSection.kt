@@ -73,7 +73,8 @@ internal fun GesturesSection(s: AppSettings) {
 
     SettingsGroupTitle("In games")
     Text(
-        "Gestures on the game picture of Game Boy, Game Boy Color, Game Boy Advance and Nintendo DS games. These are the " +
+        "Gestures on the game picture of Game Boy, Game Boy Color, Game Boy Advance, Nintendo DS and RPG Maker XP / VX / VX Ace " +
+            "(including Pokémon Essentials) games. These are the " +
             "global defaults; each game can have its own (the game's page › Game settings › Gestures). On the DS, one-finger " +
             "touches always go to the game's touch screen.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

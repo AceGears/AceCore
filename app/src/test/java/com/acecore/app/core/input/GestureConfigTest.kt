@@ -44,9 +44,10 @@ class GestureConfigTest {
         assertTrue(Gesture.entries.all { g.actionFor(it) == "off" })
     }
 
-    @Test fun gestureKeysOnlyForHandhelds() {
+    @Test fun gestureKeysForRuntimesThatHaveGestures() {
         val keys = ConfigKey.entries.filter { it.section == "Gestures" }
         assertTrue(keys.isNotEmpty())
-        assertTrue(keys.all { it.appliesTo(Engine.NINTENDO_DS) && !it.appliesTo(Engine.RPG_MAKER_XP) })
+        assertTrue(keys.all { it.appliesTo(Engine.NINTENDO_DS) && it.appliesTo(Engine.RPG_MAKER_XP) && it.appliesTo(Engine.POKEMON_ESSENTIALS) })
+        assertTrue(keys.none { it.appliesTo(Engine.HTML5) || it.appliesTo(Engine.RENPY) })
     }
 }

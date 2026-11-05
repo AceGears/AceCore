@@ -350,23 +350,8 @@ class HandheldActivity : ComponentActivity() {
     private fun screenshot() {
         val b = screen.snapshot() ?: return
         Thread {
-            val name = "${spec.title.replace(Regex("[^A-Za-z0-9 _-]"), "")}-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.png"
-            val ok = runCatching {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    val v = ContentValues().apply {
-                        put(MediaStore.Images.Media.DISPLAY_NAME, name); put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AceArcade")
-                    }
-                    val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: error("no media store")
-                    contentResolver.openOutputStream(uri)!!.use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    "Pictures/AceArcade"
-                } else {
-                    val dir = File(getExternalFilesDir(null), "screenshots").apply { mkdirs() }
-                    File(dir, name).outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    dir.absolutePath
-                }
-            }
-            say(ok.fold({ "Screenshot saved to $it" }, { "Couldn't save the screenshot: ${it.message}" }))
+            say(com.acecore.app.runtime.Screenshots.save(this, spec.title, b)
+                .fold({ "Screenshot saved to $it" }, { "Couldn't save the screenshot: ${it.message}" }))
         }.start()
     }
 
@@ -798,7 +783,8 @@ class HandheldActivity : ComponentActivity() {
                         repeat(3 - row.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
                     }
                 }
-                Text(filter.about + " Native resolution: these emulators draw at the console's own resolution; filters interpolate it, they don't add detail.",
+                Text(filter.about + " Native resolution: these emulators draw at the console's own resolution; filters interpolate it, they don't add detail." +
+                    if (spec.platform == HandheldPlatform.NDS) " Higher internal 3D resolution isn't available on Android: the DS emulator's high-resolution renderer needs desktop OpenGL, which phones don't have." else "",
                     color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
             }
             if (spec.platform == HandheldPlatform.NDS) {

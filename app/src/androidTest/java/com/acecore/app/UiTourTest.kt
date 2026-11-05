@@ -10,8 +10,11 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ActivityScenario
@@ -79,7 +82,7 @@ class UiTourTest {
         val rpg = db.categories().insert(CategoryEntity(name = "RPG Maker", icon = "rpg", color = 0xFF9B5CFF, sortOrder = 1))
         db.categories().insert(CategoryEntity(name = "Visual Novels", icon = "novel", color = 0xFFE8B931, sortOrder = 2))
         db.categories().addRefs(listOf(GameCategoryRef(ids[0], pokemon), GameCategoryRef(ids[0], rpg), GameCategoryRef(ids[1], rpg), GameCategoryRef(ids[2], rpg)))
-        ctx.container.settings.updateLibrary { it.copy(selectedCategory = -1L) }
+        ctx.container.settings.updateLibrary { it.copy(selectedCategory = -1L, showAllGames = true, layout = com.acecore.app.core.datastore.LibraryLayout.GRID) }
         ids[0]
     }
 
@@ -102,8 +105,11 @@ class UiTourTest {
         File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun click(text: String) = compose.onNode(hasText(text), useUnmergedTree = true).performClick()
-    private fun clickDesc(desc: String) = compose.onNode(hasContentDescription(desc), useUnmergedTree = true).performClick()
+    // The same text can appear twice (a category tab and its banner): the first match is the one on top of the screen.
+    private fun click(text: String) = compose.onAllNodes(hasText(text), useUnmergedTree = true).onFirst().performClick()
+    private fun clickDesc(desc: String) = compose.onAllNodes(hasContentDescription(desc), useUnmergedTree = true).onFirst().performClick()
+    private fun waitFor(text: String, ms: Long = 10_000) =
+        compose.waitUntil(ms) { compose.onAllNodes(hasText(text, substring = true, ignoreCase = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
     @Test
     fun tour() {
@@ -113,6 +119,11 @@ class UiTourTest {
             shot("01_home")
             click("Pokémon Fan Games")
             shot("02_category")
+            // Long-press a category tab: its options sheet.
+            compose.onAllNodes(hasText("RPG Maker"), useUnmergedTree = true).onFirst().performTouchInput { longClick() }
+            waitFor("Move left")
+            shot("02b_category_sheet")
+            Espresso.pressBack()
             click("All games")
             compose.onNode(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
             shot("03_game_menu")
@@ -139,6 +150,18 @@ class UiTourTest {
             click("Game engines")
             compose.waitUntil(10_000) { compose.onAllNodes(hasText("Visual novel engines", ignoreCase = true)).fetchSemanticsNodes().isNotEmpty() }
             shot("10_engines")
+            Espresso.pressBack()
+            click("Gestures")
+            waitFor("Swipe to change category")
+            shot("11_gestures")
+            // The test area recognises a double tap with the same code the games use.
+            compose.onNode(hasContentDescription("Gesture test area")).performScrollTo().performTouchInput { doubleClick() }
+            waitFor("Double tap →")
+            shot("12_gesture_test")
+            Espresso.pressBack()
+            click("Appearance")
+            waitFor("Preview", 10_000)
+            shot("13_appearance")
         }
     }
 }

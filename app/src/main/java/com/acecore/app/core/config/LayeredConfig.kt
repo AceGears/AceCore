@@ -17,6 +17,8 @@ private val WITH_CONTROLS: (Engine) -> Boolean = {
 
 /** Nintendo handheld games (emulated). */
 private val HANDHELD: (Engine) -> Boolean = { it.family == EngineFamily.HANDHELD }
+/** Runtimes with in-game gestures: AceArcade's handheld player and the RPG Maker XP/VX/VX Ace player. */
+private val GESTURE_ENGINES: (Engine) -> Boolean = { it.family == EngineFamily.HANDHELD || it.family == EngineFamily.RGSS }
 
 /** What a gesture can do in a game (every runtime that offers gestures implements all of these). */
 private val GESTURE_ACTIONS = listOf(
@@ -232,44 +234,44 @@ enum class ConfigKey(
     ),
     GESTURES(
         "gestures", "Touch gestures", "Multi-finger taps, swipes and pinches on the game picture (set what each one does below).",
-        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_DOUBLE_TAP(
         "gestureDoubleTap", "Double tap",
         "Two quick taps with one finger on the picture. Not used on the Nintendo DS touch screen, where taps are game input.",
-        ConfigType.CHOICE, "pause", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.CHOICE, "pause", GESTURE_ACTIONS, section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_TWO_FINGER_TAP(
         "gestureTwoFingerTap", "Two-finger tap", "Tap the picture with two fingers at once.",
-        ConfigType.CHOICE, "menu", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.CHOICE, "menu", GESTURE_ACTIONS, section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_THREE_FINGER_TAP(
         "gestureThreeFingerTap", "Three-finger tap", "Tap the picture with three fingers at once.",
-        ConfigType.CHOICE, "cheats", GESTURE_ACTIONS, section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.CHOICE, "cheats", GESTURE_ACTIONS, section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_SWIPE(
         "gestureSwipe", "Two-finger swipe: save / load",
         "Swipe up with two fingers to quick save, down to quick load (loading asks first).",
-        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_PINCH(
         "gesturePinch", "Pinch to zoom", "Spread or pinch two fingers to zoom the picture (switches Screen fit to Custom zoom; the size is saved for the game).",
-        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_EDGE_TOOLBAR(
         "gestureEdgeToolbar", "Swipe in from the side: quick toolbar",
         "Swipe in from the left or right edge of the screen for a small toolbar (menu, save, load, fast-forward, screenshot, cheats).",
-        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_SENSITIVITY(
         "gestureSensitivity", "Gesture sensitivity", "Higher: shorter swipes and smaller pinches count (%).",
-        ConfigType.INT, "100", range = 50..200, section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.INT, "100", range = 50..200, section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
     GESTURE_DOUBLE_TAP_MS(
         "gestureDoubleTapMs", "Double-tap speed", "Longest pause between the two taps of a double tap (milliseconds).",
-        ConfigType.INT, "300", range = 150..600, section = "Gestures", appliesTo = HANDHELD,
+        ConfigType.INT, "300", range = 150..600, section = "Gestures", appliesTo = GESTURE_ENGINES,
     ),
-    GESTURE_HAPTICS("gestureHaptics", "Gesture vibration", "Vibrate briefly when a gesture is recognised.", ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD),
+    GESTURE_HAPTICS("gestureHaptics", "Gesture vibration", "Vibrate briefly when a gesture is recognised.", ConfigType.BOOL, "true", section = "Gestures", appliesTo = GESTURE_ENGINES),
     ALLOW_NETWORK(
         "allowNetwork", "Allow internet access", "Let the game load resources from the internet. Off by default for privacy and offline play.",
         ConfigType.BOOL, "false", section = "Advanced",

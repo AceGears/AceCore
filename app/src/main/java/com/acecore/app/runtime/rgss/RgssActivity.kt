@@ -50,6 +50,9 @@ import androidx.compose.material.icons.rounded.MonitorHeart
 import androidx.compose.foundation.horizontalScroll
 import com.acecore.app.runtime.web.overlay.GamepadTools
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.AutoFixHigh
@@ -215,6 +218,16 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     private var logThread: Thread? = null
     private var keyboardOpen by mutableStateOf(false)
     private var editingLayout by mutableStateOf(false)
+    /** Paused by the user (gesture or menu): the engine is halted the same way as when the app goes to the background. */
+    private var userPaused by mutableStateOf(false)
+    private var confirmLoad by mutableStateOf(false)
+    /** Quick toolbar (edge swipe): side it slides in from (-1 left, 1 right), 0 = hidden. */
+    private var toolbarSide by mutableStateOf(0)
+    private var toolbarSerial by mutableStateOf(0)
+    private var gestureConfig = com.acecore.app.core.input.GestureConfig()
+    private var gestures: com.acecore.app.core.input.GestureTracker? = null
+    private var pinchZoom = 0f
+    private var lastPinchAt = 0L
     private var gamepadVisible by mutableStateOf(true)
 
     private var resumedAt = 0L
@@ -264,6 +277,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             gamepadOpacity = ConfigKey.GAMEPAD_OPACITY.int(s.config[ConfigKey.GAMEPAD_OPACITY.id] ?: "55") / 100f
             padCheats = ConfigKey.CHEAT_SHORTCUT.bool(s.config[ConfigKey.CHEAT_SHORTCUT.id] ?: "true")
             display = DisplayPrefs.from(s.config)
+            gestureConfig = com.acecore.app.core.input.GestureConfig.from { k -> s.config[k.id] ?: k.default }
         } else {
             buttonMap = ButtonMap.RGSS_DEFAULT
         }
@@ -286,6 +300,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
         startLogCapture(s)
         Log.i(TAG, "Game path: ${s.gamePath} (direct=${s.direct}, helper=${s.helper})")
         attachOverlay(s)
+        attachGestures()
         watchSurfaceSize()
         watchStartup(s)
     }
@@ -634,6 +649,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     private fun onBackRequested() {
         when {
+            confirmLoad -> confirmLoad = false
+            toolbarSide != 0 -> toolbarSide = 0
+            userPaused -> setPaused(false)
             cheatsOpen -> cheatsOpen = false
             displayOpen -> displayOpen = false
             mappingOpen -> mappingOpen = false
@@ -673,6 +691,8 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
 
     override fun onResume() {
         super.onResume()
+        // Coming back to the app resumes SDL; a game the user paused stays paused.
+        if (userPaused) SDLActivity.mSurface?.post { if (userPaused) haltEngine() }
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         resumedAt = SystemClock.elapsedRealtime()
         refreshGamepadVisibility()
@@ -698,6 +718,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) applyImmersive()
+        if (hasFocus && userPaused) haltEngine()
     }
 
     override fun onDestroy() {
@@ -709,6 +730,156 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             Log.i(TAG, "Exiting RGSS process")
             System.exit(0)
         }
+    }
+
+    // ------------------------------------------------------------------ pause and gestures
+
+    /** Halts the engine through SDL's own pause path (game logic, drawing and sound stop; same as leaving the app). */
+    private fun haltEngine() {
+        if (SDLActivity.mBrokenLibraries || SDLActivity.mSDLThread == null) return
+        SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED
+        SDLActivity.handleNativeState()
+    }
+
+    private fun setPaused(paused: Boolean) {
+        if (paused == userPaused) return
+        if (paused && (starting || failure != null || SDLActivity.mSDLThread == null)) return
+        userPaused = paused
+        if (paused) haltEngine() else {
+            SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED
+            SDLActivity.handleNativeState()
+        }
+    }
+
+    private val panelOpen get() = menuOpen || cheatsOpen || displayOpen || mappingOpen || testOpen || toolsOpen || keyboardOpen ||
+        editingLayout || userPaused || confirmLoad || failure != null
+
+    /** Gestures on the game picture: the touches that reach the engine's surface (not the on-screen controls). */
+    private fun attachGestures() {
+        if (!gestureConfig.enabled) return
+        val surface = SDLActivity.mSurface ?: return
+        val g = gestureConfig.tracker(resources.displayMetrics.density, ::onGesture, ::onPinch)
+        gestures = g
+        surface.setOnTouchListener { v, e ->
+            g.width = v.width.toFloat()
+            val t = e.eventTime
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_POINTER_DOWN ->
+                    e.actionIndex.let { i -> g.onDown(e.getPointerId(i), e.getX(i), e.getY(i), t) }
+                android.view.MotionEvent.ACTION_MOVE -> for (i in 0 until e.pointerCount) g.onMove(e.getPointerId(i), e.getX(i), e.getY(i), t)
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_POINTER_UP -> g.onUp(e.getPointerId(e.actionIndex), t)
+                android.view.MotionEvent.ACTION_CANCEL -> g.cancel()
+            }
+            // The engine still gets the touch (games that use the mouse or touch keep working).
+            surface.onTouch(v, e)
+        }
+    }
+
+    private fun onGesture(g: com.acecore.app.core.input.Gesture) {
+        if (starting || panelOpen) return
+        val action = gestureConfig.actionFor(g)
+        if (action == "off") return
+        if (gestureConfig.haptics) SDLActivity.mSurface?.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+        val s = spec ?: return
+        when (action) {
+            "pause" -> setPaused(true)
+            "menu" -> menuOpen = true
+            "cheats" -> if (s.helper && s.cheatsEnabled) cheatsOpen = true else showNotice("Cheats are off for this game")
+            "ff" -> setFastForward(!ffOn)
+            "screenshot" -> screenshot()
+            "quicksave" -> quickAction("quicksave")
+            "quickload" -> confirmLoad = true
+            "toolbar" -> { toolbarSide = if (gestures?.lastEdgeSide == -1) -1 else 1; toolbarSerial++ }
+        }
+    }
+
+    /** Pinch: zoom the picture (Screen fit = Custom zoom), saved for the game once the fingers stop. */
+    private fun onPinch(factor: Float) {
+        if (!gestureConfig.pinch || panelOpen || starting) return
+        val now = SystemClock.uptimeMillis()
+        val cur = display
+        if (now - lastPinchAt > 400 || pinchZoom == 0f) pinchZoom = if (cur.fit == DisplayPrefs.ZOOM) cur.zoomPercent.toFloat() else 100f
+        lastPinchAt = now
+        pinchZoom = (pinchZoom * factor).coerceIn(DisplayPrefs.MIN_ZOOM.toFloat(), DisplayPrefs.MAX_ZOOM.toFloat())
+        val z = Math.round(pinchZoom)
+        if (z == cur.zoomPercent && cur.fit == DisplayPrefs.ZOOM) return
+        updateDisplay(cur.copy(fit = DisplayPrefs.ZOOM, zoomPercent = z))
+    }
+
+    /** Copies what the engine shows (PixelCopy reads the surface) and saves it. */
+    private fun screenshot() {
+        val surface = SDLActivity.mSurface ?: return
+        if (surface.width <= 0 || surface.height <= 0) return
+        val bmp = android.graphics.Bitmap.createBitmap(surface.width, surface.height, android.graphics.Bitmap.Config.ARGB_8888)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        android.view.PixelCopy.request(surface, bmp, { result ->
+            if (result != android.view.PixelCopy.SUCCESS) { showNotice("Couldn't take the screenshot"); return@request }
+            Thread {
+                val r = com.acecore.app.runtime.Screenshots.save(this, spec?.title ?: "game", bmp)
+                handler.post { showNotice(r.fold({ "Screenshot saved to $it" }, { "Couldn't save the screenshot: ${it.message}" })) }
+            }.start()
+        }, handler)
+    }
+
+    @Composable
+    private fun PausedBanner(accent: Color) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { setPaused(false) }) {
+            Column(Modifier.align(Alignment.Center).background(PanelBg, RoundedCornerShape(18.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 22.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Paused", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Tap anywhere to resume", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+            }
+        }
+    }
+
+    @Composable
+    private fun ConfirmLoad(accent: Color) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { confirmLoad = false },
+            contentAlignment = Alignment.Center) {
+            Column(Modifier.widthIn(max = 420.dp).padding(16.dp).background(PanelBg, RoundedCornerShape(20.dp))
+                .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp)).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Load the quick save?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Progress since the quick save is lost.", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                MenuItem(Icons.Rounded.Restore, "Load", accent, highlight = true) { confirmLoad = false; quickAction("quickload") }
+                MenuItem(Icons.Rounded.Close, "Cancel", accent) { confirmLoad = false }
+            }
+        }
+    }
+
+    /** Compact toolbar that slides in from the side the user swiped from; hides itself after a few seconds. */
+    @Composable
+    private fun QuickToolbar(s: RgssLaunchSpec, accent: Color, side: Int) {
+        androidx.compose.runtime.LaunchedEffect(toolbarSerial) { kotlinx.coroutines.delay(4000); toolbarSide = 0 }
+        fun act(f: () -> Unit) { toolbarSide = 0; f() }
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.align(if (side < 0) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 8.dp)
+                    .background(PanelBg, RoundedCornerShape(20.dp)).border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ToolbarButton(Icons.Rounded.Menu, "Menu") { act { menuOpen = true } }
+                ToolbarButton(Icons.Rounded.Pause, "Pause") { act { setPaused(true) } }
+                ToolbarButton(Icons.Rounded.Save, "Quick save") { act { quickAction("quicksave") } }
+                ToolbarButton(Icons.Rounded.Restore, "Quick load") { act { confirmLoad = true } }
+                ToolbarButton(Icons.Rounded.FastForward, if (ffOn) "Normal speed" else "Fast-forward", active = ffOn) { act { setFastForward(!ffOn) } }
+                ToolbarButton(Icons.Rounded.PhotoCamera, "Screenshot") { act { SDLActivity.mSurface?.postDelayed({ screenshot() }, 150) } }
+                if (s.helper && s.cheatsEnabled) ToolbarButton(Icons.Rounded.AutoFixHigh, "Cheats") { act { cheatsOpen = true } }
+                ToolbarButton(Icons.Rounded.AspectRatio, "Display") { act { displayOpen = true } }
+            }
+        }
+    }
+
+    @Composable
+    private fun ToolbarButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean = false, onClick: () -> Unit) {
+        Box(
+            Modifier.size(44.dp).background(if (active) Color.White.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(14.dp))
+                .clickable(onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(22.dp)) }
     }
 
     private fun applyImmersive() {
@@ -787,6 +958,9 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
             if (mappingOpen) MappingPanel(accent)
             if (testOpen) ControlsTestPanel(accent, Modifier.align(Alignment.TopCenter))
             if (toolsOpen) ToolsPanel(accent)
+            if (toolbarSide != 0 && !panelOpen && !starting) QuickToolbar(s, accent, toolbarSide)
+            if (userPaused) PausedBanner(accent)
+            if (confirmLoad) ConfirmLoad(accent)
             notice?.let { n ->
                 Text(n, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 58.dp).widthIn(max = 420.dp)
@@ -1016,12 +1190,18 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                     val game: @Composable () -> Unit = {
                         MenuSection("Gameplay") {
                             MenuItem(Icons.Rounded.PlayArrow, "Resume", accent, highlight = true) { menuOpen = false }
+                            MenuItem(Icons.Rounded.Pause, "Pause game", accent, subtitle = "Stops the game, its music and timers until you tap the screen") {
+                                menuOpen = false; setPaused(true)
+                            }
                             FastForwardRow(accent)
+                            MenuItem(Icons.Rounded.PhotoCamera, "Screenshot", accent, subtitle = "Saved to Pictures/AceArcade") {
+                                menuOpen = false; SDLActivity.mSurface?.postDelayed({ screenshot() }, 250)
+                            }
                             MenuItem(Icons.Rounded.Save, "Quick save", accent, subtitle = "One slot for this game, kept by AceArcade (your game saves are untouched)") {
                                 menuOpen = false; quickAction("quicksave")
                             }
                             MenuItem(Icons.Rounded.Restore, "Quick load", accent, subtitle = "Back to this game's quick save") {
-                                menuOpen = false; quickAction("quickload")
+                                menuOpen = false; confirmLoad = true
                             }
                         }
                         Spacer(Modifier.height(12.dp))
@@ -1055,7 +1235,7 @@ class RgssActivity : SDLActivity(), LifecycleOwner, SavedStateRegistryOwner {
                                 testOpen = true; lastPad = null; setInputTest(true); menuOpen = false
                                 if (!gamepadVisible) { gamepadMode = "always"; refreshGamepadVisibility() }
                             }
-                            MenuItem(Icons.Rounded.Edit, "Move on-screen controls", accent) { editingLayout = true; menuOpen = false }
+                            MenuItem(Icons.Rounded.Edit, "Edit on-screen controls (move, resize, hide)", accent) { editingLayout = true; menuOpen = false }
                             MenuItem(Icons.Rounded.FastForward, "On-screen buttons", accent, subtitle = "Controller opacity, FF / QS / QL / Cheats size and opacity, fast-forward") {
                                 toolsOpen = true; menuOpen = false
                             }
