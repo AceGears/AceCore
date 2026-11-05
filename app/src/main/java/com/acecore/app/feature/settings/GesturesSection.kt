@@ -135,6 +135,7 @@ private fun GestureTestArea(cfg: GestureConfig) {
                     zoom = (zoom * f).coerceIn(0.25f, 3f)
                     last = "Pinch → in a game: ${GestureConfig.actionLabel(current.actionFor(Gesture.PINCH))} (${(zoom * 100).toInt()}%)"
                 }
+                tracker.width = size.width.toFloat()
                 awaitPointerEventScope {
                     while (true) {
                         val ev = awaitPointerEvent()

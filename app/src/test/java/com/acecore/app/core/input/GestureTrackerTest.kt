@@ -52,4 +52,12 @@ class GestureTrackerTest {
         val total = pinches.fold(1f) { a, b -> a * b }
         assertTrue("fingers moved apart: zoom in, got $total", total > 1.5f)
     }
+
+    @Test fun edgeSwipeOnlyFromTheSides() {
+        t.width = 1000f
+        t.onDown(0, 990f, 300f, 0); for (i in 1..10) t.onMove(0, 990f - i * 20f, 300f, i * 10L); t.onUp(0, 120)
+        t.onDown(0, 500f, 300f, 1000); for (i in 1..10) t.onMove(0, 500f - i * 20f, 300f, 1000 + i * 10L); t.onUp(0, 1120)
+        t.onDown(0, 5f, 300f, 2000); for (i in 1..10) t.onMove(0, 5f + i * 20f, 300f, 2000 + i * 10L); t.onUp(0, 2120)
+        assertEquals(listOf(Gesture.EDGE_SWIPE, Gesture.EDGE_SWIPE), events)
+    }
 }

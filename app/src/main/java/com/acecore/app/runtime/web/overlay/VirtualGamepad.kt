@@ -86,8 +86,20 @@ class GamepadLayoutStore(context: Context) {
             offsets.forEach { (g, o) -> putFloat("$orientation.${g.name}.x", o.x); putFloat("$orientation.${g.name}.y", o.y) }
         }.apply()
     }
+    /** Size of each group relative to the overall controls size (0.6–1.8). */
+    fun loadScales(orientation: String): Map<PadGroup, Float> = PadGroup.entries.associateWith { prefs.getFloat("$orientation.${it.name}.scale", 1f) }
+    fun loadHidden(orientation: String): Set<PadGroup> = PadGroup.entries.filterTo(HashSet()) { prefs.getBoolean("$orientation.${it.name}.hidden", false) }
+    fun saveExtras(orientation: String, scales: Map<PadGroup, Float>, hidden: Set<PadGroup>) {
+        prefs.edit().apply {
+            PadGroup.entries.forEach { g ->
+                putFloat("$orientation.${g.name}.scale", scales[g] ?: 1f); putBoolean("$orientation.${g.name}.hidden", g in hidden)
+            }
+        }.apply()
+    }
     fun reset(orientation: String) {
-        prefs.edit().apply { PadGroup.entries.forEach { remove("$orientation.${it.name}.x"); remove("$orientation.${it.name}.y") } }.apply()
+        prefs.edit().apply {
+            PadGroup.entries.forEach { g -> listOf("x", "y", "scale", "hidden").forEach { remove("$orientation.${g.name}.$it") } }
+        }.apply()
     }
 }
 
@@ -115,6 +127,17 @@ fun VirtualGamepad(
 ) {
     val orientation = if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) "port" else "land"
     val offsets = remember(orientation) { mutableStateMapOf<PadGroup, Offset>().apply { putAll(store.load(orientation)) } }
+    val scales = remember(orientation) { mutableStateMapOf<PadGroup, Float>().apply { putAll(store.loadScales(orientation)) } }
+    val hidden = remember(orientation) { mutableStateMapOf<PadGroup, Boolean>().apply { store.loadHidden(orientation).forEach { put(it, true) } } }
+    var selected by remember(editing) { mutableStateOf<PadGroup?>(null) }
+    var snap by remember { mutableStateOf(true) }
+    fun reload() {
+        offsets.clear(); offsets.putAll(store.load(orientation))
+        scales.clear(); scales.putAll(store.loadScales(orientation))
+        hidden.clear(); store.loadHidden(orientation).forEach { hidden[it] = true }
+    }
+    /** Size factor of a group's buttons. */
+    fun sz(g: PadGroup) = scale * (scales[g] ?: 1f)
     val haptic = LocalHapticFeedback.current
     val press: (PadButton, Boolean) -> Unit = { b, down ->
         if (down && haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -124,52 +147,61 @@ fun VirtualGamepad(
     Box(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
         @Composable
         fun BoxScope.Group(group: PadGroup, align: Alignment, alpha: Float = opacity, content: @Composable () -> Unit) {
+            val isHidden = hidden[group] == true
+            if (isHidden && !editing) return
             val o = offsets[group] ?: Offset.Zero
             Box(
                 Modifier.align(align)
                     .offset { IntOffset(o.x.roundToInt(), o.y.roundToInt()) }
                     .then(
                         if (editing) Modifier
-                            .border(2.dp, accent, RoundedCornerShape(16.dp))
+                            .border(if (selected == group) 3.dp else 1.5.dp, if (selected == group) Color.White else accent, RoundedCornerShape(16.dp))
                             .pointerInput(group) {
-                                detectDragGestures { change, drag ->
+                                val grid = 8.dp.toPx()
+                                var raw = Offset.Zero
+                                detectDragGestures(
+                                    onDragStart = { selected = group; raw = offsets[group] ?: Offset.Zero },
+                                    onDragEnd = {},
+                                ) { change, drag ->
                                     change.consume()
-                                    offsets[group] = (offsets[group] ?: Offset.Zero) + drag
+                                    raw += drag
+                                    offsets[group] = if (snap) Offset((raw.x / grid).roundToInt() * grid, (raw.y / grid).roundToInt() * grid) else raw
                                 }
                             }
+                            .pointerInput(group, "select") { awaitEachGesture { awaitFirstDown(); if (waitForUpOrCancellation() != null) selected = group } }
                         else Modifier,
                     )
-                    .alpha(if (editing) 1f else alpha),
+                    .alpha(if (editing) (if (isHidden) 0.3f else 1f) else alpha),
             ) { content() }
         }
 
-        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * scale).dp, accent, enabled = !editing, fourWay = fourWay, onButton = press, onBounds = onDpadBounds) }
-        Group(PadGroup.FACE, Alignment.BottomEnd) { FaceButtons((58 * scale).dp, accent, enabled = !editing, onButton = press) }
+        Group(PadGroup.DPAD, Alignment.BottomStart) { DPad((150 * sz(PadGroup.DPAD)).dp, accent, enabled = !editing, fourWay = fourWay, onButton = press, onBounds = onDpadBounds) }
+        Group(PadGroup.FACE, Alignment.BottomEnd) { FaceButtons((58 * sz(PadGroup.FACE)).dp, accent, enabled = !editing, onButton = press) }
         Group(PadGroup.LEFT_SHOULDER, Alignment.TopStart) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PadKey("L2", PadButton.L2, Modifier.size((72 * scale).dp, (36 * scale).dp), RoundedCornerShape(12.dp), accent, !editing, press)
-                PadKey("L1", PadButton.L1, Modifier.size((72 * scale).dp, (36 * scale).dp), RoundedCornerShape(12.dp), accent, !editing, press)
+                PadKey("L2", PadButton.L2, Modifier.size((72 * sz(PadGroup.LEFT_SHOULDER)).dp, (36 * sz(PadGroup.LEFT_SHOULDER)).dp), RoundedCornerShape(12.dp), accent, !editing, press)
+                PadKey("L1", PadButton.L1, Modifier.size((72 * sz(PadGroup.LEFT_SHOULDER)).dp, (36 * sz(PadGroup.LEFT_SHOULDER)).dp), RoundedCornerShape(12.dp), accent, !editing, press)
             }
         }
         Group(PadGroup.RIGHT_SHOULDER, Alignment.TopEnd) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
-                PadKey("R2", PadButton.R2, Modifier.size((72 * scale).dp, (36 * scale).dp), RoundedCornerShape(12.dp), accent, !editing, press)
-                PadKey("R1", PadButton.R1, Modifier.size((72 * scale).dp, (36 * scale).dp), RoundedCornerShape(12.dp), accent, !editing, press)
+                PadKey("R2", PadButton.R2, Modifier.size((72 * sz(PadGroup.RIGHT_SHOULDER)).dp, (36 * sz(PadGroup.RIGHT_SHOULDER)).dp), RoundedCornerShape(12.dp), accent, !editing, press)
+                PadKey("R1", PadButton.R1, Modifier.size((72 * sz(PadGroup.RIGHT_SHOULDER)).dp, (36 * sz(PadGroup.RIGHT_SHOULDER)).dp), RoundedCornerShape(12.dp), accent, !editing, press)
             }
         }
         Group(PadGroup.CENTER, Alignment.BottomCenter) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                PadKey("SELECT", PadButton.SELECT, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
-                PadKey("START", PadButton.START, Modifier.size((70 * scale).dp, (28 * scale).dp), RoundedCornerShape(50), accent, !editing, press)
+                PadKey("SELECT", PadButton.SELECT, Modifier.size((70 * sz(PadGroup.CENTER)).dp, (28 * sz(PadGroup.CENTER)).dp), RoundedCornerShape(50), accent, !editing, press)
+                PadKey("START", PadButton.START, Modifier.size((70 * sz(PadGroup.CENTER)).dp, (28 * sz(PadGroup.CENTER)).dp), RoundedCornerShape(50), accent, !editing, press)
             }
         }
         if (tools != null && tools.showCheats) {
             // Right after the FF / QS / QL row by default; its own group, so "Move on-screen controls" can place it anywhere.
-            val w = (50 * tools.scale).dp
+            val w = (50 * tools.scale * (scales[PadGroup.TOOLS] ?: 1f)).dp
             val shown = listOf(tools.showFastForward, tools.showQuickSave, tools.showQuickLoad).count { it }
             Group(PadGroup.CHEATS, Alignment.TopStart, alpha = tools.opacity) {
-                Box(Modifier.padding(start = (84 * scale).dp + (w + 8.dp) * shown)) {
-                    ToolKey("Cheats", w * 1.4f, (34 * tools.scale).dp, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onCheats)
+                Box(Modifier.padding(start = (84 * sz(PadGroup.LEFT_SHOULDER)).dp + (w + 8.dp) * shown)) {
+                    ToolKey("Cheats", w * 1.4f, (34 * tools.scale * (scales[PadGroup.TOOLS] ?: 1f)).dp, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onCheats)
                 }
             }
         }
@@ -177,8 +209,8 @@ fun VirtualGamepad(
             // Next to the left shoulder buttons by default: clear of the D-pad, the face buttons, the menu button and
             // the bottom of the screen where RPG dialogue appears. Draggable in "Edit layout" like the other groups.
             Group(PadGroup.TOOLS, Alignment.TopStart, alpha = tools.opacity) {
-                Row(Modifier.padding(start = (84 * scale).dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val w = (50 * tools.scale).dp; val h = (34 * tools.scale).dp
+                Row(Modifier.padding(start = (84 * sz(PadGroup.LEFT_SHOULDER)).dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val w = (50 * tools.scale * (scales[PadGroup.TOOLS] ?: 1f)).dp; val h = (34 * tools.scale * (scales[PadGroup.TOOLS] ?: 1f)).dp
                     if (tools.showFastForward) ToolKey(if (tools.fastForwardActive) "FF ${tools.speedLabel}" else "FF", w * (if (tools.fastForwardActive) 1.5f else 1f), h,
                         accent, tools.fastForwardActive, !editing, haptics, onPress = { tools.onFastForward(true) }, onRelease = { tools.onFastForward(false) })
                     if (tools.showQuickSave) ToolKey("QS", w, h, accent, false, !editing, haptics, onPress = {}, onRelease = tools.onQuickSave)
@@ -195,12 +227,20 @@ fun VirtualGamepad(
                 contentAlignment = Alignment.Center,
             ) { Text("☰", color = Color.White, fontSize = 18.sp) }
         } else {
-            Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = {
-                    store.reset(orientation); offsets.clear(); offsets.putAll(store.load(orientation))
-                }) { Text("Reset", color = Color.White) }
-                Button(onClick = { store.save(orientation, offsets.toMap()); onEditDone() }) { Text("Save layout") }
-            }
+            EditBar(
+                modifier = Modifier.align(Alignment.Center), accent = accent, selected = selected,
+                size = selected?.let { scales[it] ?: 1f }, hidden = selected?.let { hidden[it] == true } ?: false, snap = snap,
+                onSize = { d -> selected?.let { g -> scales[g] = ((scales[g] ?: 1f) + d).coerceIn(0.6f, 1.8f) } },
+                onToggleHidden = { selected?.let { g -> hidden[g] = hidden[g] != true } },
+                onSnap = { snap = !snap },
+                onReset = { store.reset(orientation); reload(); selected = null },
+                onCancel = { reload(); onEditDone() },
+                onSave = {
+                    store.save(orientation, offsets.toMap())
+                    store.saveExtras(orientation, scales.toMap(), hidden.filterValues { it }.keys)
+                    onEditDone()
+                },
+            )
         }
     }
 }
@@ -338,6 +378,43 @@ private fun DPad(size: Dp, accent: Color, enabled: Boolean, fourWay: Boolean = f
                 Modifier.align(a).padding(6.dp).size(arm).clip(RoundedCornerShape(8.dp))
                     .background(if (b in active) accent.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.16f)),
             )
+        }
+    }
+}
+
+private fun groupLabel(g: PadGroup) = when (g) {
+    PadGroup.DPAD -> "D-pad"; PadGroup.FACE -> "A / B / X / Y"; PadGroup.LEFT_SHOULDER -> "L buttons"; PadGroup.RIGHT_SHOULDER -> "R buttons"
+    PadGroup.CENTER -> "Select / Start"; PadGroup.TOOLS -> "FF / QS / QL"; PadGroup.CHEATS -> "Cheats button"
+}
+
+/** Edit-mode toolbar: size and visibility of the selected group, grid snapping, reset, cancel and save. */
+@Composable
+private fun EditBar(
+    modifier: Modifier, accent: Color, selected: PadGroup?, size: Float?, hidden: Boolean, snap: Boolean,
+    onSize: (Float) -> Unit, onToggleHidden: () -> Unit, onSnap: () -> Unit, onReset: () -> Unit, onCancel: () -> Unit, onSave: () -> Unit,
+) {
+    Column(
+        modifier.background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(18.dp)).border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (selected == null) "Drag a group to move it. Tap one to resize or hide it." else groupLabel(selected),
+            color = Color.White, fontSize = 13.sp, fontWeight = if (selected == null) FontWeight.Normal else FontWeight.SemiBold,
+        )
+        if (selected != null && size != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { onSize(-0.1f) }, enabled = size > 0.61f) { Text("−", color = Color.White) }
+            Text("${(size * 100).roundToInt()}%", color = Color.White, fontSize = 14.sp)
+            OutlinedButton(onClick = { onSize(0.1f) }, enabled = size < 1.79f) { Text("+", color = Color.White) }
+            OutlinedButton(onClick = onToggleHidden) { Text(if (hidden) "Show" else "Hide", color = Color.White) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onSnap) { Text(if (snap) "Grid: on" else "Grid: off", color = Color.White) }
+            OutlinedButton(onClick = onReset) { Text("Reset", color = Color.White) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCancel) { Text("Cancel", color = Color.White) }
+            Button(onClick = onSave) { Text("Save layout") }
         }
     }
 }

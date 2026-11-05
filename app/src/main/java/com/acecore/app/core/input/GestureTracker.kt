@@ -11,6 +11,7 @@ enum class Gesture(val label: String) {
     TWO_FINGER_SWIPE_UP("Two-finger swipe up"),
     TWO_FINGER_SWIPE_DOWN("Two-finger swipe down"),
     PINCH("Pinch"),
+    EDGE_SWIPE("Swipe in from the side"),
 }
 
 /**
@@ -26,6 +27,9 @@ class GestureTracker(
     var swipePx: Float = 120f,
     var tapMs: Long = 250,
     var doubleTapMs: Long = 300,
+    /** Width of the touch area (for edge swipes; 0 = no edge swipes) and how close to a side an edge swipe starts. */
+    var width: Float = 0f,
+    var edgePx: Float = 40f,
     private val onGesture: (Gesture) -> Unit,
     private val onPinch: (Float) -> Unit = {},
 ) {
@@ -41,12 +45,20 @@ class GestureTracker(
     private var lastTapAt = -1L
     private var lastTapX = 0f
     private var lastTapY = 0f
+    /** -1: started at the left edge, +1: at the right edge, 0: not an edge swipe. */
+    private var edge = 0
+    /** Side of the latest edge swipe: -1 = left, 1 = right. */
+    var lastEdgeSide = 0
+        private set
 
     /** True while two or more fingers are on the screen (a game should stop treating the touch as its own input). */
     val multiTouch get() = down.size >= 2 || maxPointers >= 2
 
     fun onDown(id: Int, x: Float, y: Float, t: Long) {
-        if (down.isEmpty()) { gestureStart = t; maxPointers = 0; moved = false; swiped = false; pinching = false }
+        if (down.isEmpty()) {
+            gestureStart = t; maxPointers = 0; moved = false; swiped = false; pinching = false
+            edge = when { width <= 0f -> 0; x <= edgePx -> -1; x >= width - edgePx -> 1; else -> 0 }
+        } else edge = 0
         down[id] = P(x, y, x, y)
         maxPointers = maxOf(maxPointers, down.size)
         if (down.size == 2) lastSpan = span()
@@ -56,6 +68,10 @@ class GestureTracker(
         val p = down[id] ?: return
         p.x = x; p.y = y
         if (hypot(x - p.sx, y - p.sy) > slopPx) moved = true
+        if (edge != 0 && down.size == 1 && !swiped) {
+            val inward = (x - p.sx) * -edge
+            if (inward > swipePx * 0.6f && inward > abs(y - p.sy) * 1.5f) { swiped = true; lastEdgeSide = edge; onGesture(Gesture.EDGE_SWIPE) }
+        }
         if (down.size == 2 && !swiped) {
             val s = span()
             val (dy, dx) = averageDelta()

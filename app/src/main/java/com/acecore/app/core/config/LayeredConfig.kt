@@ -256,6 +256,11 @@ enum class ConfigKey(
         "gesturePinch", "Pinch to zoom", "Spread or pinch two fingers to zoom the picture (switches Screen fit to Custom zoom; the size is saved for the game).",
         ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
     ),
+    GESTURE_EDGE_TOOLBAR(
+        "gestureEdgeToolbar", "Swipe in from the side: quick toolbar",
+        "Swipe in from the left or right edge of the screen for a small toolbar (menu, save, load, fast-forward, screenshot, cheats).",
+        ConfigType.BOOL, "true", section = "Gestures", appliesTo = HANDHELD,
+    ),
     GESTURE_SENSITIVITY(
         "gestureSensitivity", "Gesture sensitivity", "Higher: shorter swipes and smaller pinches count (%).",
         ConfigType.INT, "100", range = 50..200, section = "Gestures", appliesTo = HANDHELD,

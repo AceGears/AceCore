@@ -32,11 +32,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.DisplaySettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -115,6 +124,10 @@ class HandheldActivity : ComponentActivity() {
     internal var cheatRevision by mutableIntStateOf(0)
     private var paused by mutableStateOf(false)
     private var confirmLoad by mutableStateOf(false)
+    private var editingLayout by mutableStateOf(false)
+    /** Quick toolbar (edge swipe): side it slides in from (-1 left, 1 right), 0 = hidden; serial restarts its auto-hide. */
+    private var toolbarSide by mutableIntStateOf(0)
+    private var toolbarSerial by mutableIntStateOf(0)
     private var gestureConfig = com.acecore.app.core.input.GestureConfig()
     private var pinchZoom = 0f
     private var lastPinchAt = 0L
@@ -164,6 +177,8 @@ class HandheldActivity : ComponentActivity() {
     private fun toggleMenu() {
         when {
             confirmLoad -> confirmLoad = false
+            toolbarSide != 0 -> toolbarSide = 0
+            editingLayout -> editingLayout = false
             paused -> paused = false
             cheatsOpen -> cheatsOpen = false
             displayOpen -> displayOpen = false
@@ -174,7 +189,7 @@ class HandheldActivity : ComponentActivity() {
     }
 
     private fun updateRunning() {
-        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && !paused && !confirmLoad && failure == null && hasWindowFocusCompat)
+        core?.setRunning(started && !finishing && !menuOpen && !statesOpen && !cheatsOpen && !paused && !confirmLoad && !editingLayout && failure == null && hasWindowFocusCompat)
     }
     private var hasWindowFocusCompat = true
 
@@ -523,7 +538,7 @@ class HandheldActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ gestures
 
-    private val panelOpen get() = menuOpen || displayOpen || statesOpen || cheatsOpen || paused || confirmLoad || failure != null
+    private val panelOpen get() = menuOpen || displayOpen || statesOpen || cheatsOpen || paused || confirmLoad || editingLayout || failure != null
 
     private fun onGesture(g: com.acecore.app.core.input.Gesture) {
         if (!started || panelOpen) return
@@ -540,6 +555,7 @@ class HandheldActivity : ComponentActivity() {
             "screenshot" -> screenshot()
             "quicksave" -> saveState(0)
             "quickload" -> if (stateFile(0).isFile) { confirmLoad = true; updateRunning() } else say("No quick save yet")
+            "toolbar" -> { toolbarSide = if (screen.gestures?.lastEdgeSide == -1) -1 else 1; toolbarSerial++ }
         }
     }
 
@@ -587,10 +603,11 @@ class HandheldActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize()) {
             val f = failure
             if (f != null || status != null) StatusPanel(accent, f)
-            if (padVisible && !menuOpen && !displayOpen && !statesOpen && !cheatsOpen && f == null) {
+            if ((padVisible || editingLayout) && !menuOpen && !displayOpen && !statesOpen && !cheatsOpen && f == null) {
                 VirtualGamepad(
                     store = store, opacity = spec.opacity / 100f, scale = spec.scale / 100f, haptics = spec.haptics, accent = accent,
-                    editing = false, onEditDone = {}, onButton = ::onPad, onMenu = { menuOpen = true; updateRunning() },
+                    editing = editingLayout, onEditDone = { editingLayout = false; updateRunning(); say("On-screen controls saved") },
+                    onButton = ::onPad, onMenu = { menuOpen = true; updateRunning() },
                 )
             } else if (!menuOpen && !displayOpen && !statesOpen && !cheatsOpen && f == null) {
                 Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).background(PanelBg, RoundedCornerShape(50))
@@ -619,6 +636,7 @@ class HandheldActivity : ComponentActivity() {
             if (cheatsOpen) cheats?.let { CheatMenu(this@HandheldActivity, it, accent, cheatRevision) }
             if (menuOpen) MainMenu(accent)
             if (paused) PausedBanner(accent)
+            if (toolbarSide != 0 && f == null && !panelOpen) QuickToolbar(accent, toolbarSide)
             if (confirmLoad) Panel(accent, { confirmLoad = false; updateRunning() }) {
                 Text("Load the quick save?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("Progress since the quick save is lost.", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
@@ -633,6 +651,40 @@ class HandheldActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Compact toolbar that slides in from the side the user swiped from; hides itself after a few seconds. */
+    @Composable
+    private fun QuickToolbar(accent: Color, side: Int) {
+        androidx.compose.runtime.LaunchedEffect(toolbarSerial) { kotlinx.coroutines.delay(4000); toolbarSide = 0 }
+        fun act(f: () -> Unit) { toolbarSide = 0; f() }
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.align(if (side < 0) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 8.dp)
+                    .background(PanelBg, RoundedCornerShape(20.dp)).border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ToolbarButton(Icons.Rounded.Menu, "Menu") { act { menuOpen = true; updateRunning() } }
+                ToolbarButton(Icons.Rounded.Save, "Quick save") { act { saveState(0) } }
+                ToolbarButton(Icons.Rounded.Restore, "Quick load") {
+                    act { if (stateFile(0).isFile) { confirmLoad = true; updateRunning() } else say("No quick save yet") }
+                }
+                ToolbarButton(Icons.Rounded.FastForward, if (fastForward) "Normal speed" else "Fast-forward", active = fastForward) { act { toggleFastForward() } }
+                ToolbarButton(Icons.Rounded.PhotoCamera, "Screenshot") { act { screen.postDelayed({ screenshot() }, 120) } }
+                if (cheats != null) ToolbarButton(Icons.Rounded.AutoFixHigh, "Cheats") { act { cheatsOpen = true; updateRunning() } }
+                ToolbarButton(Icons.Rounded.DisplaySettings, "Display") { act { displayOpen = true; updateRunning() } }
+            }
+        }
+    }
+
+    @Composable
+    private fun ToolbarButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean = false, onClick: () -> Unit) {
+        Box(
+            Modifier.size(44.dp).background(if (active) Color.White.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(14.dp))
+                .clickable(onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { androidx.compose.material3.Icon(icon, label, tint = Color.White, modifier = Modifier.size(22.dp)) }
     }
 
     @Composable
@@ -696,6 +748,7 @@ class HandheldActivity : ComponentActivity() {
             MenuRow(if (fastForward) "Normal speed" else "Fast-forward (${formatSpeed(spec.fastForwardSpeed)})", accent) { toggleFastForward(); menuOpen = false; updateRunning() }
             MenuRow("Screenshot", accent) { menuOpen = false; updateRunning(); screen.postDelayed({ screenshot() }, 150) }
             MenuRow(if (padVisible) "Hide on-screen controls" else "Show on-screen controls", accent) { padVisible = !padVisible; menuOpen = false; updateRunning() }
+            MenuRow("Edit on-screen controls (move, resize, hide)", accent) { menuOpen = false; editingLayout = true; updateRunning() }
             MenuRow("Restart game", accent) { menuOpen = false; restartGame() }
             MenuRow("Exit to library", accent) { exitGame() }
         }

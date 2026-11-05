@@ -14,6 +14,7 @@ data class GestureConfig(
     val sensitivity: Int = 100,
     val doubleTapMs: Int = 300,
     val haptics: Boolean = true,
+    val edgeToolbar: Boolean = true,
 ) {
     /** The action id a tap gesture is set to ("off" when gestures are off). */
     fun actionFor(g: Gesture): String = if (!enabled) "off" else when (g) {
@@ -23,18 +24,19 @@ data class GestureConfig(
         Gesture.TWO_FINGER_SWIPE_UP -> if (swipe) "quicksave" else "off"
         Gesture.TWO_FINGER_SWIPE_DOWN -> if (swipe) "quickload" else "off"
         Gesture.PINCH -> if (pinch) "zoom" else "off"
+        Gesture.EDGE_SWIPE -> if (edgeToolbar) "toolbar" else "off"
     }
 
     /** A tracker tuned to these settings; [density] = screen pixels per dp. */
     fun tracker(density: Float, onGesture: (Gesture) -> Unit, onPinch: (Float) -> Unit): GestureTracker {
         val k = 100f / sensitivity.coerceIn(50, 200)
         return GestureTracker(slopPx = 12f * density, swipePx = 64f * density * k, tapMs = 250, doubleTapMs = doubleTapMs.toLong(),
-            onGesture = onGesture, onPinch = onPinch)
+            edgePx = 20f * density, onGesture = onGesture, onPinch = onPinch)
     }
 
     fun toJson(): String = JSONObject().put("enabled", enabled).put("doubleTap", doubleTap).put("two", twoFingerTap)
         .put("three", threeFingerTap).put("swipe", swipe).put("pinch", pinch).put("sensitivity", sensitivity)
-        .put("doubleTapMs", doubleTapMs).put("haptics", haptics).toString()
+        .put("doubleTapMs", doubleTapMs).put("haptics", haptics).put("edge", edgeToolbar).toString()
 
     companion object {
         /** Readable names of the actions (also used by the gesture test area). */
@@ -48,6 +50,7 @@ data class GestureConfig(
             "quicksave" -> "quick save"
             "quickload" -> "quick load"
             "zoom" -> "zoom the picture"
+            "toolbar" -> "show the quick toolbar"
             else -> id
         }
 
@@ -61,6 +64,7 @@ data class GestureConfig(
             sensitivity = ConfigKey.GESTURE_SENSITIVITY.int(get(ConfigKey.GESTURE_SENSITIVITY)),
             doubleTapMs = ConfigKey.GESTURE_DOUBLE_TAP_MS.int(get(ConfigKey.GESTURE_DOUBLE_TAP_MS)),
             haptics = ConfigKey.GESTURE_HAPTICS.bool(get(ConfigKey.GESTURE_HAPTICS)),
+            edgeToolbar = ConfigKey.GESTURE_EDGE_TOOLBAR.bool(get(ConfigKey.GESTURE_EDGE_TOOLBAR)),
         )
 
         fun fromJson(s: String?): GestureConfig {
@@ -70,7 +74,7 @@ data class GestureConfig(
                     GestureConfig(
                         it.optBoolean("enabled", true), it.optString("doubleTap", "pause"), it.optString("two", "menu"),
                         it.optString("three", "cheats"), it.optBoolean("swipe", true), it.optBoolean("pinch", true),
-                        it.optInt("sensitivity", 100), it.optInt("doubleTapMs", 300), it.optBoolean("haptics", true),
+                        it.optInt("sensitivity", 100), it.optInt("doubleTapMs", 300), it.optBoolean("haptics", true), it.optBoolean("edge", true),
                     )
                 }
             }.getOrDefault(GestureConfig())

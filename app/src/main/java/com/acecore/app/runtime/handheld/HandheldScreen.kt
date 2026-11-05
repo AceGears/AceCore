@@ -143,7 +143,7 @@ class HandheldScreen(context: Context, private val platform: HandheldPlatform) :
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         val g = gestures
-        g?.let { feedGestures(e, it) }
+        g?.let { it.width = width.toFloat(); feedGestures(e, it) }
         if (platform != HandheldPlatform.NDS) return g != null
         val cb = onTouch ?: return g != null
         // A second finger means a gesture: lift the stylus so the game doesn't see a stray touch.
