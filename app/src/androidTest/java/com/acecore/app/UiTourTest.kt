@@ -101,8 +101,11 @@ class UiTourTest {
         compose.waitForIdle()
         Thread.sleep(900)
         val bmp = instrumentation.uiAutomation.takeScreenshot() ?: return
-        val dir = File(ctx.getExternalFilesDir(null), "testresults").apply { mkdirs() }
-        File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // Also in app-private storage: on Android 11+ CI fetches it with "run-as" (adb can't read the external folder).
+        for (base in listOf(ctx.getExternalFilesDir(null), ctx.filesDir)) {
+            val dir = File(base, "testresults").apply { mkdirs() }
+            File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
     }
 
     // The same text can appear twice (a category tab and its banner): the first match is the one on top of the screen.

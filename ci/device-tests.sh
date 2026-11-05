@@ -26,9 +26,10 @@ timeout 900 adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunch
 grep -q "^OK (" device-results/easyrpg-test.txt || status=1
 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ 2>/dev/null || {
   # Android 11+: adb can't read other apps' external folders; the (debuggable) app itself can.
-  adb exec-out run-as $PKG tar cf - -C /sdcard/Android/data/$PKG/files testresults > device-results/testresults.tar 2>/dev/null \
+  adb exec-out run-as $PKG tar cf - -C files testresults > device-results/testresults.tar 2>/dev/null \
     && tar xf device-results/testresults.tar -C device-results && rm -f device-results/testresults.tar
 } || true
+ls device-results/testresults 2>/dev/null | head -40 || echo "no screenshots fetched"
 adb logcat -d > device-results/logcat.txt || true
 grep -iE "AceCore|AceArcade|godot|EasyRPG|SDL|mkxp|libc|DEBUG|FATAL|AndroidRuntime|native_bridge|houdini|ndk_translation" device-results/logcat.txt | tail -400 > device-results/logcat-filtered.txt || true
 note() { # title file  (GitHub shows at most 10 notices per step, so results are grouped)
