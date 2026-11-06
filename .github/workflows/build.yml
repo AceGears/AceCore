@@ -280,7 +280,7 @@ jobs:
           echo "rbconfig.rb: $RBC"
           [ -n "$RBC" ] || { echo "::error title=rbconfig.rb::not found in the Ruby build"; exit 1; }
           mkdir -p natives/ruby && cp "$RBC" natives/ruby/rbconfig.rb
-          grep -m1 'RUBY_VERSION ==' natives/ruby/rbconfig.rb; grep -m1 '"arch"' natives/ruby/rbconfig.rb
+          grep -m3 -E 'RUBY_VERSION|CONFIG\["(arch|ruby_version)"\]' natives/ruby/rbconfig.rb || true
           # NDK 23's libc++_shared.so is 4 KB-aligned; NDK r27's is 16 KB-aligned and ABI-compatible (same __ndk1 ABI,
           # newer is a superset), so ship that one.
           SDKMANAGER=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -1)
