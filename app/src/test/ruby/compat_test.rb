@@ -38,7 +38,8 @@ class << Graphics
   def delta = 16_667
 end
 module Audio; def self.bgm_play(*a); end; end
-module AceCoreCompat; DISPLAY_W = 3120; DISPLAY_H = 1440; DISPLAY_FILE = DISPLAY_TMP; FIT = 'fit'; SMOOTH = true; SIZE = 100; end
+RUBY_LIB_TMP = Dir.mktmpdir; File.write(File.join(RUBY_LIB_TMP, 'rbconfig.rb'), '# test')
+module AceCoreCompat; DISPLAY_W = 3120; DISPLAY_H = 1440; DISPLAY_FILE = DISPLAY_TMP; FIT = 'fit'; SMOOTH = true; SIZE = 100; RUBY_LIB = RUBY_LIB_TMP; end
 load COMPAT
 Dir.chdir(game)
 def check(name, got, want) = (got == want ? puts("ok   #{name}") : (puts("FAIL #{name}: #{got.inspect} != #{want.inspect}"); $fail = true))
@@ -55,6 +56,8 @@ check "Essentials for mkxp-z 2.4.2: Graphics.delta in seconds", Graphics.delta, 
 check "Essentials for mkxp-z 2.4.2: Input.time? in seconds", Input.time?(2), 0.03
 check "Essentials for mkxp-z 2.4.2: System.delta in seconds", System.delta, $fake_us / 1_000_000.0
 check "zlib", Zlib::Inflate.inflate(Zlib::Deflate.deflate("x")), "x"
+# The engine's rbconfig folder goes last on the load path (a game's own files are found first), once.
+check "rbconfig folder last on the load path", $LOAD_PATH.last, RUBY_LIB_TMP
 check "display_width", Graphics.display_width, 3120
 check "display_height", Graphics.display_height, 1440
 check "file_exist? exact", System.file_exist?("Data/Scripts.rxdata"), true
@@ -107,4 +110,5 @@ check "plain mount unchanged", $mounts.last, ["Data/c.fpk", nil, true]
 # existing engine methods are not replaced
 module Graphics; def self.display_width; 999; end; end
 load COMPAT; check "keeps native", Graphics.display_width, 999
+check "rbconfig folder added once", $LOAD_PATH.count(RUBY_LIB_TMP), 1
 exit($fail ? 1 : 0)

@@ -8,6 +8,7 @@
 #   ruby ci/make_test_game.rb <output dir>
 require "zlib"
 require "fileutils"
+require "rbconfig"
 
 out = ARGV[0] or abort("usage: make_test_game.rb <dir>")
 FileUtils.mkdir_p(File.join(out, "Data"))
@@ -119,6 +120,16 @@ script = <<~'RUBY'
       e.class.to_s
     end
     mark.call("rgss1", "r18=#{$acearcade_r18} s18=#{s18} cvar=#{cvar} win32=#{win} marshal=#{marshal} layout=#{layout} keys=#{keys}")
+    # Like Pokémon Rejuvenation: RubyGems loaded from the game's own stdlib folder. RubyGems starts with
+    # require "rbconfig", which the engine must provide (the game's folder has none for Android).
+    gems = begin
+      $LOAD_PATH.unshift(File.expand_path("stdlib"))
+      require "rubygems"
+      "ok #{RbConfig::CONFIG['ruby_version']} win=#{Gem.win_platform?} gem=#{Gem::VERSION}"
+    rescue Exception => e
+      "#{e.class}: #{e.message}"
+    end
+    mark.call("rubygems", gems)
     # Encodings Ruby uses for file names (must be UTF-8 on Android, whose file systems store UTF-8 names).
     mark.call("encodings", "fs=#{Encoding.find('filesystem')} locale=#{Encoding.find('locale')} lp=#{$LOAD_PATH.size}")
     mark.call("test_started", "1")
@@ -193,4 +204,10 @@ File.binwrite(File.join(out, "Data", "Scripts.rxdata"), Marshal.dump([[2, "Ruby1
 # Like many released Essentials games (e.g. Pokémon Xenoverse), the test game ships mkxp.json with "debugMode": true,
 # which makes mkxp-z set Ruby's $DEBUG for RGSS1 games (Ruby then reports every exception, even rescued ones).
 File.write(File.join(out, "mkxp.json"), "{\n  \"debugMode\": true\n}\n")
+# The game's stdlib folder: RubyGems from the Ruby running this script (CI uses Ruby 3.1, like the engine), as games
+# such as Pokémon Rejuvenation ship it. Ruby's own library files, not AceArcade code.
+lib = RbConfig::CONFIG["rubylibdir"]
+FileUtils.mkdir_p(File.join(out, "stdlib"))
+FileUtils.cp_r([File.join(lib, "rubygems.rb"), File.join(lib, "rubygems")], File.join(out, "stdlib"))
+%w[monitor.rb bundled_gems.rb].each { |f| FileUtils.cp(File.join(lib, f), File.join(out, "stdlib")) if File.file?(File.join(lib, f)) }
 puts "Test game written to #{out}"

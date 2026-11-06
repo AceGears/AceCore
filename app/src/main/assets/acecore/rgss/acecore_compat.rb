@@ -19,6 +19,15 @@ rescue LoadError => e
   ($stderr.puts("AceArcade: Ruby zlib extension unavailable: #{e.message}") rescue nil)
 end
 
+# Ruby's rbconfig (RbConfig: this Ruby's version, platform and paths). PC builds of mkxp-z come with it; the Android
+# port has no Ruby library folder, so `require "rbconfig"` failed, and with it RubyGems, which some games load from
+# their own stdlib folder (Pokémon Rejuvenation stopped with "LoadError: cannot load such file -- rbconfig").
+# AceArcade ships the rbconfig.rb that this engine's Ruby build generated (it describes this Ruby, not Windows). Its
+# folder goes last on the load path, so anything the game provides itself is found first.
+if defined?(AceCoreCompat::RUBY_LIB) && AceCoreCompat::RUBY_LIB && File.file?(File.join(AceCoreCompat::RUBY_LIB, "rbconfig.rb"))
+  $LOAD_PATH.push(AceCoreCompat::RUBY_LIB) unless $LOAD_PATH.include?(AceCoreCompat::RUBY_LIB)
+end
+
 # String byte access that game scripts can't change. Ruby-1.8-era games often patch String for compatibility, e.g.
 # redefining String#getbyte in terms of [] (the engine log of Pokémon Z and Xenoverse showed AceArcade's own byte reads
 # coming back as one-character Strings that way).

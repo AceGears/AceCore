@@ -79,6 +79,10 @@ class RgssDirectLaunchTest {
         val encodings = File(helper, "encodings").takeIf { it.exists() }?.readText()?.trim().orEmpty()
         report("rgss_encodings", encodings)
         assertTrue("Ruby must use UTF-8 for file names: '$encodings'", encodings.startsWith("fs=UTF-8"))
+        // RubyGems from the game's own stdlib folder (Pokémon Rejuvenation) needs the engine's rbconfig.rb.
+        val gems = File(helper, "rubygems").takeIf { it.exists() }?.readText()?.trim().orEmpty()
+        report("rgss_rubygems", gems)
+        assertTrue("RubyGems from a game's stdlib folder must load (rbconfig): '$gems'", gems.startsWith("ok 3.1.0 win=false "))
         val rgss1 = File(helper, "rgss1").takeIf { it.exists() }?.readText()?.trim().orEmpty()
         report("rgss1_compat", rgss1)
         assertTrue("Ruby 1.8 'when x:' scripts must be adapted: '$rgss1'", rgss1.startsWith("r18=ok "))
