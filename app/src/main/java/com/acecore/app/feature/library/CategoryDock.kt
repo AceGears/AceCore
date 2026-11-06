@@ -102,9 +102,16 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
         // Shapes on the top edge (notch, crest) must stay on its straight part, clear of the rounded ends: the first
         // and last slots are inset by (corner radius + half-width) minus half a slot when that's positive.
         val reach = BAR_HEIGHT / 2 + NOTCH_HALF + END_FLAT
-        var slot = maxOf(SLOT_MIN, maxWidth / tabs.size)
-        var pad = maxOf(0.dp, reach - slot / 2)
-        repeat(2) { slot = maxOf(SLOT_MIN, (maxWidth - pad * 2) / tabs.size); pad = maxOf(0.dp, reach - slot / 2) }
+        // Exact solution of slot = (width - 2 pad) / n with pad = reach - slot / 2, so the content fills the width
+        // exactly (an approximation left it a few pixels wider, clipping the right end).
+        val n = tabs.size
+        var slot = maxWidth / n
+        var pad = 0.dp
+        if (reach > slot / 2) {
+            slot = if (n > 1) (maxWidth - reach * 2) / (n - 1) else maxWidth
+            pad = maxOf(0.dp, reach - slot / 2)
+        }
+        if (slot < SLOT_MIN) { slot = SLOT_MIN; pad = maxOf(0.dp, reach - slot / 2) } // too many tabs: the dock scrolls
         val contentWidth = slot * tabs.size + pad * 2
         val scroll = rememberScrollState()
         val slotPx = with(density) { slot.toPx() }
