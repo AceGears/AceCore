@@ -15,22 +15,22 @@ status=0
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
 grep -q "AssumptionViolatedException\|no RGSS native" device-results/rgss-test.txt && { echo "::error title=rgss test skipped::the RGSS natives were not loadable"; status=1; }
-adb shell am force-stop $PKG; adb shell input keyevent KEYCODE_HOME; sleep 2
+timeout 60 adb shell am force-stop $PKG; timeout 30 adb shell input keyevent KEYCODE_HOME; sleep 2
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
 grep -q "^OK (" device-results/ui-test.txt || status=1
-adb shell am force-stop $PKG; sleep 1
+timeout 60 adb shell am force-stop $PKG; sleep 1
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.GodotLaunchTest $RUNNER | tee device-results/godot-test.txt
 grep -q "^OK (" device-results/godot-test.txt || status=1
-adb shell am force-stop $PKG; sleep 1
+timeout 60 adb shell am force-stop $PKG; sleep 1
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunchTest $RUNNER | tee device-results/easyrpg-test.txt
 grep -q "^OK (" device-results/easyrpg-test.txt || status=1
-adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ 2>/dev/null || {
+timeout 120 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ 2>/dev/null || {
   # Android 11+: adb can't read other apps' external folders; the (debuggable) app itself can.
-  adb exec-out run-as $PKG tar cf - -C files testresults > device-results/testresults.tar 2>/dev/null \
+  timeout 300 adb exec-out run-as $PKG tar cf - -C files testresults > device-results/testresults.tar 2>/dev/null \
     && tar xf device-results/testresults.tar -C device-results && rm -f device-results/testresults.tar
 } || true
 ls device-results/testresults 2>/dev/null | head -40 || echo "no screenshots fetched"
-adb logcat -d > device-results/logcat.txt || true
+timeout 120 adb logcat -d > device-results/logcat.txt || true
 grep -iE "AceCore|AceArcade|godot|EasyRPG|SDL|mkxp|libc|DEBUG|FATAL|AndroidRuntime|native_bridge|houdini|ndk_translation" device-results/logcat.txt | tail -400 > device-results/logcat-filtered.txt || true
 note() { # title file  (GitHub shows at most 10 notices per step, so results are grouped)
   [ -s "$2" ] && echo "::notice title=$1::$(cut -c1-230 "$2" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"

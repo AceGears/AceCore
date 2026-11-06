@@ -207,7 +207,9 @@ class UiTourTest {
             theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, D, false, "23_plasma_dark")
             theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, L, false, "24_plasma_light")
             theme(com.acecore.app.core.datastore.ThemePreset.MIDNIGHT_BLUE, L, false, "25_midnight_light")
-            // Game details on a glass theme.
+            // Game details on a glass theme (back on "All games": the dock tests left the last category selected).
+            click("All games")
+            Thread.sleep(500)
             compose.onNode(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
             click("Game details")
             waitFor("Launch configuration")

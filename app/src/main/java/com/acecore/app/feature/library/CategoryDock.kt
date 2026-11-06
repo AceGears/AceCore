@@ -76,6 +76,7 @@ private val BUBBLE = 48.dp
 private val RISE = 22.dp // room above the bar for the bubble / wave crest / drop
 private val SLOT_MIN = 64.dp
 private val NOTCH_HALF = BUBBLE / 2 + 18.dp // half-width of the notch (and the wave crest) along the bar's top edge
+private val END_FLAT = 12.dp // straight edge kept between a shape and the bar's rounded end
 
 /**
  * Floating category dock, in four styles taken from the reference:
@@ -100,7 +101,7 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
     BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp)) {
         // Shapes on the top edge (notch, crest) must stay on its straight part, clear of the rounded ends: the first
         // and last slots are inset by (corner radius + half-width) minus half a slot when that's positive.
-        val reach = BAR_HEIGHT / 2 + NOTCH_HALF
+        val reach = BAR_HEIGHT / 2 + NOTCH_HALF + END_FLAT
         var slot = maxOf(SLOT_MIN, maxWidth / tabs.size)
         var pad = maxOf(0.dp, reach - slot / 2)
         repeat(2) { slot = maxOf(SLOT_MIN, (maxWidth - pad * 2) / tabs.size); pad = maxOf(0.dp, reach - slot / 2) }
@@ -128,7 +129,7 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
             val viewport = with(density) { maxWidth.toPx() }
             if (target - scroll.value > viewport - slotPx / 2 || target - scroll.value < slotPx / 2) scroll.animateScrollTo((target - viewport / 2).roundToInt().coerceAtLeast(0))
         }
-        val edge = with(density) { (BAR_HEIGHT / 2 + NOTCH_HALF).toPx() }
+        val edge = with(density) { (BAR_HEIGHT / 2 + NOTCH_HALF + END_FLAT).toPx() }
         val contentPx = with(density) { contentWidth.toPx() }
         fun clampX(x: Float) = x.coerceIn(edge, (contentPx - edge).coerceAtLeast(edge))
         Box(Modifier.horizontalScroll(scroll)) {
@@ -242,16 +243,21 @@ private fun DrawScope.drawWave(x: Float, fill: Color, rim: Color, color: Color, 
     }
     fillAndRim(path, fill, rim)
     // Neon trace along the crest: wide soft strokes under a bright thin one, fading out along the edge.
+    // The fading tails stay on the straight part of the top edge, never past the rounded ends.
+    val corner = (BAR_HEIGHT / 2).toPx()
+    val l = maxOf(corner, x - half * 1.6f)
+    val r = minOf(size.width - corner, x + half * 1.6f)
     val wave = Path().apply {
-        moveTo(x - half * 1.6f, top)
+        moveTo(l, top)
         lineTo(x - half, top)
         cubicTo(x - half * 0.45f, top, x - half * 0.45f, top - crest, x, top - crest)
         cubicTo(x + half * 0.45f, top - crest, x + half * 0.45f, top, x + half, top)
-        lineTo(x + half * 1.6f, top)
+        lineTo(r, top)
     }
     val fade = Brush.horizontalGradient(
-        0f to Color.Transparent, 0.25f to color, 0.75f to color, 1f to Color.Transparent,
-        startX = x - half * 1.6f, endX = x + half * 1.6f,
+        0f to Color.Transparent, ((x - half - l) / (r - l)).coerceIn(0f, 1f) to color,
+        ((x + half - l) / (r - l)).coerceIn(0f, 1f) to color, 1f to Color.Transparent,
+        startX = l, endX = r,
     )
     drawPath(wave, fade, alpha = 0.18f * (0.4f + glow), style = Stroke(9.dp.toPx(), cap = StrokeCap.Round))
     drawPath(wave, fade, alpha = 0.35f * (0.4f + glow), style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
