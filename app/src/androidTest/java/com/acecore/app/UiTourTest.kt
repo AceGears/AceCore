@@ -6,6 +6,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.os.Environment
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -110,6 +111,15 @@ class UiTourTest {
 
     // The same text can appear twice (a category tab and its banner): the first match is the one on top of the screen.
     private fun click(text: String) = compose.onAllNodes(hasText(text), useUnmergedTree = true).onFirst().performClick()
+    /** The first node matching [m] that is actually on screen (pager pages keep off-screen copies of headings and covers). */
+    private fun visible(m: androidx.compose.ui.test.SemanticsMatcher): androidx.compose.ui.test.SemanticsNodeInteraction {
+        val all = compose.onAllNodes(m, useUnmergedTree = true)
+        for (i in 0 until all.fetchSemanticsNodes().size) {
+            val n = all[i]
+            if (runCatching { n.assertIsDisplayed() }.isSuccess) return n
+        }
+        throw AssertionError("nothing on screen matches $m")
+    }
     private fun clickDesc(desc: String) = compose.onAllNodes(hasContentDescription(desc), useUnmergedTree = true).onFirst().performClick()
     private fun waitFor(text: String, ms: Long = 10_000) =
         compose.waitUntil(ms) { compose.onAllNodes(hasText(text, substring = true, ignoreCase = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
@@ -208,9 +218,9 @@ class UiTourTest {
             theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, L, false, "24_plasma_light")
             theme(com.acecore.app.core.datastore.ThemePreset.MIDNIGHT_BLUE, L, false, "25_midnight_light")
             // Game details on a glass theme (back on "All games": the dock tests left the last category selected).
-            click("All games")
+            visible(hasText("All games")).performClick()
             Thread.sleep(500)
-            compose.onNode(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
+            visible(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
             click("Game details")
             waitFor("Launch configuration")
             shot("26_midnight_light_details")
