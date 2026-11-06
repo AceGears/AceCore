@@ -141,7 +141,7 @@ import kotlinx.coroutines.launch
  * Library home: header (logo, search, layout, settings), category bar, and the cover grid.
  * Tap a cover to play; long-press for the game menu; "Select" enters multi-select for batch category changes.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onOpenGame: (Long) -> Unit,
@@ -489,7 +489,11 @@ fun HomeScreen(
                         EmptyState(CategoryIcons.of(c.icon), "No games in ${c.name} yet",
                             "Pick games from your library, add a new game here with “Add game”, or link a folder to this category.",
                             Modifier.padding(top = 24.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Wraps onto a second line on narrow screens instead of squeezing the last button to nothing.
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
                                 Button(onClick = { pickGamesFor = c }) { Icon(Icons.Rounded.Checklist, null); Spacer(Modifier.width(6.dp)); Text("Add games") }
                                 OutlinedButton(onClick = { addChooser = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Add game") }
                                 OutlinedButton(onClick = onManageCategories) { Icon(Icons.Rounded.CreateNewFolder, null); Spacer(Modifier.width(6.dp)); Text("Link folder") }

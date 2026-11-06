@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.os.Environment
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -218,6 +219,11 @@ class UiTourTest {
             theme(com.acecore.app.core.datastore.ThemePreset.PLASMA, L, false, "24_plasma_light")
             theme(com.acecore.app.core.datastore.ThemePreset.MIDNIGHT_BLUE, L, false, "25_midnight_light")
             // Game details on a glass theme (back on "All games": the dock tests left the last category selected).
+            // The pill bar has scrolled to the last category; scroll it back to the start first.
+            val bars = compose.onAllNodes(androidx.compose.ui.test.hasScrollToIndexAction() and
+                androidx.compose.ui.test.hasAnyDescendant(hasText("Visual Novels")), useUnmergedTree = true)
+            for (i in 0 until bars.fetchSemanticsNodes().size) runCatching { bars[i].performScrollToIndex(0) }
+            compose.waitForIdle()
             visible(hasText("All games")).performClick()
             Thread.sleep(500)
             visible(hasContentDescription("Pokemon Ancient Platinum", substring = true)).performTouchInput { longClick() }
