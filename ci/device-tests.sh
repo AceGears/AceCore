@@ -12,16 +12,28 @@ timeout 300 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-
 timeout 60 adb shell appops set --uid $PKG MANAGE_EXTERNAL_STORAGE allow || timeout 60 adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow
 timeout 60 adb logcat -c
 status=0
+# Between test classes: stop the app, drop the previous class's test-game copies in shared storage (each class copies
+# its own; this is the CI emulator, never a user device) and log free space - a full /data showed up as an unexplained
+# EasyRPG timeout ("Could not determine config path") in run 42345898486.
+between() {
+  timeout 60 adb shell am force-stop $PKG; timeout 30 adb shell input keyevent KEYCODE_HOME
+  timeout 60 adb shell rm -rf /sdcard/AceCoreTest
+  free=$(timeout 30 adb shell df /data | awk 'NR==2{print $4}')
+  echo "::notice title=emulator /data free before $1::${free:-?} KB"
+  [ -n "$free" ] && [ "$free" -lt 819200 ] && echo "::warning title=emulator storage::only ${free} KB free on /data before $1"
+  sleep 2
+}
+between RGSS
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
 grep -q "AssumptionViolatedException\|no RGSS native" device-results/rgss-test.txt && { echo "::error title=rgss test skipped::the RGSS natives were not loadable"; status=1; }
-timeout 60 adb shell am force-stop $PKG; timeout 30 adb shell input keyevent KEYCODE_HOME; sleep 2
+between "UI tour"
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.UiTourTest $RUNNER | tee device-results/ui-test.txt
 grep -q "^OK (" device-results/ui-test.txt || status=1
-timeout 60 adb shell am force-stop $PKG; sleep 1
+between Godot
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.GodotLaunchTest $RUNNER | tee device-results/godot-test.txt
 grep -q "^OK (" device-results/godot-test.txt || status=1
-timeout 60 adb shell am force-stop $PKG; sleep 1
+between EasyRPG
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.EasyRpgLaunchTest $RUNNER | tee device-results/easyrpg-test.txt
 grep -q "^OK (" device-results/easyrpg-test.txt || status=1
 timeout 120 adb pull /sdcard/Android/data/$PKG/files/testresults device-results/ 2>/dev/null || {
