@@ -130,11 +130,18 @@ object RgssRuntime {
         // Stale signals from a previous session must never be mistaken for this one.
         listOf("ready", "error", "exit_called", "boot", "stage", "runtime.log", "java_crash.txt", "engine_output.txt", "cmd", "result", "state", "items", "natures", "species", "screen", "input_test", "input_state", "timeline", "heartbeat", "scenes", "dpad", "walk", "walk_done", "walk_ready").forEach { File(dir, it).delete() }
         val (dw, dh) = landscapeDisplaySize(context)
-        // The engine's rbconfig.rb, when this APK has it (CI builds always do; it is absent only in local builds).
-        val rubyLib = File(dataDir, "ruby").takeIf { lib ->
-            runCatching {
-                context.assets.open(RBCONFIG_ASSET).use { input -> lib.mkdirs(); File(lib, "rbconfig.rb").outputStream().use { input.copyTo(it) } }
-            }.isSuccess
+        // The engine's rbconfig.rb. Only "not in this APK" (local builds; CI builds always have it) is an expected
+        // case; a failure to write it (disk full, permissions) is a real error and fails the launch with its own
+        // message, rather than surfacing later as a misleading "cannot load such file -- rbconfig".
+        val rubyLib: File? = try {
+            context.assets.open(RBCONFIG_ASSET)
+        } catch (_: java.io.FileNotFoundException) {
+            null
+        }?.use { input ->
+            val lib = File(dataDir, "ruby")
+            if (!lib.isDirectory && !lib.mkdirs()) throw java.io.IOException("Couldn't create ${lib.absolutePath}")
+            File(lib, "rbconfig.rb").outputStream().use { input.copyTo(it) }
+            lib
         }
         val compatBody = context.assets.open(COMPAT_ASSET).use { it.readBytes().toString(Charsets.UTF_8) }
         val compat = File(dataDir, COMPAT_FILE).apply { writeText(compatHeader(dw, dh, DisplayPrefs.file(dataDir), DisplayPrefs.from(config).fit,

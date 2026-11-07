@@ -208,9 +208,13 @@ class UiTourTest {
             for (st in listOf(com.acecore.app.core.datastore.CategoryBarStyle.WAVE, com.acecore.app.core.datastore.CategoryBarStyle.SPOTLIGHT,
                 com.acecore.app.core.datastore.CategoryBarStyle.DROP)) {
                 runBlocking { settings.updateLibrary { it.copy(categoryBar = st) } }
+                // Really switch tabs for each style (the last tab was already selected, so these used to be two shots
+                // of the same state, and the drop never ran).
+                visible(hasText("All games")).performClick()
+                Thread.sleep(900)
                 shot("20d_${st.name.lowercase()}")
-                click("Visual Novels")
-                Thread.sleep(400)
+                visible(hasText("Visual Novels")).performClick()
+                Thread.sleep(900)
                 shot("20e_${st.name.lowercase()}_last")
             }
             theme(com.acecore.app.core.datastore.ThemePreset.SANDSTONE, D, true, "21_sandstone_dark_dock")

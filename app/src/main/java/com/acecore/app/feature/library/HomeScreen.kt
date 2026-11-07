@@ -378,13 +378,15 @@ fun HomeScreen(
         bottomBar = {
             if (lib.categoryBar.isDock && games != null && games.isNotEmpty() && !inSelection) {
                 val glow = AceTheme.tokens.glow
+                val counts = lib.showCategoryCounts // "Show category counts" applies to the dock too
                 val tabs = buildList {
-                    if (showAllTab) add(DockTab("all", Icons.Rounded.Apps, "All games", glow, null, { selectCategory(LibrarySettings.ALL_GAMES) }))
+                    if (showAllTab) add(DockTab("all", Icons.Rounded.Apps, "All games", glow,
+                        if (counts) games.count { !it.hidden || lib.showHidden } else null, { selectCategory(LibrarySettings.ALL_GAMES) }))
                     visibleCategories.forEach { cw ->
                         val c = cw.category
-                        add(DockTab(c.id, CategoryIcons.of(c.icon), c.name, Color(c.color.toInt()), cw.gameCount, { selectCategory(c.id) }, { categoryActions = cw }))
+                        add(DockTab(c.id, CategoryIcons.of(c.icon), c.name, Color(c.color.toInt()), if (counts) cw.gameCount else null, { selectCategory(c.id) }, { categoryActions = cw }))
                     }
-                    if (showOtherTab) add(DockTab("other", Icons.Rounded.Apps, "Other", glow, uncategorized, { selectCategory(LibrarySettings.OTHER) }))
+                    if (showOtherTab) add(DockTab("other", Icons.Rounded.Apps, "Other", glow, if (counts) uncategorized else null, { selectCategory(LibrarySettings.OTHER) }))
                 }
                 val key: Any = when (selectedCategory) { null -> "all"; LibrarySettings.OTHER -> "other"; else -> selectedCategory }
                 CategoryDock(tabs, key, lib.categoryBar, Modifier.windowInsetsPadding(WindowInsets.navigationBars))

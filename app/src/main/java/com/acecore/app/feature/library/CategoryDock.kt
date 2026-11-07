@@ -1,5 +1,16 @@
 package com.acecore.app.feature.library
 
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.unit.LayoutDirection
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import com.acecore.app.core.designsystem.Contrast
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
@@ -71,12 +82,10 @@ internal data class DockTab(
 internal val CategoryBarStyle.isDock get() = this == CategoryBarStyle.DOCK || this == CategoryBarStyle.WAVE ||
     this == CategoryBarStyle.SPOTLIGHT || this == CategoryBarStyle.DROP
 
-private val BAR_HEIGHT = 64.dp
-private val BUBBLE = 48.dp
+private val BAR_HEIGHT = DockLayout.BAR_HEIGHT.dp
+private val BUBBLE = DockLayout.BUBBLE.dp
 private val RISE = 22.dp // room above the bar for the bubble / wave crest / drop
-private val SLOT_MIN = 64.dp
-private val NOTCH_HALF = BUBBLE / 2 + 18.dp // half-width of the notch (and the wave crest) along the bar's top edge
-private val END_FLAT = 12.dp // straight edge kept between a shape and the bar's rounded end
+private val NOTCH_HALF = DockLayout.NOTCH_HALF.dp // half-width of the notch (and the wave crest) along the bar's top edge
 
 /**
  * Floating category dock, in four styles taken from the reference:
@@ -98,21 +107,20 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
     val rim = Color.White.copy(alpha = if (t.isDark) 0.24f else 0.9f)
     val sel = tabs[index]
     val selColor = sel.color
-    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp)) {
+    // Category colours are the user's choice; on the glass they are darkened/lightened until labels and icons read
+    // (4.5:1). The shapes keep the original colour. The bubble icon is black or white, whichever reads on the colour.
+    val glassBg = glassFill.compositeOver(t.base).toArgb().toLong() and 0xFFFFFFFFL
+    fun readable(c: Color) = Color(Contrast.ensure(c.toArgb().toLong() and 0xFFFFFFFFL, glassBg, 4.5).toInt())
+    val bubbleIcon = Color(Contrast.onFill(selColor.copy(alpha = 1f).toArgb().toLong() and 0xFFFFFFFFL).toInt())
+    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) {
         // Shapes on the top edge (notch, crest) must stay on its straight part, clear of the rounded ends: the first
         // and last slots are inset by (corner radius + half-width) minus half a slot when that's positive.
-        val reach = BAR_HEIGHT / 2 + NOTCH_HALF + END_FLAT
-        // Exact solution of slot = (width - 2 pad) / n with pad = reach - slot / 2, so the content fills the width
-        // exactly (an approximation left it a few pixels wider, clipping the right end).
-        val n = tabs.size
-        var slot = maxWidth / n
-        var pad = 0.dp
-        if (reach > slot / 2) {
-            slot = if (n > 1) (maxWidth - reach * 2) / (n - 1) else maxWidth
-            pad = maxOf(0.dp, reach - slot / 2)
-        }
-        if (slot < SLOT_MIN) { slot = SLOT_MIN; pad = maxOf(0.dp, reach - slot / 2) } // too many tabs: the dock scrolls
-        val contentWidth = slot * tabs.size + pad * 2
+        // See DockLayout (unit-tested): equal slots, end slots inset so the shapes clear the rounded ends, capped and
+        // centred on wide screens, scrolling only when the tabs can't fit.
+        val lay = DockLayout.of(maxWidth.value, tabs.size)
+        val slot = lay.slot.dp
+        val pad = lay.pad.dp
+        val contentWidth = lay.contentWidth.dp
         val scroll = rememberScrollState()
         val slotPx = with(density) { slot.toPx() }
         val padPx = with(density) { pad.toPx() }
@@ -120,30 +128,36 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
         // DROP: 0 → 1 → 0 as the drop rises out of the bar and falls back.
         val drop = remember { Animatable(0f) }
         var dropAt by remember { mutableIntStateOf(index) }
-        LaunchedEffect(index, slotPx, padPx) {
+        LaunchedEffect(index, slotPx, padPx, style) {
             val target = padPx + slotPx * (index + 0.5f)
-            if (t.reduceMotion) cx.snapTo(target)
-            else if (style == CategoryBarStyle.DROP) {
-                cx.snapTo(target)
-                if (dropAt != index) {
-                    dropAt = index
-                    drop.snapTo(0f)
-                    drop.animateTo(1f, tween((260 * t.animationScale).toInt().coerceAtLeast(1), easing = FastOutSlowInEasing))
-                    drop.animateTo(0f, spring(dampingRatio = if (t.liquidMotion) 0.45f else 1f, stiffness = 260f))
+            coroutineScope {
+                // Keep the selected slot in view when the dock scrolls (alongside the slide, not after it).
+                val viewport = with(density) { lay.width.dp.toPx() }
+                if (target - scroll.value > viewport - slotPx / 2 || target - scroll.value < slotPx / 2) {
+                    val to = (target - viewport / 2).roundToInt().coerceAtLeast(0)
+                    launch { if (t.reduceMotion) scroll.scrollTo(to) else scroll.animateScrollTo(to) }
                 }
-            } else cx.animateTo(target, if (t.liquidMotion) spring(dampingRatio = 0.62f, stiffness = 320f) else spring(dampingRatio = 1f, stiffness = 900f))
-            // Keep the selected slot in view when the dock scrolls.
-            val viewport = with(density) { maxWidth.toPx() }
-            if (target - scroll.value > viewport - slotPx / 2 || target - scroll.value < slotPx / 2) scroll.animateScrollTo((target - viewport / 2).roundToInt().coerceAtLeast(0))
+                if (t.reduceMotion) { cx.snapTo(target); drop.snapTo(0f); dropAt = index }
+                else if (style == CategoryBarStyle.DROP) {
+                    cx.snapTo(target)
+                    if (dropAt != index) {
+                        dropAt = index
+                        // From wherever an interrupted drop was (no pop back to the bar on quick taps).
+                        drop.animateTo(1f, tween((260 * t.animationScale * (1f - drop.value)).toInt().coerceAtLeast(1), easing = FastOutSlowInEasing))
+                        drop.animateTo(0f, spring(dampingRatio = if (t.liquidMotion) 0.45f else 1f, stiffness = 260f))
+                    }
+                } else cx.animateTo(target, if (t.liquidMotion) spring(dampingRatio = 0.62f, stiffness = 320f) else spring(dampingRatio = 1f, stiffness = 900f))
+            }
         }
-        val edge = with(density) { (BAR_HEIGHT / 2 + NOTCH_HALF + END_FLAT).toPx() }
+        val edge = with(density) { lay.reach.dp.toPx() }
         val contentPx = with(density) { contentWidth.toPx() }
         fun clampX(x: Float) = x.coerceIn(edge, (contentPx - edge).coerceAtLeast(edge))
-        Box(Modifier.horizontalScroll(scroll)) {
+        Box(Modifier.width(lay.width.dp).horizontalScroll(scroll)) {
             Box(
                 Modifier.width(contentWidth).height(BAR_HEIGHT + RISE)
                     .drawBehind {
-                        val x = clampX(cx.value)
+                        // Tabs (Row, offset) mirror in right-to-left layouts; the drawing has to as well.
+                        val x = clampX(cx.value).let { if (layoutDirection == LayoutDirection.Rtl) size.width - it else it }
                         when (style) {
                             CategoryBarStyle.WAVE -> drawWave(x, glassFill, rim, selColor, t.glowIntensity)
                             CategoryBarStyle.SPOTLIGHT -> drawSpotlight(x, glassFill, rim, selColor, slotPx, t.glowIntensity)
@@ -159,16 +173,17 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
                             .aceGlow(selColor, t.glowIntensity, BUBBLE / 2, 12.dp)
                             .background(Brush.verticalGradient(listOf(selColor.copy(alpha = 0.95f), selColor.copy(alpha = 0.7f))), CircleShape),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(sel.icon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+                    ) { CountBadge(sel.count) { Icon(sel.icon, null, tint = bubbleIcon, modifier = Modifier.size(22.dp)) } }
                 }
-                Row(Modifier.offset(x = pad, y = RISE).height(BAR_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.offset(x = pad, y = RISE).height(BAR_HEIGHT).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == index
                         Column(
                             Modifier.width(slot).height(BAR_HEIGHT)
                                 .semantics { this.selected = selected }
                                 .combinedClickable(
-                                    role = Role.Tab, onClickLabel = tab.label, onClick = tab.onClick,
+                                    role = Role.Tab, onClick = tab.onClick,
+                                    onLongClickLabel = tab.onLongClick?.let { "Category options" },
                                     onLongClick = tab.onLongClick?.let { lc -> { haptic.performHapticFeedback(HapticFeedbackType.LongPress); lc() } },
                                 ),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -176,20 +191,22 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
                         ) {
                             // Every label sits on the same line at the bottom; in the notch style the selected icon is
                             // in the bubble, in the wave style it rides up into the crest.
-                            val iconLift = if (selected && style == CategoryBarStyle.WAVE) (-10).dp else 0.dp
-                            if (!(selected && style == CategoryBarStyle.DOCK)) Icon(
-                                tab.icon, tab.label,
-                                tint = if (selected) selColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 3.dp).offset(y = iconLift).size(22.dp)
-                                    .graphicsLayer {
-                                        // The drop carries the icon up with it.
-                                        if (selected && style == CategoryBarStyle.DROP) translationY = -drop.value * 26.dp.toPx()
-                                    },
+                            val iconLift by animateDpAsState(
+                                if (selected && style == CategoryBarStyle.WAVE) (-10).dp else 0.dp,
+                                if (t.reduceMotion) snap() else spring(dampingRatio = 0.6f, stiffness = 400f), label = "waveLift",
                             )
+                            // The label below names the tab, so the icon is decorative for TalkBack (read once).
+                            if (!(selected && style == CategoryBarStyle.DOCK)) CountBadge(tab.count, Modifier.padding(bottom = 3.dp).offset(y = iconLift)
+                                .graphicsLayer {
+                                    // The drop carries the icon up with it.
+                                    if (selected && style == CategoryBarStyle.DROP) translationY = -drop.value * 26.dp.toPx()
+                                }) {
+                                Icon(tab.icon, null, tint = if (selected) readable(selColor) else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                            }
                             Text(
                                 tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selected) selColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (selected) readable(selColor) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 4.dp).padding(bottom = if (style == CategoryBarStyle.DROP) 4.dp else 9.dp),
                             )
                             if (style == CategoryBarStyle.DROP) Box(
@@ -202,6 +219,13 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
             }
         }
     }
+}
+
+/** [content] with the category's game count as a small badge (when "Show category counts" is on). */
+@Composable
+private fun CountBadge(count: Int?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    if (count == null) Box(modifier) { content() }
+    else BadgedBox(badge = { Badge { Text(if (count > 999) "999+" else count.toString()) } }, modifier = modifier) { content() }
 }
 
 /** The bar outline with rounded ends; [topEdge] draws the top edge from the left corner to the right one. */

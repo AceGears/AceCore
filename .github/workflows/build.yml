@@ -172,6 +172,7 @@ jobs:
         working-directory: acecore
         env:
           ENGINE_PINS: MKXPZ_PORT_REPO MKXPZ_PORT_REF ANDROID_NDK_VERSION
+          ENGINE_REQUIRES: ruby/rbconfig.rb
         run: bash ci/engine-reuse.sh RGSS rgss-natives-arm64-v8a "$GITHUB_WORKSPACE/natives" "${{ inputs.natives_run_id }}" ci/patches
       - name: Check out pinned mkxp-z Android port
         if: steps.have.outputs.ok != 'true'
@@ -276,9 +277,11 @@ jobs:
           # e.g. Pokémon Rejuvenation, stopped at require "rbconfig"). Real generated file only; the build fails without it.
           # Ruby writes it to its build folder (the port does not run Ruby's install step); take the one generated for
           # the Android target.
-          RBC=$(find port/app/jni -name rbconfig.rb -exec grep -l 'CONFIG\["arch"\] = "aarch64-linux-android' {} + 2>/dev/null | head -1)
-          echo "rbconfig.rb: $RBC"
-          [ -n "$RBC" ] || { echo "::error title=rbconfig.rb::not found in the Ruby build"; exit 1; }
+          mapfile -t RBCS < <(find port/app/jni -name rbconfig.rb -exec grep -l 'CONFIG\["arch"\] = "aarch64-linux-android' {} + 2>/dev/null)
+          echo "rbconfig.rb candidates: ${RBCS[*]:-none}"
+          [ ${#RBCS[@]} -eq 1 ] || { echo "::error title=rbconfig.rb::expected exactly one Android rbconfig.rb in the Ruby build, found ${#RBCS[@]}"; exit 1; }
+          RBC=${RBCS[0]}
+          grep -q 'CONFIG\["ruby_version"\] = "3.1.0"' "$RBC" || { echo "::error title=rbconfig.rb::$RBC is not for Ruby 3.1.0"; exit 1; }
           mkdir -p natives/ruby && cp "$RBC" natives/ruby/rbconfig.rb
           grep -m3 -E 'RUBY_VERSION|CONFIG\["(arch|ruby_version)"\]' natives/ruby/rbconfig.rb || true
           # NDK 23's libc++_shared.so is 4 KB-aligned; NDK r27's is 16 KB-aligned and ABI-compatible (same __ndk1 ABI,

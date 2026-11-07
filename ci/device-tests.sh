@@ -5,12 +5,12 @@ PKG=com.acecore.app.debug
 RUNNER=$PKG.test/androidx.test.runner.AndroidJUnitRunner
 mkdir -p device-results
 # Each test is limited to 15 minutes so one hung game can't use up the job; results are still collected.
-adb shell getprop ro.product.cpu.abilist | tee device-results/abilist.txt
-adb install -r -t app/build/outputs/apk/debug/app-debug.apk
-adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+timeout 60 adb shell getprop ro.product.cpu.abilist | tee device-results/abilist.txt
+timeout 300 adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+timeout 300 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 # Direct game access (what the user grants in Settings > All files access).
-adb shell appops set --uid $PKG MANAGE_EXTERNAL_STORAGE allow || adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow
-adb logcat -c
+timeout 60 adb shell appops set --uid $PKG MANAGE_EXTERNAL_STORAGE allow || timeout 60 adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow
+timeout 60 adb logcat -c
 status=0
 timeout 900 adb shell am instrument -w -r -e class com.acecore.app.RgssDirectLaunchTest $RUNNER | tee device-results/rgss-test.txt
 grep -q "^OK (" device-results/rgss-test.txt || status=1
