@@ -173,7 +173,7 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
                             .aceGlow(selColor, t.glowIntensity, BUBBLE / 2, 12.dp)
                             .background(Brush.verticalGradient(listOf(selColor.copy(alpha = 0.95f), selColor.copy(alpha = 0.7f))), CircleShape),
                         contentAlignment = Alignment.Center,
-                    ) { CountBadge(sel.count) { Icon(sel.icon, null, tint = bubbleIcon, modifier = Modifier.size(22.dp)) } }
+                    ) { CountBadge(sel.count, readable(selColor)) { Icon(sel.icon, null, tint = bubbleIcon, modifier = Modifier.size(22.dp)) } }
                 }
                 Row(Modifier.offset(x = pad, y = RISE).height(BAR_HEIGHT).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
                     tabs.forEachIndexed { i, tab ->
@@ -196,7 +196,7 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
                                 if (t.reduceMotion) snap() else spring(dampingRatio = 0.6f, stiffness = 400f), label = "waveLift",
                             )
                             // The label below names the tab, so the icon is decorative for TalkBack (read once).
-                            if (!(selected && style == CategoryBarStyle.DOCK)) CountBadge(tab.count, Modifier.padding(bottom = 3.dp).offset(y = iconLift)
+                            if (!(selected && style == CategoryBarStyle.DOCK)) CountBadge(tab.count, if (selected) readable(selColor) else MaterialTheme.colorScheme.onSurfaceVariant, Modifier.padding(bottom = 3.dp).offset(y = iconLift)
                                 .graphicsLayer {
                                     // The drop carries the icon up with it.
                                     if (selected && style == CategoryBarStyle.DROP) translationY = -drop.value * 26.dp.toPx()
@@ -221,11 +221,21 @@ internal fun CategoryDock(tabs: List<DockTab>, selectedKey: Any, style: Category
     }
 }
 
-/** [content] with the category's game count as a small badge (when "Show category counts" is on). */
+/**
+ * [content] with the category's game count as a small badge (when "Show category counts" is on). Neutral, like the
+ * count pills of the other bar styles: Material's default red badge reads as "unread notifications".
+ */
 @Composable
-private fun CountBadge(count: Int?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun CountBadge(count: Int?, color: Color, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     if (count == null) Box(modifier) { content() }
-    else BadgedBox(badge = { Badge { Text(if (count > 999) "999+" else count.toString()) } }, modifier = modifier) { content() }
+    else BadgedBox(
+        badge = {
+            Badge(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = color) {
+                Text(if (count > 999) "999+" else count.toString(), fontWeight = FontWeight.SemiBold)
+            }
+        },
+        modifier = modifier,
+    ) { content() }
 }
 
 /** The bar outline with rounded ends; [topEdge] draws the top edge from the left corner to the right one. */
